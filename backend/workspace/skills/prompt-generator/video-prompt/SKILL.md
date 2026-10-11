@@ -66,6 +66,7 @@ description: 视频提示词规范 — 根据分镜段落内容生成按时间�
 - **🔴 角色参考板是无头的，视频提示词必须显式"补头"（2026-10-10 立）**：三个身体视图**头部被干净地移除**（只有脸部特写格有脸）——**不点脸部特写格、不声明头部，模型可能照着无头参考图生成无头角色**：
   - 每个出场角色**首次出现必须点名 `脸部特写格`** 作为面部/头部来源：`@林巧（参照脸部特写格）`
   - **必须显式声明该角色有完整头部与脸**（写进它的 `<Subject N>` 定义），例如：`<Subject 2> is the young Chinese woman in <Picture 2>, with a complete head and face as shown in the face close-up panel, ...`
+    - 🔴🔴 **"补头"只写在 `subject_definitions` 里，正文镜头里绝不再复述（2026-10-11 立，实测根因）**：`detailed_description` 里**禁止**出现 `frontally` / `face fully in frame` / `her whole face in frame` / `facing the lens` / `head and face fully visible` / `looks straight at the camera` 这类**"下令演脸"**的词。脸部完整性**声明一次就够**；正文再写一遍等于命令 H3 演脸，与旁白锁嘴句直接冲突。
   - 参考板是**四格**（从左到右：脸部特写 / 无头正面全身 / 无头90度左侧面全身 / 无头背面全身），格子名**逐字照抄**：`脸部特写格` / `正面全身格` / `90度左侧面全身格` / `背面全身格`（近景特写取脸部特写格，全身中景取正面全身格）。**禁止**造格（如"手部格"）、**禁止**一次点两格、禁止改格子名
 - **中转会按 header 自动拼官方 R2V 骨架**：`subject_definitions`（`<Subject N>` 定义"是谁"、`<Picture N>` 对应第 N 张参考图、`mod_N` 对应第 N 张身份卡——**四者同号**）、`retention_analysis: fully_preserved`、`detailed_description`，并把正文里的 `@名` 换成 `<Subject N>`——所以 **header 必须写全、顺序必须与参考图顺序一致**，否则身份声明对错图
 
@@ -210,6 +211,18 @@ non_diegetic_music:
      - **🔴 不许自己加镜头**：剧本 description 里没写的道具镜头，一个都不许补（2026-10-09 实测：146 镜头1 剧本只有掌心，LLM 自己加了报到单平铺朝镜头）。
      - **反例（全部禁用）**：`the form lying flat and fully visible facing the camera` ❌ / `settles high above them, looking down at the form lying open in her palms` ❌
      - **正例**：`the camera at a low three-quarter angle beside her hands, the printed side of the single form turned toward her and away from the lens, held at an angle, her gaze down on the paper` ✅
+     - **🔴🔴 单视角正面参考图 + "背对镜头" = H3 会选参考图（2026-10-11 实测定根因）**：道具参考图大多是**正面单视角（字朝上）**，`subject_definitions` 会从图里读到"有文字"这个特征；正文若只写 `the printed side away from the lens` 这类**单薄否定**，H3 **优先照参考图把正面画出来**（实测 sb302 Shot 2：正文写了 3 遍"背对镜头"，成片仍把印字面转向观众、还自己按了一下翻回去）。
+     - **✅ 写法：把"只见背面"提升为 `<Subject N>` 定义里的固有属性，正文写"镜头看到的是什么"（正面可观测，不用否定句）**：
+       - `subject_definitions` 里加一句：`in this video it is seen only as its blank opaque back, the printed side pressed against <Subject N>'s palm and hidden from the lens`
+       - 正文每一拍写镜头所见：`the camera sees only the blank opaque back of the form, the printed side pressed against her palm, out of view`
+       - **禁止**只靠 `never` / `away from` 这类否定当锁 —— 必须写清**镜头里实际是什么**（社区实测：可观测的正面描述比反复否定有效）
+     - **🔴 既然整片只见背面，背面透字就是致命穿帮（2026-10-11 配套立）**：`subject_definitions` 里必须**同时**写死"空白不透光的纸背"（`opaque` + `blank back` + `never showing the front's text, table lines or seal through`）；正文每一拍写"镜头所见"时，`back` 前面必须带 **`opaque`**（写 `the blank opaque back`，**不能只写 `blank`**）—— 镜头全程对着背面时，纸一透光，正面的字/表格线/印章就直接穿帮。
+
+     - **🔴🔴 要"给观众看清道具内容"时，机位必须从角色身后往前拍（过肩/背后视角）；禁止从角色正前方拍（2026-10-11 用户观察立规）**：
+       - **症状**：镜头从角色**正前方**拍手部特写 → 角色低头看纸，观众却看到**纸的正面文字** → 视角自相矛盾（角色的视线方向与观众的视线方向相反），成片就是"拿着给观众看"。
+       - **✅ 正解（本意就是让观众读道具内容）**：机位放在角色**身后/肩上** —— `over-the-shoulder, from behind her, looking down at the form in her hands`、`shot from behind her shoulder along her line of sight`。观众与角色**同一视线方向**，纸面朝角色 = 朝镜头，视角自洽，内容自然可见。
+       - **✅ 反解（本意只是角色自己看，观众不该读到内容）**：机位放**侧前方**（现有规则：`the camera at a low three-quarter angle beside her hands`），纸面朝角色、背对镜头，只见空白背面。
+       - **🔴 判断口径**：先问"这一拍观众**该不该**读到纸上的字"——**该读**用过肩/背后视角；**不该读**用侧前方视角 + 只见背面。**两种都不许用"角色正面拍、纸面朝镜头"这个组合**（视角打架）。
    - 有声音卡时加一行 `<Audio 1>`。**声音卡是音色参考；画外音没有单独的参考音源，所以旁白必须指定画面里某个角色当旁白者**（一般就是主角自己）：
      - 本段**有旁白/画外音** → `<Audio 1> is the voice-timbre reference for <Subject N>'s off-screen narration (S1); use it only as a timbre reference and do not reproduce its words.`（绑的是**该角色的旁白音色**，不是"画面里正在说话的嘴"）
      - 本段**全是在场对白、没有旁白** → `<Audio 1> is the voice-timbre reference for <Subject N> (S1).`
@@ -247,6 +260,9 @@ non_diegetic_music:
        - 🔴 **不要强制"脸不入画"** —— 官方从没这条要求，正常中景/近景都可以（用户确认："以前只有脸的也可以做到有旁白"）
      - **旁白者必须指定为画面里某个角色**（一般就是主角自己）——画外音没有独立参考音源，不指定旁白者 = 模型自己编一个声音
      - **🔴 禁用这两种写法**（都会让模型把说话动作挂到画面里的人身上，导致嘴动/双人）：① `<Subject 2> (S1) says off-screen` ② `A young woman's low restrained voice (S1) speaks off-screen`（嗓音描述式 = 没指定旁白者，2026-10-09 实测复现）
+   - **🔴🔴 旁白拍的正文里禁止"演脸"强调词（2026-10-11 立，实测根因）**：景别照正常写（`chest-up close portrait` 没问题、不必改成背影），但**禁止** `frontally` / `her face fully in frame` / `her whole face in frame` / `facing the lens` / `head and face fully visible` / `looks straight at the camera` —— 这些词与紧邻的锁嘴句**直接打架**，H3 优先演脸 → 嘴照动。
+     - **实测（2026-10-11，sb302）**：同一条提示词里 Shot 2（手部特写，只写 `mouth off-screen`）旁白正常；Shot 3 写了 `frontally` + `her face fully in frame` + `complete head and face` → **旁白被读出来、嘴照动**。
+     - **官方对照**：DomoAI / Artificial Studio 的官方旁白示例**从不描述脸**，只写 `The woman (S1) says in an off-screen voiceover: <d>...</d> while her lips remain completely closed.`；官方明确支持**人物在画面里**做旁白（Leadde：*recommends explicitly keeping an on-screen character's lips closed when that character is only narrating*）。
    - **🔴 锁嘴必须与台词同句**（不能隔动作描写）：官方示例原句 `She closes her lips`。锁嘴必须**直接贴在 `<d>` 前或后**，中间不得插入任何动作/画面描写（2026-10-09 实测：锁嘴写在拍子开头、台词在末尾，中间隔了三个动作从句 → 模型照样让嘴动）
    - **🔴🔴 镜头按正常给，不许为了防嘴改镜头（2026-10-10 用户拍板，硬规）**：
      - **画外音拍就用正常镜头** —— 中景、近景、特写、俯拍都行，**按该拍要表达的东西给**（有表情就给脸，有动作就给手，要交代环境就给全景）。**镜头跟着内容走，不跟着"防嘴"走。**
