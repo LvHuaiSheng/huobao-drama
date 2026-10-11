@@ -241,6 +241,7 @@ non_diegetic_music:
      - **🔴 新拍开头写「承接态」**（`already lifted her gaze` / 她已经抬起头）：动作当成**上一拍已完成**，只写本拍的新微动，**禁止重演**上一拍已完成的大动作。
      - **🔴 群演/背景群众必须写「差异」**：只写"宾客三三两两举杯交谈"会让模型给所有人套同一套衣服。写清颜色错开（深蓝 / 酒红 / 米白 / 浅灰）、款式/发型/年龄/高矮各异；纯衬景可虚化成剪影色块。英文范式：`the guests wear a mix of colours — deep navy, burgundy, cream and pale grey — with different hairstyles, builds and ages; no uniform crowd, no repeated identical outfits`。
      - **上述几条**在动笔时**一次写到这个标准**（不必事后再回头翻文件、逐拍提问或核对清单）—— 拍结构直接照这个来：✅ `0-7秒：全景机位先静置一秒，随后缓慢向右横移，扫过香槟塔与人群；旁白：「…」`（"先静置、再横移"写在同一条拍里）。**绝不要把同一次运镜切成两个时间段** —— 那就是假切点。
+     - **🔴 `description` 里「一个景别名 + 一个运镜」的写法（如「近景缓推」「中景缓推」「全景横移」）= 一拍**：切/起幅到那个景别，**在同一拍里完成那次运镜**。**绝不许拆成「切到近景」＋「继续推近」两拍**（这是分镜4 反复翻车的形态）。
        - ✅ `4-9秒：切到近景…随后机位以极小幅度缓慢向前推近到胸部以上近景…`（切镜与推近写在同一条拍里）
    - **🔴 台词跨切镜 → `<scenetrans>`（官方规则，我们 2026-10-10 之前从未实现）**：同一句台词/歌词跨切镜时，**切口两端都标 `<scenetrans>`**，并声明音频连续（`continues seamlessly across the cut` / `carries over from the previous shot`）。
    - **🔴 台词被视频结尾截断 → `<cutoff>`（官方）**：给被截断那句标 `<cutoff>`。
