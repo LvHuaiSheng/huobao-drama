@@ -427,26 +427,50 @@ async function generateEnByStages(
   return { text, ok: true }
 }
 
-/** 中文工作版（给人看的分镜说明，不直接发给视频模型，无长度压力） */
+/** 统计中文工作版的拍数（`X-Y秒：` 行数） */
+function countZhBeats(zh: string): number {
+  return (zh.match(/^\s*\d+\s*-\s*\d+\s*秒\s*[：:]/gm) || []).length
+}
+
+/** 中文工作版（给人看的分镜说明，不直接发给视频模型，无长度压力）
+ *  2026-10-12：**拍数必须等于 description 里【镜头N】的数量** —— 生成后由程序校验，
+ *  不符合就带着「必须 N 拍、上一版 M 拍」的明确指令重写（最多 3 次）。
+ *  起因：模型把「同机位、只是运镜延续」也当成一次换镜头，产出多一拍（成片多切一刀、闪一下）。 */
 async function generateZhPrompt(
   agent: { generate: (m: unknown, o: unknown) => Promise<unknown> },
-  sb: { id: number; storyboardNumber: number | null },
+  sb: { id: number; storyboardNumber: number | null; description?: string | null },
   videoLabel: string,
   requestContext: unknown,
 ): Promise<string> {
-  const res = (await agent.generate(
-    [
-      {
-        role: 'user',
-        content: `请为分镜 #${sb.storyboardNumber}(ID:${sb.id})生成中文工作版视频提示词(video_prompt)。视频模型:${videoLabel},请根据该模型的特性和时长限制生成。
-请先调用 read_storyboard_context 获取该分镜的画面描述(含【镜头N】子镜头与台词/旁白)、氛围及时长。
+  const expected = ((sb.description || '').match(/【镜头/g) || []).length
+  let last = ''
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const rule = expected
+      ? `\n🔴🔴 **本分镜的 description 里有 ${expected} 个【镜头N】—— 必须正好写 ${expected} 拍（一个不多、一个不少）**：` +
+        '每个【镜头N】对应一拍；镜头内部的运镜变化（继续推近／继续横移）、台词窗口、安静拍都不算新拍。' +
+        (attempt > 1
+          ? `\n上一版你写了 ${countZhBeats(last)} 拍（应为 ${expected} 拍）：请把「同机位、只是运镜延续」的相邻两拍合并成一拍（切镜与推近写在同一条拍里），不要用别的方式凑数。`
+          : '')
+      : ''
+    const res = (await agent.generate(
+      [
+        {
+          role: 'user',
+          content: `请为分镜 #${sb.storyboardNumber}(ID:${sb.id})生成中文工作版视频提示词(video_prompt)。视频模型:${videoLabel},请根据该模型的特性和时长限制生成。
+请先调用 read_storyboard_context 获取该分镜的画面描述(含【镜头N】子镜头与台词/旁白)、氛围及时长。${rule}
 这份是给人看的工作版（不直接发给视频模型，无长度限制），写法见 video-prompt 技能的中文工作版章节。
 **只输出正文**：不要输出解释、前言、结语；不要用代码块围栏；不要调用任何保存工具。`,
-      },
-    ],
-    { maxSteps: 6, requestContext },
-  )) as { text?: string } | undefined
-  return cleanSegText(res?.text || '')
+        },
+      ],
+      { maxSteps: 6, requestContext },
+    )) as { text?: string } | undefined
+    last = cleanSegText(res?.text || '')
+    if (!last) continue
+    const got = countZhBeats(last)
+    if (!expected || got === expected) return last
+    logTaskProgress('VideoPrompt', 'zh-beat-count-retry', { storyboardId: sb.id, attempt, expected, got })
+  }
+  return last
 }
 
 /** 启动批量生成（立即返回）；运行中返回 started:false,total:-1；无待生成分镜返回 started:false,total:0；

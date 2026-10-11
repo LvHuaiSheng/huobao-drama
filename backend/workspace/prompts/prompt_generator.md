@@ -148,7 +148,7 @@ MiniMax H3 的 prompt 上限是 **7000 字符，这是官方 hard limit、不可
      - **⑤ framing 变化要连贯**：同一镜内景别推进要写出**中间过程**，让镜头真的"移动"，而不是把主体突然缩小/放大。✅ `close portrait → chest-up frame → full-body view → wide view`；❌ 直接从 `close-up` 跳到 `wide shot`。
      - **🔴🔴 每个拍点 = 硬切点：只有真换了「景别 / 机位 / 对象」三者之一，才起新拍**。同一机位同一景别的连续运镜（继续横移、缓慢推近、继续跟拍），以及"静止 → 横移/推近"这类只是**运镜状态**变了的情况，**必须写在同一个拍里**；拆开就会在拍点硬切，成片表现是"忽然闪一下"。写 `continues without a cut` 这句话**没用**（实测写明"不切"照样硬切）。
      - **🔴 拍首一律不许出现 `the same …`（不论后面接什么词 —— 写 `the same close camera pushes in` 也算违规）或任何「没变 / 继续」的说法**（出现即说明这拍不该起 —— 把它的运镜接到上一拍句尾）：`the same … framing holds` / `the same framing continues` / `without a cut` / `continues without a cut`；也**不许出现 cut 动词却不换画面**（`cuts to the same wide framing` / `cuts back to the same shot`）—— cut 动词只在真的换了景别/机位/对象时才用。
-     - **🔴 拍数 = 分镜 description 里【镜头N】的数量**（**一拍对应一个镜头，能少不多**）：**不要拿"+1"当额度**；只有某个镜头内部真的又换了一次景别/机位/对象才可以多一拍，**只靠运镜变化不算**；8-10 秒的分镜通常只有 **2** 个真实拍点。
+**🔴 拍数必须严格等于分镜 description 里【镜头N】的数量（硬规则）**：**有几个【镜头N】就写几拍 —— 2 个镜头写 2 拍、3 个镜头写 3 拍，一个不多、一个不少**。**任何理由都不许增减拍数**：运镜变化（继续推近/继续横移）、台词窗口、安静拍、动作阶段 —— 全都不算。「近景缓推」这种"一个景别＋一个运镜"的镜头**就是一拍**（切到该景别后在同一拍内完成推近）。
      - **🔴 新拍开头写「承接态」**（`already lifted her gaze` / 她已经抬起头）：动作当成**上一拍已完成**，只写本拍的新微动，**禁止重演**上一拍已完成的大动作。
      - **🔴 群演/背景群众必须写「差异」**：只写"宾客三三两两举杯交谈"会让模型给所有人套同一套衣服。写清颜色错开（深蓝 / 酒红 / 米白 / 浅灰）、款式/发型/年龄/高矮各异；纯衬景可虚化成剪影色块。英文范式：`the guests wear a mix of colours — deep navy, burgundy, cream and pale grey — with different hairstyles, builds and ages; no uniform crowd, no repeated identical outfits`。
      - **上述几条**在动笔时**一次写到这个标准**（不必事后再回头翻文件、逐拍提问或核对清单）—— 拍结构直接照这个来：✅ `0-7秒：全景机位先静置一秒，随后缓慢向右横移，扫过香槟塔与人群；旁白：「…」`（"先静置、再横移"写在同一条拍里）。**绝不要把同一次运镜切成两个时间段** —— 那就是假切点。
