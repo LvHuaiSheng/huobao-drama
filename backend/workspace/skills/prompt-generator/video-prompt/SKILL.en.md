@@ -29,7 +29,7 @@ Header rules:
 - When a prop has a notable appearance, it may be appended to the header (e.g. `; Props: @Letter`)
 - The header is its own line, ending with a period, followed by the time segments
 
-Split into beats following the storyboard (beat lengths come from the 【镜头N】 timeline in the segment `description`, e.g. `0-2/2-5/5-8/8-10` seconds), each beat on its own line separated by newlines, with time ranges continuous and adjoining (no overlaps, no gaps).
+Split into beats by **real change**: each 【镜头N】 in the `description` maps to one beat (a new beat only when shot size / camera position / subject actually changes; one continuous move — hold-then-truck, or pushing in after a cut — **must stay inside a single beat**). **A 10s segment usually has only 2 beats** (e.g. `0-6` + `6-10`; **never divide evenly by the clock**). Each beat on its own line separated by newlines, time ranges continuous and adjoining (no overlaps, no gaps).
 
 ## Mapping to the Storyboard Description
 
@@ -57,7 +57,7 @@ Organize each segment's content in this order (items with no content may be omit
 - **Shot size/camera move**: one camera state per segment (close shot / medium shot / wide shot / close-up; static / push / pull / pan / tracking); the camera move is continuous within a single sub-shot and may change after a cut
 - **Action**: one main action per segment, with concrete visible verbs (walk, turn around, look up, clench, pause)
 - **All emotion must become visible description**: no abstract words like "he is very sad / the mood is tense" — write it as "he lowers his head, fingers clench the rim of the cup, breathing grows heavier"
-- **Dialogue/narration**: write "CharacterName says: "line""; narration as "Narration: content"; a long line that cannot be spoken within its beat is split across multiple beats; a segment without dialogue must still spell out "**no human voice in this segment, only … ambience**" (noting "machines keep roaring" alone is not enough — the model assumes you forgot the voices and invents speech)
+- **Dialogue/narration**: write "CharacterName says: "line""; narration as "Narration: content"; a long line that does not fit its beat must NOT split the beat — delete the whole line or shorten it (the beat count follows real changes); a segment without dialogue must still spell out "**no human voice in this segment, only … ambience**" (noting "machines keep roaring" alone is not enough — the model assumes you forgot the voices and invents speech)
 
 ## Reference Rules
 
