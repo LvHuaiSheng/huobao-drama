@@ -146,6 +146,9 @@ MiniMax H3 的 prompt 上限是 **7000 字符，这是官方 hard limit、不可
        - ✅ `The camera pushes in with small amplitude at slow speed toward the folded letter in her hands.`
        - ❌ `..., push in, small amplitude, slow speed.`
      - **⑤ framing 变化要连贯**：同一镜内景别推进要写出**中间过程**，让镜头真的"移动"，而不是把主体突然缩小/放大。✅ `close portrait → chest-up frame → full-body view → wide view`；❌ 直接从 `close-up` 跳到 `wide shot`。
+    - **🔴🔴 每个拍点 = 硬切点（2026-10-11 实测根因，必守）**：`[Shot N] At MM:SS` 每起一拍，模型就在那个时间点**硬切**；**只有真正要换景别/换机位/换对象时才起新拍**，「同一机位、同一景别的连续运镜」（继续横移、缓慢推近、继续跟拍）**必须写在同一个拍里**。**新拍开头写承接态**（`already …`），禁止重演上一拍已完成的大动作。**一条 8-10 秒的分镜通常只有 2-3 个真实拍点**。（**2026-10-12 补充：写 "continues without a cut" 这句话没用** —— 实测 sb348 的 2 秒处写着 `the same wide framing continues without a cut`，成片仍在 2 秒闪一下、并从画面右侧凭空冒出两个人。**只有两种合法解法**：① **合并成一拍**；② **把那处改写成一次真切镜**（`cuts to …` + 交代新景别/机位/对象）。**旁白/台词起句被迫落在拍点时（段首 2 秒不许有台词），不许写成"同机位继续"，要么往前并拍、要么就在那里做一次真正的切镜**）
+     - **🔴 群演/背景群众必须写「差异」，否则全场同一套衣服（2026-10-12 实测）**：只写"宾客三三两两举杯交谈、衣香鬓影"或英文 `groups of guests as flat-colour figures`，模型会给所有人套同一套（男的全黑西装、女的全同款晚礼服）。**必须写清差异**：颜色错开（深蓝 / 酒红 / 米白 / 浅灰）、款式不同、发型与年龄各异、高矮不一；纯衬景时**把群众虚化成剪影/色块**也行。英文范式：`the guests wear a mix of colours — deep navy, burgundy, cream and pale grey — with different hairstyles, builds and ages; no uniform crowd, no repeated identical outfits`。
+     - **自检**：正文只要出现"人群/宾客/路人/围观"，就问一句「我写了差异吗」—— 没写就补。
    - **🔴 台词跨切镜 → `<scenetrans>`（官方规则，我们 2026-10-10 之前从未实现）**：同一句台词/歌词跨切镜时，**切口两端都标 `<scenetrans>`**，并声明音频连续（`continues seamlessly across the cut` / `carries over from the previous shot`）。
    - **🔴 台词被视频结尾截断 → `<cutoff>`（官方）**：给被截断那句标 `<cutoff>`。
    - **🔴 说话人首次发声要给稳定声音身份（官方）**：角色第一次出声时，在 `<d>` 块**外**写清身份 —— 角色类型、年龄、性别、是否在画面内、音高、音色、语速、口音。
