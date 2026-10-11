@@ -20,7 +20,7 @@ walls ([wall material and color]);
 [key set dressing and its fixed relative positions];
 spatial structure continuous and self-consistent;
 [light sources + color temperature + brightness contrast], [mood];
-No people in the scene, empty scene, cinematic quality
+No people in the scene, empty scene
 ```
 
 ## Spatial Structure Rules

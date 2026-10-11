@@ -28,7 +28,7 @@ the four panels are equal in height, side by side and evenly spaced, shoulder li
 [age impression + gender impression + physique], [facial features], [hairstyle], [clothing + accessories];
 the collar visible at the shoulders in panel 1, its fabric colour and style, is the same garment as the top in panels 2, 3 and 4 — collar shape, colour, buttons and wear identical; jacket, inner layer, trousers and shoes identical piece by piece;
 only this one character appears on the board, panel 1 holds the single face, and panels 2, 3 and 4 are all headless;
-pure white background, soft even lighting, cinematic quality
+pure white background, soft even lighting
 ```
 
 ## Description Order Rules
@@ -56,7 +56,7 @@ Convert the character's personality traits into outward bearing and expression d
 - **Only one face is allowed on the whole board**: only panel 1 has a face; panels 2, 3 and 4 are all headless; no second person, no duplicate of the same person
 - **Faces are taken from panel 1 only**: when a video prompt references this board and the shot needs the face, name the "**face close-up panel**"; the other three panels supply build and clothing from multiple angles (headless, no hair at all)
 - Neutral pose, natural expression — so the board stays reusable as a reference
-- Soft even studio lighting; no dramatic lighting (the reference must work in any scene)
+- Soft even lighting; no dramatic lighting (the reference must work in any scene)
 - Output in the target language required by the session language directive; do not mix in unrelated wording
 
 ## Forbidden
