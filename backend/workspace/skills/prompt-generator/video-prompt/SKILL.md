@@ -217,12 +217,6 @@ non_diegetic_music:
        - 正文每一拍写镜头所见：`the camera sees only the blank opaque back of the form, the printed side pressed against her palm, out of view`
        - **禁止**只靠 `never` / `away from` 这类否定当锁 —— 必须写清**镜头里实际是什么**（社区实测：可观测的正面描述比反复否定有效）
      - **🔴 既然整片只见背面，背面透字就是致命穿帮（2026-10-11 配套立）**：`subject_definitions` 里必须**同时**写死"空白不透光的纸背"（`opaque` + `blank back` + `never showing the front's text, table lines or seal through`）；正文每一拍写"镜头所见"时，`back` 前面必须带 **`opaque`**（写 `the blank opaque back`，**不能只写 `blank`**）—— 镜头全程对着背面时，纸一透光，正面的字/表格线/印章就直接穿帮。
-
-     - **🔴🔴 要"给观众看清道具内容"时，机位必须从角色身后往前拍（过肩/背后视角）；禁止从角色正前方拍（2026-10-11 用户观察立规）**：
-       - **症状**：镜头从角色**正前方**拍手部特写 → 角色低头看纸，观众却看到**纸的正面文字** → 视角自相矛盾（角色的视线方向与观众的视线方向相反），成片就是"拿着给观众看"。
-       - **✅ 正解（本意就是让观众读道具内容）**：机位放在角色**身后/肩上** —— `over-the-shoulder, from behind her, looking down at the form in her hands`、`shot from behind her shoulder along her line of sight`。观众与角色**同一视线方向**，纸面朝角色 = 朝镜头，视角自洽，内容自然可见。
-       - **✅ 反解（本意只是角色自己看，观众不该读到内容）**：机位放**侧前方**（现有规则：`the camera at a low three-quarter angle beside her hands`），纸面朝角色、背对镜头，只见空白背面。
-       - **🔴 判断口径**：先问"这一拍观众**该不该**读到纸上的字"——**该读**用过肩/背后视角；**不该读**用侧前方视角 + 只见背面。**两种都不许用"角色正面拍、纸面朝镜头"这个组合**（视角打架）。
    - 有声音卡时加一行 `<Audio 1>`。**声音卡是音色参考；画外音没有单独的参考音源，所以旁白必须指定画面里某个角色当旁白者**（一般就是主角自己）：
      - 本段**有旁白/画外音** → `<Audio 1> is the voice-timbre reference for <Subject N>'s off-screen narration (S1); use it only as a timbre reference and do not reproduce its words.`（绑的是**该角色的旁白音色**，不是"画面里正在说话的嘴"）
      - 本段**全是在场对白、没有旁白** → `<Audio 1> is the voice-timbre reference for <Subject N> (S1).`
@@ -243,6 +237,9 @@ non_diegetic_music:
        - ✅ `The camera pushes in with small amplitude at slow speed toward the folded letter in her hands.`
        - ❌ `..., push in, small amplitude, slow speed.`
      - **⑤ framing 变化要连贯**：同一镜内景别推进要写出**中间过程**，让镜头真的"移动"，而不是把主体突然缩小/放大。✅ `close portrait → chest-up frame → full-body view → wide view`；❌ 直接从 `close-up` 跳到 `wide shot`。
+     - **🔴🔴 每个拍点 = 硬切点（2026-10-11 实测根因，必守）**：`[Shot N] At MM:SS` 每起一拍，模型就在那个时间点**硬切**。所以 **只有真正要换景别 / 换机位 / 换对象时才起新拍**；「同一机位、同一景别的连续运镜」（继续横移、缓慢推近、继续跟拍）**必须写在同一个拍里** —— 拆成两拍会在拍点硬切，成片表现就是"忽然闪一下"（实测：分镜1 与分镜2 的成片都在 7 秒闪，而两条的 7 秒拍点都只是"同机位继续"的**假切点**）
+     - **🔴 跨拍不许重复动作**：新拍开头必须写成「承接态」—— 该动作**已经完成**（`already lifted her gaze` / 她已经抬起头），本拍只写别的微动；**禁止在新拍里再演一次上一拍已完成的大动作**（实测：分镜2 的 5-7 秒已"缓缓抬起眼"，7-9 秒又抬了一次 —— 同样是拍点重置动作造成的）
+     - **自检（写完必做）**：逐拍比对相邻两拍 —— 若两拍是同一机位、同一景别、只是动作继续，就**合并成一拍**。**合并后拍数变少是正常的**：一条 8-10 秒的分镜通常只有 2-3 个真实拍点，4 个拍点往往意味着有假切点
    - **🔴 台词跨切镜 → `<scenetrans>`（官方规则，我们 2026-10-10 之前从未实现）**：同一句台词/歌词跨切镜时，**切口两端都标 `<scenetrans>`**，并声明音频连续（`continues seamlessly across the cut` / `carries over from the previous shot`）。
    - **🔴 台词被视频结尾截断 → `<cutoff>`（官方）**：给被截断那句标 `<cutoff>`。
    - **🔴 说话人首次发声要给稳定声音身份（官方）**：角色第一次出声时，在 `<d>` 块**外**写清身份 —— 角色类型、年龄、性别、是否在画面内、音高、音色、语速、口音。
