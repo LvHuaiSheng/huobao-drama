@@ -9,7 +9,8 @@ import { db, getInsertId, schema } from '../../db/index.js'
 import { eq } from 'drizzle-orm'
 import { now } from '../../utils/response.js'
 import { logTaskError, logTaskProgress, logTaskSuccess } from '../../utils/task-logger.js'
-import { PROMPT_EN_LIMIT, debugLog } from '../../services/video-prompts.js'
+import { promptEnLimit, debugLog } from '../../services/video-prompts.js'
+import { getDramaStylePrompt } from '../../services/style-preset.js'
 import { getDramaId, getEpisodeId } from '../context.js'
 import fs from 'node:fs'
 import { voiceCardName, voiceMetaPath } from '../../services/voice.js'
@@ -439,25 +440,30 @@ const updateStoryboard = createTool({
       }
     }
 
-    // 🔴 2026-10-10 长度硬闸门：video_prompt_en 超 6200 一律拒绝写入。
+    // 🔴 2026-10-10 长度硬闸门：video_prompt_en 超上限一律拒绝写入。
     // 为什么拦在这里：单条「生成提示词」按钮走 POST /agent/prompt_generator/chat（裸 Agent），
     // 不经过 services/video-prompts.ts 的分段治理 —— 实测 Agent 写到 7746 字符仍以为没问题，
-    // 拼上后端 591 字符风格头就是 8337 > H3 的 7000 上限，视频根本发不出去。
+    // 拼上后端风格头就是 8337 > H3 的 7000 上限，视频根本发不出去。
     // 工具层是唯一能覆盖所有写入路径的位置（批量接口 / 单条聊天 / 人工）。
+    // 2026-10-11：上限由写死的 6200 改成**按项目实际风格头长度动态算** —— 风格头也是发送时
+    // 拼上去的、同样占 H3 的 7000 额度，而它的长度由用户在设置页改预设决定（anime 已 768 字符，
+    // 正是 7000−6200−32 的临界值）。风格头短时结果仍是 6200（行为不变）。
     if ('video_prompt_en' in fields) {
       const en = String(fields.video_prompt_en || '')
-      if (en.trim() && en.length > PROMPT_EN_LIMIT) {
+      const styleHeadLen = (await getDramaStylePrompt(dramaId)).length
+      const limit = promptEnLimit(styleHeadLen)
+      if (en.trim() && en.length > limit) {
         logTaskError('StoryboardTool', 'video-prompt-en-too-long', {
-          episodeId, storyboardId: storyboard_id, len: en.length, limit: PROMPT_EN_LIMIT,
+          episodeId, storyboardId: storyboard_id, len: en.length, limit, style_head_len: styleHeadLen,
         })
         // 记下被拒的原文长度与前 200 字符：这是唯一能看到「Agent 到底写了多长、
         // 有没有在改善」的地方（单条按钮走裸 Agent，没有其它日志）
-        debugLog(episodeId, storyboard_id, 'gate-reject', en, { over: en.length - PROMPT_EN_LIMIT })
+        debugLog(episodeId, storyboard_id, 'gate-reject', en, { over: en.length - limit, styleHeadLen })
         return {
           error:
-            `video_prompt_en 超长，已拒绝写入：当前 ${en.length} 字符，上限 ${PROMPT_EN_LIMIT} 字符。` +
-            `MiniMax H3 的 prompt 上限是 7000 字符（官方 hard limit、不可放宽），后端发送时还会拼 591 字符风格头，` +
-            `所以正文必须 ≤ ${PROMPT_EN_LIMIT}。请按 video-prompt 技能「英文发送版」节的逐段配额压缩后重新调用本工具：` +
+            `video_prompt_en 超长，已拒绝写入：当前 ${en.length} 字符，上限 ${limit} 字符。` +
+            `MiniMax H3 的 prompt 上限是 7000 字符（官方 hard limit、不可放宽），后端发送时还会拼 ${styleHeadLen} 字符本项目风格头，` +
+            `所以正文必须 ≤ ${limit}（这个数已经扣掉了风格头）。请按 video-prompt 技能「英文发送版」节的逐段配额压缩后重新调用本工具：` +
             `subject_definitions ≤1700 / summary ≤340 / retention_analysis ≤760 / ` +
             `detailed_description ≤2500 / overall_soundscape ≤300 / non_diegetic_music ≤120（合计 5720）。` +
             `不许为了压长度而砍 <d> 台词、retention_analysis 的 fully_preserved、<Picture N> 的 with 外观。`,

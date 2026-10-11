@@ -21,6 +21,7 @@ import { eq } from 'drizzle-orm'
 import { db, schema } from '../db/index.js'
 import { mastra } from '../mastra/index.js'
 import { buildAgentRequestContext } from '../agents/context.js'
+import { getDramaStylePrompt } from './style-preset.js'
 import { STORAGE_ROOT } from '../utils/paths.js'
 import { logTaskError, logTaskProgress, logTaskStart, logTaskSuccess } from '../utils/task-logger.js'
 
@@ -37,9 +38,27 @@ export interface VideoPromptBatchStatus {
 
 const tasks = new Map<number, VideoPromptBatchStatus>()
 
-/** video_prompt_en 全文硬上限（含换行与标点），与 video-prompt 技能「英文发送版」节一致：
- *  MiniMax H3 官方 7000 字符 hard limit − 发送时拼的风格头 591 − 余量 ≈ 6200。 */
+/** video_prompt_en 的基准硬上限（含换行与标点），与 video-prompt 技能「英文发送版」节一致：
+ *  MiniMax H3 官方 7000 字符 hard limit − 发送时拼的风格头 − 余量 ≈ 6200。
+ *  ⚠️ 6200 隐含假设「风格头 ≤768 字符」；真实上限请用 promptEnLimit() 按项目算。 */
 export const PROMPT_EN_LIMIT = 6200
+/** MiniMax H3 官方 prompt hard limit：不可放宽，超了 adapters/minimax-video.ts 直接抛「提示词超长」 */
+export const H3_PROMPT_HARD_LIMIT = 7000
+/** 风格头与正文之间的拼接符「，\n」+ 安全余量（风格头是后端发送时临时拼上去的，也占 H3 的额度） */
+export const PROMPT_HEAD_RESERVE = 32
+
+/**
+ * 按项目实际的风格头长度算 video_prompt_en 的上限（2026-10-11 加）。
+ *
+ * 为什么必须动态算：7000 − 6200 − 32 = 768，即风格头一旦超过 768 字符，
+ * 「正文写满 6200」+「风格头」就会 > 7000，H3 直接拒收（anime 风格头正好 768，
+ * 已是临界值 —— 再往风格头里加一个字都会顶破）。风格头长度由用户在设置页改预设决定，
+ * 与代码无关，所以预算必须跟着它走，而不是写死。
+ *   风格头短 → 仍是 6200（行为不变）；风格头长 → 自动收紧正文预算。
+ */
+export function promptEnLimit(headLen: number): number {
+  return Math.min(PROMPT_EN_LIMIT, H3_PROMPT_HARD_LIMIT - Math.max(0, headLen) - PROMPT_HEAD_RESERVE)
+}
 /** 每一层（整体生成 / 单组重写）的重试次数上限 */
 const MAX_SEG_RETRY = 3
 
@@ -160,10 +179,20 @@ function zhEnConsistency(enText: string, zhPrompt?: string): string | null {
  *  ⚠️ 关键设计：**给"目标长度"而不是只给"上限"** —— 实测 Agent 对"≤6200"无感
  *  （写成 7746 仍以为没问题），但对"这段约 1500 字符"有明确落点，一次就能写到位。
  *  目标值取配额的 ~80%，合计约 4900，远低于硬上限，留足余量、也避免回头压缩（压缩要重跑，很慢）。 */
-function buildFullPrompt(sb: { id: number; storyboardNumber: number | null }, videoLabel: string, extra?: string, zhPrompt?: string): string {
+function buildFullPrompt(
+  sb: { id: number; storyboardNumber: number | null },
+  videoLabel: string,
+  extra?: string,
+  zhPrompt?: string,
+  limit: number = PROMPT_EN_LIMIT,
+  headLen: number = 0,
+): string {
   const targets = EN_SECTION_QUOTA
     .map(([s, q]) => `${s.replace(':', '')} 约${Math.round(q * 0.8 / 10) * 10}`)
     .join(' / ')
+  // 目标长度随实际上限等比例缩放（6200 → 4600~5600，即 ~74%~90%）
+  const tLow = Math.round(limit * 0.74 / 50) * 50
+  const tHigh = Math.round(limit * 0.9 / 50) * 50
   // 2026-10-10：中文工作版先于英文版生成，其时间轴就是本次的基准。
   // 只把「X-Y秒」那几行抽出来给英文版，避免把整份中文塞进 prompt 稀释注意力。
   const zhTimeline = zhPrompt
@@ -174,9 +203,9 @@ function buildFullPrompt(sb: { id: number; storyboardNumber: number | null }, vi
 请先调用 read_storyboard_context 获取该分镜的画面描述(含【镜头N】子镜头与台词/旁白)、氛围及时长；格式与规则见 video-prompt 技能「英文发送版」节。
 
 🔴 长度要求（**一开始就写到位，不要写完再回头压** —— 压缩必须重跑一遍，很浪费）：
-- **目标长度 4600~5600 字符**（完整提示词，含换行与标点）。
+- **目标长度 ${tLow}~${tHigh} 字符**（完整提示词，含换行与标点）。
 - 逐段目标：${targets}
-- **硬上限 6200 字符**：写入时后端会校验，超了直接拒绝并要求重写。MiniMax H3 上限 7000，发送时还要拼 591 字符风格头。
+- **硬上限 ${limit} 字符**：写入时后端会校验，超了直接拒绝并要求重写。MiniMax H3 上限 7000 字符，发送时还会在最前面拼上${headLen ? `本项目 ${headLen} 字符的风格头` : '风格头'}——这部分额度**已经从这个上限里扣掉了**，不要再想"还能多写一点"。
 - **宁可精炼**：每段只说必要的，形容词能省则省，但必须保住下面这些不许砍的内容。
 
 绝不许为了压长度而砍：<d> 台词、retention_analysis 的 fully_preserved、<Picture N> 的 with 外观。
@@ -258,16 +287,17 @@ async function generateEnByStages(
   episodeId: number,
   extra?: string,
   zhPrompt?: string,
+  budget: { limit: number; headLen: number } = { limit: PROMPT_EN_LIMIT, headLen: 0 },
 ): Promise<{ text: string; ok: boolean }> {
   // ① 整体生成**一次**（指令已要求一次写到位）。不做整体重试：
   //    实测重试产出的长度几乎一样（7823 → 7823 → 7823，纯等待），
   //    真正有效的压缩是下面「按组局部重写」——代价小得多。
   const res = (await agent.generate(
-    [{ role: 'user', content: buildFullPrompt(sb, videoLabel, extra, zhPrompt) }],
+    [{ role: 'user', content: buildFullPrompt(sb, videoLabel, extra, zhPrompt, budget.limit, budget.headLen) }],
     { maxSteps: 4, requestContext },
   )) as { text?: string } | undefined
   const full = cleanSegText(res?.text || '')
-  debugLog(episodeId, sb.id, 'full', full, { under: full.length <= PROMPT_EN_LIMIT })
+  debugLog(episodeId, sb.id, 'full', full, { under: full.length <= budget.limit })
   const parts = splitEnSections(full)
   if (!parts.size) {
     logTaskError('VideoPrompt', 'segment-give-up', { episodeId, storyboardId: sb.id, stage: 'full', error: '整体生成无有效段（切不出任何段名）' })
@@ -312,7 +342,7 @@ async function generateEnByStages(
   let text = assemble()
   debugLog(episodeId, sb.id, 'assembled', text, {
     segments: EN_SECTION_QUOTA.filter(([s]) => parts.get(s)).length,
-    under: text.length > 0 && text.length <= PROMPT_EN_LIMIT,
+    under: text.length > 0 && text.length <= budget.limit,
     failedStages: failedStages.map(f => f.key),
   })
 
@@ -354,7 +384,7 @@ async function generateEnByStages(
     }
   }
 
-  const under = text.length > 0 && text.length <= PROMPT_EN_LIMIT
+  const under = text.length > 0 && text.length <= budget.limit
   if (!text) {
     logTaskError('VideoPrompt', 'segment-give-up', { episodeId, storyboardId: sb.id, stage: 'all', error: '拼接结果为空' })
     return { text: '', ok: false }
@@ -363,7 +393,7 @@ async function generateEnByStages(
     // 全文仍超硬上限 → 真失败（超了会被 H3 拒收，不能落库）
     logTaskError('VideoPrompt', 'segment-give-up', {
       episodeId, storyboardId: sb.id, stage: 'all',
-      error: `全文 ${text.length} > ${PROMPT_EN_LIMIT}；未达标的组：${failedStages.map(f => `${f.key}(${f.problem})`).join('; ') || '无'}`,
+      error: `全文 ${text.length} > ${budget.limit}；未达标的组：${failedStages.map(f => `${f.key}(${f.problem})`).join('; ') || '无'}` + `（风格头 ${budget.headLen} 字符已计入预算）`,
     })
     return { text: '', ok: false }
   }
@@ -437,8 +467,13 @@ export async function startVideoPromptBatch(
   }
   tasks.set(episodeId, task)
 
+  // 2026-10-11：正文预算按项目实际风格头长度动态算 —— 风格头是发送时临时拼上去的，
+  // 同样占 H3 的 7000 额度（anime 的风格头 768 字符，正是 7000−6200−32 的临界值）。
+  const styleHeadLen = (await getDramaStylePrompt(dramaId)).length
+  const budget = { limit: promptEnLimit(styleHeadLen), headLen: styleHeadLen }
   logTaskStart('VideoPrompt', 'batch', {
-    episodeId, dramaId, total: pending.length, model: opts.model || undefined, prompt_en_limit: PROMPT_EN_LIMIT,
+    episodeId, dramaId, total: pending.length, model: opts.model || undefined,
+    prompt_en_limit: budget.limit, style_head_len: styleHeadLen,
   })
   ;(async () => {
     const agent = mastra.getAgent('prompt_generator')
@@ -462,16 +497,16 @@ export async function startVideoPromptBatch(
           continue
         }
         // 2) 英文版：以中文版时间轴为基准整体生成 → 逐组核定 → 中英一致性程序校验（不合格自动重写）
-        const en = await generateEnByStages(agent, sb, videoLabel, requestContext, episodeId, opts.extra, zh)
+        const en = await generateEnByStages(agent, sb, videoLabel, requestContext, episodeId, opts.extra, zh, budget)
         if (!en.ok) {
           task.failed++
           continue
         }
-        if (en.text.length > PROMPT_EN_LIMIT) {
+        if (en.text.length > budget.limit) {
           // 各组都已达标，理论上不会走到这里；留痕便于发现配额表与技能不一致
           logTaskError('VideoPrompt', 'batch-shot', {
             storyboardId: sb.id,
-            error: `各组达标但拼接后仍超 ${en.text.length} > ${PROMPT_EN_LIMIT}（请核对 EN_SECTION_QUOTA 与技能配额）`,
+            error: `各组达标但拼接后仍超 ${en.text.length} > ${budget.limit}（请核对 EN_SECTION_QUOTA 与技能配额）`,
           })
         }
         // 3) 后端落库（Agent 不落库，避免它顺手写别的字段）

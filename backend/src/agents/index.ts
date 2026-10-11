@@ -377,22 +377,30 @@ function buildInstructions(type: string) {
         ? ['prompt-generator/video-prompt']
         : ['prompt-generator/character-prompt', 'prompt-generator/scene-prompt', 'prompt-generator/prop-prompt']
     const skillInstructions = await loadAgentSkills(type, lang, onlySkills)
-    // 2026-10-11 项目画风规范注入（只给图片提示词任务）：
-    // 实测结论 —— 风格头（保存时拼在图片提示词最前方）改不动画风，头/尾/夹击都试过、无差别；
+    // 2026-10-11 项目画风规范注入（图片任务 + 视频任务都注入）：
+    // 实测结论 —— 风格头（保存/发送时拼在提示词最前方）改不动画风，头/尾/夹击都试过、无差别；
     // 只有「正文本身用该画风的介质语言写」才真的锁得住。而正文是 Agent 写的、Agent 原本看不到
     // 项目画风（read_scenes 等工具只返回资产字段），所以这里把预设里的「正文渲染语言」递给它。
+    // 视频侧同样要注入：video_prompt_en 里凡描述材质/光照的地方一样会把画面拉向照片感
+    // （H3 的画面主要由参考图决定，但提示词里的写实材质词会往外拽）。
     // 旧预设未写分隔标记 → spec 为空 → 不注入，行为与改动前完全一致。
     let styleSpecSection = ''
-    if (type === 'prompt_generator' && task !== 'video') {
+    if (type === 'prompt_generator') {
       const spec = await getDramaStyleSpec(getDramaId(requestContext))
       if (spec.head || spec.bodyRules) {
+        const target = task === 'video'
+          ? '视频提示词 video_prompt_en（六段式）里凡描述材质、反光、光照、景深的地方'
+          : '图片最终提示词的正文'
+        const langNote = task === 'video'
+          ? '（video_prompt_en 是英文，这些介质写法请用英文表达）'
+          : ''
         styleSpecSection = [
           '## 本项目画风规范（由项目设置决定；禁止改写、禁止在正文里复述风格词）',
           spec.head
             ? `- 风格头（工具已自动拼在最终提示词最前方，你**不要**再写任何风格词）：${spec.head}`
             : '',
           spec.bodyRules
-            ? `- **正文渲染语言（硬性要求）**：图片最终提示词的正文必须按下面的要求书写 —— 把写实材质/光照/反光/景深类词，**逐件陈设**替换成该画风的介质词：\n${spec.bodyRules}`
+            ? `- **正文渲染语言（硬性要求）**：${target}必须按下面的要求书写 —— 把写实材质/光照/反光/景深类词，**逐件陈设**替换成该画风的介质词${langNote}：\n${spec.bodyRules}`
             : '',
         ].filter(Boolean).join('\n')
       }
