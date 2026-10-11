@@ -13,8 +13,8 @@ const app = new Hono()
 // 道具图：白底单品静物，方形画布
 // 道具三联参考板（2026-10-09 起）是横向三格，与角色板同规格：
 // 1024x1024 方图下左格只剩约 563px 宽，主视角（保文字那格）会缩水 45%；
-// 1920x1080 横版下左格约 1056px，文字清晰度不损失。角色用 1920x1080，道具对齐。
-const PROP_IMAGE_SIZE = '1920x1080'
+// 道具图尺寸**不写死**：由 services/generation.ts 按项目画幅算（scene/prop 都跟随项目比例，
+// 参考图与视频同比例，H3 才不用裁/补。2026-10-11 用户拍板）
 
 // POST /props — 手动新增道具（传入 episode_id 时关联到该集）
 app.post('/', async (c) => {
@@ -121,7 +121,7 @@ app.post('/:id/generate-image', async (c) => {
   const prompt = finalPrompt || propImagePrompt(prop, stylePrompt)
   try {
     logTaskStart('PropImage', 'generate', { propId: id, episodeId: ep.id, dramaId: prop.dramaId })
-    const genId = await generateImage({ propId: id, dramaId: prop.dramaId, prompt, model: body.model, size: PROP_IMAGE_SIZE, configId: body.config_id ?? ep.imageConfigId ?? undefined })
+    const genId = await generateImage({ propId: id, dramaId: prop.dramaId, prompt, model: body.model, configId: body.config_id ?? ep.imageConfigId ?? undefined })
     logTaskSuccess('PropImage', 'generate', { propId: id, generationId: genId })
     return success(c, { image_generation_id: genId })
   } catch (err: any) {

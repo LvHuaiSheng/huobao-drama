@@ -103,6 +103,32 @@ export interface ChainSegmentPayload {
   config_id?: number
 }
 
+/**
+ * 参考图尺寸跟随项目画幅（2026-10-11 用户拍板）
+ *
+ * 为什么必须跟随：场景图是视频的画面锚点，比例不一致时 H3 只能裁掉两侧或补边，构图就锁不住
+ * （《保洁女王》= 9:16 竖屏，参考图却一直出 16:9）。
+ * 尺寸一律选「比例精确 + 宽高都是 32 的倍数」—— 中转的 parse_size 会把非 32 倍数向下量化
+ * （旧值 1920x1080 的 1080 被量化成 1056，16:9 实际变成 1.818）。
+ */
+export function imageSizeForAspect(ratio: string | null | undefined): string {
+  switch ((ratio || '').trim()) {
+    case '9:16': return '1152x2048'
+    case '3:4': return '1536x2048'
+    case '1:1': return '1536x1536'
+    case '4:3': return '2048x1536'
+    case '21:9': return '2016x864'
+    default: return '2048x1152' // 16:9
+  }
+}
+
+/** 读项目画幅并算参考图尺寸；查不到按 16:9 */
+async function imageSizeForDrama(dramaId?: number | null): Promise<string> {
+  if (!dramaId) return imageSizeForAspect(null)
+  const [d] = await db.select().from(schema.dramas).where(eq(schema.dramas.id, dramaId))
+  return imageSizeForAspect(d?.aspectRatio)
+}
+
 export async function generateImage(params: GenerateImageParams): Promise<number> {
   // 指定配置（集锁定）可能已停用/删除/厂商收敛，失效时回退到当前启用配置，避免生成被旧引用卡死
   const config = params.configId
@@ -119,7 +145,7 @@ export async function generateImage(params: GenerateImageParams): Promise<number
     prompt: params.prompt,
     model: params.model || config.model,
   }, {
-    size: params.size || '1920x1080',
+    size: params.size || (await imageSizeForDrama(params.dramaId)),
     frameType: params.frameType,
     referenceImages: params.referenceImages,
   })

@@ -61,6 +61,8 @@ export function promptEnLimit(headLen: number): number {
 }
 /** 每一层（整体生成 / 单组重写）的重试次数上限 */
 const MAX_SEG_RETRY = 3
+/** 「整体生成」的重试次数上限（2026-10-11 加）：模型偶尔只回一句开场白、不输出任何段名 */
+const MAX_FULL_RETRY = 3
 
 /** 段名 → 字符配额（顺序即文档顺序） */
 const EN_SECTION_QUOTA: Array<[string, number]> = [
@@ -289,18 +291,34 @@ async function generateEnByStages(
   zhPrompt?: string,
   budget: { limit: number; headLen: number } = { limit: PROMPT_EN_LIMIT, headLen: 0 },
 ): Promise<{ text: string; ok: boolean }> {
-  // ① 整体生成**一次**（指令已要求一次写到位）。不做整体重试：
-  //    实测重试产出的长度几乎一样（7823 → 7823 → 7823，纯等待），
-  //    真正有效的压缩是下面「按组局部重写」——代价小得多。
-  const res = (await agent.generate(
-    [{ role: 'user', content: buildFullPrompt(sb, videoLabel, extra, zhPrompt, budget.limit, budget.headLen) }],
-    { maxSteps: 4, requestContext },
-  )) as { text?: string } | undefined
-  const full = cleanSegText(res?.text || '')
-  debugLog(episodeId, sb.id, 'full', full, { under: full.length <= budget.limit })
-  const parts = splitEnSections(full)
+  // ① 整体生成：**空转可重试**（2026-10-11 加）。
+  //    原注释说「不做整体重试」——那条经验只对"写得不够短要压缩"成立（重试长度几乎一样，
+  //    真正有效的是下面「按组局部重写」）。但实测（sb339）模型会只回一句开场白
+  //    （"I'll read the storyboard context first."，39 字符、无任何段名）然后结束，
+  //    此时整单直接判失败 —— 这类"整段空转"必须重试，否则一集十几条分镜全靠碰运气。
+  let full = ''
+  let parts = new Map<string, string>()
+  for (let attempt = 1; attempt <= MAX_FULL_RETRY; attempt++) {
+    const res = (await agent.generate(
+      [{ role: 'user', content: buildFullPrompt(sb, videoLabel, extra, zhPrompt, budget.limit, budget.headLen) }],
+      { maxSteps: 4, requestContext },
+    )) as { text?: string } | undefined
+    full = cleanSegText(res?.text || '')
+    parts = splitEnSections(full)
+    debugLog(episodeId, sb.id, attempt === 1 ? 'full' : `full-retry-${attempt}`, full, {
+      under: full.length <= budget.limit,
+      sections: parts.size,
+    })
+    if (parts.size) break
+    logTaskProgress('VideoPrompt', 'full-retry', {
+      episodeId, storyboardId: sb.id, attempt, len: full.length, head: full.slice(0, 60),
+    })
+  }
   if (!parts.size) {
-    logTaskError('VideoPrompt', 'segment-give-up', { episodeId, storyboardId: sb.id, stage: 'full', error: '整体生成无有效段（切不出任何段名）' })
+    logTaskError('VideoPrompt', 'segment-give-up', {
+      episodeId, storyboardId: sb.id, stage: 'full',
+      error: `整体生成 ${MAX_FULL_RETRY} 次都没切出任何段名（最后一次 ${full.length} 字符）`,
+    })
     return { text: '', ok: false }
   }
 

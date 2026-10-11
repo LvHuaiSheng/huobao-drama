@@ -12,7 +12,10 @@ import { removeVoice } from '../services/voice.js'
 import { logTaskError, logTaskStart, logTaskSuccess } from '../utils/task-logger.js'
 
 const app = new Hono()
-const CHARACTER_IMAGE_SIZE = '1920x1080'
+// 角色参考板**固定横版**（一帧四格横排），不跟随项目画幅 —— 它只提供身份、不参与画面构图，
+// 竖版会把四格挤窄、五官与文字反而看不清。2048x1152 = 精确 16:9 且宽高都被 32 整除
+// （旧值 1920x1080 的 1080 会被中转量化成 1056，比例变成 1.818）。
+const CHARACTER_IMAGE_SIZE = '2048x1152'
 
 // POST /characters — 手动新增角色（传入 episode_id 时关联到该集）
 app.post('/', async (c) => {
