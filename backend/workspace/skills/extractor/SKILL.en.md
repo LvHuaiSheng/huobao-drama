@@ -24,7 +24,7 @@ Extracted scene fields (corresponding one-to-one with the `save_dedup_scenes` to
 
 ## Prop Extraction Rules
 
-**Core principle: prefer extracting too few over too many.** Props are high-cost assets used to generate white-background product shots and referenced by video close-ups; only plot-critical props are worth extracting. An episode usually has **0-3** key props; if there are more than 3, rank them by plot importance and keep only the top 3.
+**Core principle: prefer extracting too few over too many.** Props are high-cost assets used to generate white-background item shots and referenced by video close-ups; only plot-critical props are worth extracting. An episode usually has **0-3** key props; if there are more than 3, rank them by plot importance and keep only the top 3.
 
 Both of the following conditions must be met — neither is optional:
 1. **Directly drives the plot**: the item's appearance, handover, damage, or discovery triggers a plot turn (e.g. a murder weapon, a token, a key document, a love-token gift, key evidence).

@@ -73,7 +73,7 @@ Dialogue that does not fit must be moved to the next segment; cramming unperform
 - When a prop is used by a character, handed over, shown in close-up, or clearly visible in frame and meaningful to the narrative, it must be bound to that segment
 - Prop close-up segments (without characters) should also bind the prop; `character_ids` may be empty
 - Do not bind background items or set dressing irrelevant to the plot; segments with no props pass an empty array
-- Bound props serve as reference images for video generation (white-background product shots), keeping the prop's appearance consistent across segments
+- Bound props serve as reference images for video generation (white-background item shots), keeping the prop's appearance consistent across segments
 
 ## Styling and Appearance Freeze (identical across segments)
 
