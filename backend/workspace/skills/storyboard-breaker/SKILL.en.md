@@ -58,6 +58,8 @@ Dialogue that does not fit must be moved to the next segment; cramming unperform
 
 ## Scene Binding Rules
 
+- 🔴 **The script's heading line wins (highest priority)**: each rewritten paragraph is preceded by a heading `## Sxx | INT/EXT · <scene name> | <time>` — **whatever scene name the heading gives is this segment's scene**; match it by [location + time] against the returned `scenes` and fill in that `scene_id` (heading says "banquet hall" → bind the banquet hall, **never rebind to "banquet-hall corridor"**)
+- 🔴 **Never decide the binding from "whose props/set dressing match" or "which scene most segments use"** (2026-10-11 real case: S01's heading says "banquet hall", but because a sub-shot had "squatting and wiping the floor + rag", it got bound to the corridor scene whose props matched → the hall establishing shot landed in a corridor scene and both the video prompt and the reference image were wrong. Once the script heading fixes the scene, no "looks like a better match" guess is admissible)
 - Prefer the `scenes` returned by `read_storyboard_context`
 - When `location + time` can be clearly matched, the correct `scene_id` must be filled in
 - Do not fabricate scene IDs that do not exist
