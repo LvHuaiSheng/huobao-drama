@@ -12,6 +12,9 @@ One storyboard = one **storyboard segment** = one video-generation task.
 - Each segment is **8-15 seconds** long and internally carries **2-4 sub-shots**
 - Cuts between sub-shots **are allowed**: change shot size, angle, or subject, joined with hard cuts
 - Sub-shots **never cross scenes**: a segment takes place in a single scene (`scene_id` is a segment-level binding)
+- **A change of place forces a split**: even two spaces in the same building (main hall ↔ corridor, indoors ↔ outside the door, foyer ↔ private room) are two scenes → **they must be two separate segments**, never crammed into one
+- **`scene_id` follows "where the action happens"**, never "which scene's props happen to match" (2026-10-11 real case: segment 1's sub-shot 1 is a "full view of the banquet hall" and sub-shot 2 is "squatting in the corridor wiping the floor"; sub-shot 2's rag matched the "banquet-hall corridor" scene → the whole segment got bound to the corridor, so the hall establishing shot landed inside a corridor scene and both the video prompt and the reference image were wrong)
+- 🔴 **Mandatory pre-save self-check**: read out every sub-shot's location one by one and ask "which `scene_id` space does this fall in?" — **if any sub-shot's location does not match the chosen `scene_id`, the segment must be split**, and only then call `save_storyboards`
 - Each sub-shot is 2-6 seconds, focused on one visual unit (one action, one reaction, one close-up)
 
 ## Breakdown Process (Four Steps)
