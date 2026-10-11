@@ -18,11 +18,11 @@ The **first line of the `video_prompt` is the header**: first introduce which ch
 
 ```
 Characters: @Xiaoming, @Xiaohong; Scene: @Coffee Shop.
-0-2s: @Coffee Shop, medium shot, static camera; @Xiaoming looks down at his phone, fingers repeatedly tapping the table, expression anxious; no human voice in this segment, only the hiss of the coffee machine.
-2-5s: The camera cuts to a wide shot of the doorway; the doorbell rings as @Xiaohong pushes the door open and walks in, bringing in a gust of cold air.
-5-8s: The camera cuts back to a medium close-up; @Xiaohong walks over with a smile and sits down across from Xiaoming.
-8-10s: @Xiaohong sits down; Xiaoming says: "You finally made it."
+0-6s: @Coffee Shop, medium shot, @Xiaoming looking down at his phone, tapping the table — the camera then trucks right slowly across the table and reveals the door; no human voice in this segment, only the hiss of the coffee machine.
+6-10s: The camera cuts to a wide shot of the doorway; the doorbell rings, @Xiaohong pushes the door open and brings in a cold draught, then walks over and sits down by @Xiaoming; @Xiaoming says: "You finally came."
 ```
+
+**⚠️ Beat count follows real changes, not the clock (measured 2026-10-12)**: a 10-second segment **usually has only 2 beats** — in the 0-6s beat above, "static camera → slow truck" is **one continuous move and must live in ONE beat** (splitting it into `0-2` + `2-6` hard-cuts at the marker and flashes on screen). **Only start a new beat when shot size / camera position / subject actually changes.**
 
 Header rules:
 - Only list the characters who actually appear in this storyboard segment and the bound scene — do not list those who do not appear
@@ -53,6 +53,8 @@ Organize each segment's content in this order (items with no content may be omit
 - **🔴 Open a new beat in the carry-over state** (`already lifted her gaze`): treat the action as **already finished** in the previous beat, write only this beat's new micro-motion, and **never replay** a major action already completed.
 - **🔴 Crowd/extras MUST carry explicit variety**: "guests chatting in small groups" makes the model dress everyone identically. Stagger colours (deep navy, burgundy, cream, pale grey), cuts, hairstyles, builds and ages; reduce a pure background crowd to silhouettes / flat colour blocks. Reference phrasing: `the guests wear a mix of colours — deep navy, burgundy, cream and pale grey — with different hairstyles, builds and ages; no uniform crowd, no repeated identical outfits`.
 - **Write all of the above to this standard in one pass** (no going back to re-read files, question each beat, or tick off checklists): ❌ `0-4s: wide, static camera…` + `4-7s: the same wide, the camera trucks right…` (same shot size, the camera merely started moving → a visible cut at 4s); ✅ `0-7s: the wide shot holds static for a moment, then trucks right at slow small amplitude past the champagne tower and the crowd; narration: "…"` (hold-then-truck written inside ONE beat).
+  - ❌ `4-7s: the camera cuts to a close shot…` + `7-9s: the same close camera pushes in slowly to a chest-up portrait…` (same position, only a push changes the shot size → a hitch at 7s)
+  - ✅ `4-9s: the camera cuts to a close shot… then pushes in slowly to a chest-up portrait…` (the cut and the push live in ONE beat)
 - **Shot size/camera move**: one camera state per segment (close shot / medium shot / wide shot / close-up; static / push / pull / pan / tracking); the camera move is continuous within a single sub-shot and may change after a cut
 - **Action**: one main action per segment, with concrete visible verbs (walk, turn around, look up, clench, pause)
 - **All emotion must become visible description**: no abstract words like "he is very sad / the mood is tense" — write it as "he lowers his head, fingers clench the rim of the cup, breathing grows heavier"
@@ -118,10 +120,8 @@ After writing the body, **walk through it one beat (one time range) at a time** 
 **Measured failure (do not repeat)**:
 
 ```
-0-3s: …hand close-up… Narration: "these hands came back with me."
-3-6s: …no human voice in this segment, only distant wind and workshop hum…
-6-9s: cut to a medium shot, …clenches a fist…   ← no audio declaration at all → the model improvised speech here (bleeding into the next beat)
-9-10s: …no human voice in this segment, only footsteps…
+0-5s: …hand close-up… Narration: "These hands came back with me."
+5-10s: cut to a medium shot, …clencing her fist…      ← this beat carries NO sound declaration → the model invents speech here (and spills into the next beat)
 ```
 
 **Fix (updated 2026-10-12)**: the narration **may sit at the beat's start** (no need to push it past 2s); what matters is that **every beat declares its audio** — silent beats say "no human voice in this segment, only … ambience", speaking beats name the speaker.
