@@ -147,7 +147,7 @@ MiniMax H3 的 prompt 上限是 **7000 字符，这是官方 hard limit、不可
        - ❌ `..., push in, small amplitude, slow speed.`
      - **⑤ framing 变化要连贯**：同一镜内景别推进要写出**中间过程**，让镜头真的"移动"，而不是把主体突然缩小/放大。✅ `close portrait → chest-up frame → full-body view → wide view`；❌ 直接从 `close-up` 跳到 `wide shot`。
      - **🔴🔴 每个拍点 = 硬切点：只有真换了「景别 / 机位 / 对象」三者之一，才起新拍**。同一机位同一景别的连续运镜（继续横移、缓慢推近、继续跟拍），以及"静止 → 横移/推近"这类只是**运镜状态**变了的情况，**必须写在同一个拍里**；拆开就会在拍点硬切，成片表现是"忽然闪一下"。写 `continues without a cut` 这句话**没用**（实测写明"不切"照样硬切）。
-     - **🔴 拍首一律不许出现这些写法**（出现即说明这拍不该起 —— 把它的运镜接到上一拍句尾）：`the same … framing holds` / `the same framing continues` / `without a cut` / `continues without a cut`；也**不许出现 cut 动词却不换画面**（`cuts to the same wide framing` / `cuts back to the same shot`）—— cut 动词只在真的换了景别/机位/对象时才用。
+     - **🔴 拍首一律不许出现 `the same …`（不论后面接什么词 —— 写 `the same close camera pushes in` 也算违规）或任何「没变 / 继续」的说法**（出现即说明这拍不该起 —— 把它的运镜接到上一拍句尾）：`the same … framing holds` / `the same framing continues` / `without a cut` / `continues without a cut`；也**不许出现 cut 动词却不换画面**（`cuts to the same wide framing` / `cuts back to the same shot`）—— cut 动词只在真的换了景别/机位/对象时才用。
      - **🔴 拍数上限 = 分镜 description 里【镜头N】的数量 + 1**（**能少不多**）：一条 8-10 秒的分镜通常只有 **2-3** 个真实拍点；旁白/台词的起句点**不是**起新拍的理由（写在当前拍首即可）。
      - **🔴 新拍开头写「承接态」**（`already lifted her gaze` / 她已经抬起头）：动作当成**上一拍已完成**，只写本拍的新微动，**禁止重演**上一拍已完成的大动作。
      - **🔴 群演/背景群众必须写「差异」**：只写"宾客三三两两举杯交谈"会让模型给所有人套同一套衣服。写清颜色错开（深蓝 / 酒红 / 米白 / 浅灰）、款式/发型/年龄/高矮各异；纯衬景可虚化成剪影色块。英文范式：`the guests wear a mix of colours — deep navy, burgundy, cream and pale grey — with different hairstyles, builds and ages; no uniform crowd, no repeated identical outfits`。
@@ -178,6 +178,7 @@ MiniMax H3 的 prompt 上限是 **7000 字符，这是官方 hard limit、不可
      - **防嘴只靠两件事，不靠镜头**：① 固定短语 `says in an off-screen voiceover` ② 紧跟 `<d>` 的锁嘴句 `while her lips remain completely closed`。这两样写对，**脸在画面里也不动嘴**（用户确认："以前只有脸的也可以做到有旁白"）。
      - **镜头以 `description` 的【镜头N】为准**：分镜拆解阶段已经定了每一拍拍什么，提示词**照它写** —— 它说"垂眼看纸"就写垂眼看纸，**不许自作主张换成背影**。
    - **🔴 台词只许整句删，不许截断或改写（2026-10-09 实测）**：`「这个日子我认得。前世我进厂也是这天，撞见了张建国。」` 被写成 `「这个日子我认得。」` + `「前世我进厂也是这天。」`，**「撞见了张建国」整个剧情爆点被悄悄吞掉**。正确做法：一句里塞不下就**整句删掉**，绝不允许把一句话砍一半或拆成两句改写；删句必须在**中文工作版**里显式标注（如 `（本段未采用：撞见了张建国。——原因：10秒装不下）`），让用户看得见删了什么，删错了才好用**补充说明**指回来
+     - **🔴 写作说明/注释里不要用「」引用台词（2026-10-12 实测：白跑 2 轮修复）**：后端按「旁白/画外音/说 + …「」」数中文台词条数，再与英文 `<d>` 条数比对 —— 说明里把台词抄一遍会被数成"多一句"，触发「中英台词条数不一致」假警报、白跑两轮修复（还挤占生成步数）。**要提台词就写文字、不加「」引号**（或写"第 1 句"）。
    - 画面内可见文字保留中文原文（如招牌、纸面文字）
    - 生成类任务正文 **350–500 英文词**；台词密集时以"完整说完"优先，不要为凑词数硬灌
 5. **`overall_soundscape`**：整段环境音与物理声（英文）。**没有台词/旁白的镜头必须在此写死无人声**，官方口径：安静镜头冒出没要求的人声 → 把音频字段写明再重跑。写 `(No human voice in this segment except the dialogue lines explicitly written below; no narration, no humming, no singing.)`
