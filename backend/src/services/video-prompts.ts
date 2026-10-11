@@ -296,12 +296,14 @@ async function generateEnByStages(
   //    真正有效的是下面「按组局部重写」）。但实测（sb339）模型会只回一句开场白
   //    （"I'll read the storyboard context first."，39 字符、无任何段名）然后结束，
   //    此时整单直接判失败 —— 这类"整段空转"必须重试，否则一集十几条分镜全靠碰运气。
+  //    maxSteps 4 → 6（2026-10-12）：4 步是零余量（read_storyboard_context + 写正文 = 2 步），
+  //    模板里任何"自检/去查/去数"类指令都会让 agent 多走一步、烧光步数后返回空文本。
   let full = ''
   let parts = new Map<string, string>()
   for (let attempt = 1; attempt <= MAX_FULL_RETRY; attempt++) {
     const res = (await agent.generate(
       [{ role: 'user', content: buildFullPrompt(sb, videoLabel, extra, zhPrompt, budget.limit, budget.headLen) }],
-      { maxSteps: 4, requestContext },
+      { maxSteps: 6, requestContext },
     )) as { text?: string } | undefined
     full = cleanSegText(res?.text || '')
     parts = splitEnSections(full)
@@ -333,7 +335,7 @@ async function generateEnByStages(
       })
       const res = (await agent.generate(
         [{ role: 'user', content: buildRewritePrompt(sb, stage, cur, problem, attempt + 1, extra, zhPrompt) }],
-        { maxSteps: 4, requestContext },
+        { maxSteps: 6, requestContext },
       )) as { text?: string } | undefined
       const raw = cleanSegText(res?.text || '')
       debugLog(episodeId, sb.id, `rewrite-${stage.key}-${attempt + 1}`, raw, { under: raw.length <= stage.limit })
@@ -383,7 +385,7 @@ async function generateEnByStages(
         const cur = extractSections(text, st.segs) || ''
         const res2 = (await agent.generate(
           [{ role: 'user', content: buildRewritePrompt(sb, st, cur, problem, attempt + 1, extra, zhPrompt) }],
-          { maxSteps: 4, requestContext },
+          { maxSteps: 6, requestContext },
         )) as { text?: string } | undefined
         const raw = cleanSegText(res2?.text || '')
         debugLog(episodeId, sb.id, `fix-zhen-${attempt + 1}-${st.key}`, raw, { problem })
@@ -442,7 +444,7 @@ async function generateZhPrompt(
 **只输出正文**：不要输出解释、前言、结语；不要用代码块围栏；不要调用任何保存工具。`,
       },
     ],
-    { maxSteps: 4, requestContext },
+    { maxSteps: 6, requestContext },
   )) as { text?: string } | undefined
   return cleanSegText(res?.text || '')
 }
