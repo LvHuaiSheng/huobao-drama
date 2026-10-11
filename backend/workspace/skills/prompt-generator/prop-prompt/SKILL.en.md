@@ -1,15 +1,15 @@
 ---
 name: prop-prompt
-description: Final prop prompt specification — SINGLE PRODUCT SHOT (primary view, text filling the frame and clearly legible), white-background item: accurate proportions, complete edges, background carries no narrative
+description: Final prop prompt specification — SINGLE PROP SHOT (primary view, text filling the frame and clearly legible), white-background item: accurate proportions, complete edges, background carries no narrative
 ---
 
-# Final Prop Prompt (single product shot · white-background item)
+# Final Prop Prompt (single prop shot · white-background item)
 
-What is generated is a **single-view product shot** — **not a three-view sheet, not a multi-angle collage**:
+What is generated is a **single-view prop shot** — **not a three-view sheet, not a multi-angle collage**:
 
 | Item | Content | What it fixes |
 |---|---|---|
-| **Viewpoint** | **flat props** (paper, documents, photos) = **top-down flat lay, filling the frame**; **3D props** = **slightly high-angle 3/4 front** | the only high-resolution source of **text and proportions**; the text fills the frame |
+| **Viewpoint** | **flat props** (paper, documents, photos) = **top-down flat lay, filling the frame**; **props with thickness** = **slightly high-angle 3/4 front** | the only high-resolution source of **text and proportions**; the text fills the frame |
 | **Background** | pure white backing, no sense of place, no plot hints, no decoration | background carries no narrative |
 | **Subject** | **only this one prop in frame** | prevents contamination |
 
@@ -32,17 +32,17 @@ Four hard requirements:
 ## Output Structure (assemble in this order, following the session language directive)
 
 ```
-Single-item product shot, pure white background, no borders, no labels, no arrows,
+Single-item prop shot, pure white background, no borders, no labels, no arrows,
 no numbers, no extra text anywhere in the frame:
 [viewpoint: flat props → "top-down flat lay, filling the frame";
- 3D props → "slightly high-angle 3/4 front"],
+ props with thickness → "slightly high-angle 3/4 front"],
 [prop name + material/color/shape/size + degree of wear and damage details],
 [text if any: spelled out verbatim per the In-frame Text rule],
 accurate proportions of all parts, isolated on a pure white background,
 centered and fully in frame, edges complete with no cropping;
 the text, table lines and seal on the prop fill the frame, sharp and crisp,
 with every stroke legible (this is the image's number-one goal);
-soft even studio light, faint shadows, high detail
+soft even light, faint shadows
 ```
 
 ## In-frame Text (Hard Rule)
@@ -65,9 +65,10 @@ soft even studio light, faint shadows, high detail
 - Build around the prop's `name` and `description` (physical appearance): material, color, shape, size, degree of wear, signs of damage, and other physical details must be **carried through item by item** — they are the source of the prop's recognizability
 - **Within the single frame** the item is centered and complete, with margins on all sides, accurate proportions, complete edges — do not crop the prop's body
 - **Text / patterns fill the frame, sharp and crisp**: this is the primary reason the prop image exists (the video side copies from it)
-- Soft even studio light, faint shadows, high detail
+- Soft even light, faint shadows
 - Describe only the item itself; do not mention plot, characters, or usage (neither the background nor the frame carries narrative content)
-- Do not mix unrelated words into the output; **do not** use "cinematic quality"-type words (a prop image is a product shot, not a film still)
+- **Viewpoint, materials and light follow the "Project style spec"** (when that section is present in this round's instructions): genre words, material words and lighting words are all rewritten per that spec — **the spec outranks the example wording in this file**, which is only the default.
+- Do not mix unrelated words into the output; **do not** use "cinematic quality"-type words (a prop image is a prop design sheet, not a film still)
 
 ## Prohibitions
 
