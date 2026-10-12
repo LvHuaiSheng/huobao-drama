@@ -159,7 +159,6 @@ From segment 2 on, the **runner automatically prepends the airlock head** (hold 
 
 Call `update_storyboard` to update only this storyboard segment's `video_prompt` field; do not modify any other field, and do not re-breakdown the whole episode.
 
-<!--stage:en-->
 ## English send version (official H3 Ref2VA six sections) — established 2026-10-09 (the self-added leading CAST/BLOCKING was dropped 2026-10-10)
 
 `video_prompt_en` is **the version actually sent to the video model**. Its rules come from the official MiniMax H3 prompt-writing guide (Ref2VA full-reference rewrite output format). **Everything is English except dialogue, lyrics, and text visible in frame.**
@@ -297,4 +296,3 @@ non_diegetic_music:
 - **⑫ Fast motion gets smeared and slowed** (author, measured: quick hand gestures / fight flurries / fast dance steps get flattened because the reference is compressed into a few latent frames) — storyboards should **avoid high-speed action**; if the `description` really contains fast motion, **describe that motion in words** to give the model an anchor.
 
 **Self-check before saving**: official six section names present and in order / **prop surface text content absent** (only `the printed side` / carrier + action phrasing appears — **no** quoted paper text anywhere) / every `subject_definitions` line has `<Picture N>` plus a `with` clause / `retention_analysis` contains no `(Sx)` / all dialogue copied **as whole sentences** verbatim from the description (no truncation, no rewording; dropped sentences marked) / narrator designated as one of the on-screen characters and the voice card written as `<Subject N>'s off-screen narration` / lip lock sitting immediately next to the `<d>` line (not separated by action) / `Same exposure...` appears once in the style sentence only (not repeated per shot) / body is English except `<d>` and on-screen text
-<!--/stage:en-->
