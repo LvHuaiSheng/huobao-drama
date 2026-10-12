@@ -48,46 +48,33 @@ model: ""
 - **点名格子只能从四格名里选一个并逐字照抄**：`脸部特写格` / `正面全身格` / `90度左侧面全身格` / `背面全身格`（三视图一律无头：用"头部被干净地移除"这个措辞，**不得**写"无头/颈部裁切/画面外/人台"）——禁止造格（如"手部格"）、禁止一次点两格、禁止改格子名
   - **🔴 必须声明角色有完整头部（2026-10-10 立）**：角色参考板是**无头**的（三个身体视图头部被干净地移除，只有脸部特写格有脸），所以**只写 `<Subject N> is … in <Picture N>` 不够**——必须在定义里**显式声明该角色有完整头部与脸**（如 `with a complete head and face as shown in the face close-up panel`），否则模型可能照着无头参考图生成**无头角色**。**这声声明只写进 `subject_definitions`，`detailed_description` 里绝不再复述（2026-10-11 立，实测根因）**：正文**禁止**出现 `frontally` / `face fully in frame` / `her whole face in frame` / `facing the lens` / `head and face fully visible` / `looks straight at the camera` 这类**"下令演脸"**的词 —— 与旁白锁嘴句直接冲突（实测 sb302：Shot 3 写了 `frontally` + `her face fully in frame` → 旁白被读出来、嘴照动）
 - **安静处必须写死"无任何人声"**：任何没有台词/旁白的节拍，必须明确写"**本段无任何人声，只有……环境音**"，否则 H3 会在安静镜头里**自己脑补说话声**（官方指南原话：安静的镜头若冒出你没要求的人声，就把音频字段写明再重跑）。凡有台词的节拍，说话人必须写明（`旁白：` / `X说：`）。**逐拍过，不是整段过**——每一拍各自都要有声明（2026-10-08 实测翻车：6-9 秒那拍漏写 → 成片在那里乱说话并溢到下一拍；逐拍自检清单见 video-prompt 技能「提交前自检」）
-- **台词位置**：**台词写在拍首即可**（`旁白：「…」`）；**头尾不留空窗、也不许为「某拍没台词」另起一拍**（独立对照已验证：上一段说到片尾、下一段 0 秒起新句，成片连贯无串词）；**最后一句不念到最后一帧**，写不下就整句删。
 - **🔴 逐拍台词预算（2026-10-10 实测新增，比整段预算更硬，先满足这条）**：**每一拍各自的台词字数 ≤ 该拍秒数 × 4.5**（例：5 秒拍 ≤ 22 字；**拍长由真实变化决定，常见 4~7 秒，10 秒段通常只有 2 拍 —— 不要为凑台词预算把拍切短**）。**"整段不超" ≠ "每拍不超"** —— 实测 sb302：整段 10 秒（整段预算 27 字），两句旁白共 23 字**没超整段**，但 6-8 秒那拍塞了 12 字 → **2 秒念不完 → 尾巴拖进 8-10 秒那拍**（而那拍明明写着「本段无任何人声」），成片在 8 秒**还在念**、还给了侧脸。**长台词不要拆拍** —— 拍数由真实变化决定；一句塞不下就整句删或改短（拆拍会在拍点硬切、成片闪一下）。
 - **台词预算（硬性数字）**：每段台词总字数 ≤ **(段长秒数 − 4) × 4.5**（10 秒段 ≈ 27 字，为留余量**建议 ≤25 字**）。H3 中文旁白实测语速约 **5~6 字/秒**（2026-10-08 实测：seg1 写了 40 字旁白，音频一直说到 9.9 秒、占满段尾）。超预算就删信息或改用画面表达——**不许靠"最后一格不写台词"蒙混**，前面那句会自己念过结尾
 - 必须实际调用保存工具，不要只在回复中给出提示词
 
 ### `video_prompt_en`（英文发送版）规则 — 严格照 MiniMax H3 官方 Ref2VA 指南
 
+> 📌 **英文发送版（六段）的全部细则见「video-prompt 技能」的「英文发送版」节 —— 本流程单不再重复，避免每次请求重复读同一段（2026-10-12 精简）。**
+
 **除对话、歌词与画面内可见文字外，全部写英文**（官方原文：*Write all six rewrite sections in English. Preserve the original language only for dialogue and lyrics inside `<d>` and for text visibly present in the scene.*）。
 
-**🔴 长度预算（硬性，2026-10-09 立）：`video_prompt_en` 全文 ≤ 6200 字符**（写完用 `len()` 数一遍再保存）。
 MiniMax H3 的 prompt 上限是 **7000 字符，这是官方 hard limit、不可放宽**（RunDiffusion / AtlasCloud / MiniMax 官方 GitHub 口径一致），后端发送时还会在前面拼一段 photorealistic 风格头，所以必须留余量。
-**超限直接被拒、整段生成不出来**（2026-10-09 实测：sb147 写到 7608 字符 → 拼接后 8403 → 报「提示词超长：MiniMax H3 上限 7000 字符，当前 8403」）。
 
 **各段配额（🔴 动笔就按这个数写，别写完再回头砍 —— 超了更慢）**：后端会**逐段实测字符数**，哪一段超了就把那一段**打回重写**（一条分镜可能因此多跑 2~9 次模型，你等的时间翻几倍）。**第一遍就写到配额内 = 最快**。2026-10-10 晚按官方口径重配（已撤掉自加的 CAST/BLOCKING，回到官方六段）：
-- `subject_definitions` ≤ 1700
 - `summary` ≤ 340（官方：一段短英文）
-- `retention_analysis` ≤ 760
 - `detailed_description` ≤ 2500（**官方要求 350–500 英文词 ≈ 1750–2500 字符**，别写太短）
-- `overall_soundscape` ≤ 300（官方：1–4 句）
-- `non_diegetic_music` ≤ 120（官方：1–3 句；没有配乐写 `N/A`）
-- **合计 5720（+ 5 个换行 = 5725）≤ 6200 全文硬上限**
-- 🔴 **就按这六个数字写死**：`subject_definitions` 1700 / `summary` 340 / `retention_analysis` 760 / `detailed_description` 2500 / `overall_soundscape` 300 / `non_diegetic_music` 120 —— **后端正是按这六个数字逐段核定的**，别自己重新分配额度。
 **超了就砍，顺序**：① `summary` 的冗余从句 ② `overall_soundscape` 与正文重复的音效 ③ `subject_definitions` 的外观修饰词 ④ `detailed_description` 里重复的动作铺垫。
 **绝不许砍**：`<d>` 台词、`retention_analysis` 里每条 `fully_preserved`、`subject_definitions` 的 `<Picture N>` 与 `with` 外观。
    - **🔴 `<Picture N>` 编号 = `read_storyboard_context` 返回的 `reference_order` 表，逐条照抄（2026-10-10 立，实测事故）**：本管线的参考图顺序固定为 **场景第 1 张 → 角色（id 升序）→ 道具最后**（与 `@图片N` 注入顺序、RefMod 卡槽 `mod_N` 三者同号）。
   - **写法**：**先读该分镜的 `reference_order`**，表里每行的 `picture` 就是编号、`name` 就是该编号对应的资产 —— 按它写 `<Picture N>`，**逐条照抄**
   - **万一没有 `reference_order` 字段，就按这个规则自己算**：**场景（1 张）→ 角色（按 `character_ids` 里的 id 从小到大）→ 道具（按 id 从小到大）**。注意是 **id 升序**，不是绑定先后、更不是出场先后
   - **不许按"谁先出场/谁先说话"排编号** —— 2026-10-10 实测：sb148 的 0-5s 里张建国先出场，LLM 把他写成 `<Picture 2>`（实际是林巧）、林巧写成 `<Picture 3>`（实际是张建国），**两个角色的参考图完全对调** → 成片出现两个张建国、身份全乱
-  - 编号错位还会让 `<Subject N>` 对上错误的 `mod_N` 卡（场景卡被当成身份卡 = 脸必漂）
-   - **场景也必须有 `<Subject N>`**：`<Subject 1> is the scene in <Picture 1>, with ...`。漏掉场景 = 场景不吃卡、不吃参考图
    - **若某张图只是用来定义某个主体、不会单独当帧锚点，就不要给它独立的 `<Picture N>` 行，只在 `<Subject N>` 定义里引用**（官方原文：*If an image is used only to define a character, scene, costume, or style, do not create a standalone picture entry.*）
    - `with` 后面必须**把该主体的可见外观逐个点名**：脸型/发型（含长度颜色）/服装款式颜色/配饰/显著磨损。**外貌原文取自资产的 `appearance`/`styling`/`description`/`prompt`/`location` 字段，转写成英文，不得省略、不得自己另编一套**
    - 道具同样要有 `<Subject N>`：`<Subject 3> is the registration form in <Picture 3>, with ...`
-   - **🔴 参考图是"多视角板"时，`<Subject N>` 定义必须点明各视角（2026-10-09 立）**：
      - **判断依据**：**只看该资产的 `final_prompt` / `prompt`（生图定稿）**，里面写明是多视角板（`三联参考板`/`三视图板`/`四格板`/`多格板`/`character sheet`/`multiple views`/`shown from N angles`）。**明确不看 `description`** —— 那是物品外观描述，不许往里放任何排版/布局信息（2026-10-09 踩过：往 description 塞了「左大格/右上小格」，污染外观字段，已回滚）。**没写明就按单视角处理，不许自己猜**。
-     - **为什么必须点明**：板里同时出现**正面和背面**时，不点明 = 模型把它们当成**几个不同的东西** → 道具直接复制成两张（2026-10-09 实测根因之一）。
      - **🔴 写法（单视角道具图 —— 2026-10-10 起是默认情况）**：`<Subject 3> is the registration form in <Picture 3>, with ...`（**只写"in <Picture N>"，绝不写任何角度描述** —— 图里只有一个视角）。**绝不许写 `shown from three angles` / `three views` / `three ways` 这类词**（图是单张，写了会让模型以为有三张，反而复制道具）。
      - **写法（多视角板 —— 仅当 `final_prompt` 明写多视角时才用）**：`<Subject 3> is the registration form shown from three angles in <Picture 3>: a top-down view of its printed front, a three-quarter view of the same sheet, and its blank back — one single sheet seen three ways, not two or three separate forms.`
-     - **角色四格板可不写四格**（模型天然理解人的正侧背），但**道具、以及任何带正反面的物体必须写**。
-     - **`retention_analysis` 同步**：末尾加 `stays identical from every angle shown in <Picture 3>; one single sheet, never duplicated.`
    - **🔴🔴 道具上的文字必须与参考图完全一致（2026-10-10 用户拍板）**：道具表面**只要有文字、表格线、印章**，**必须照参考图原样画出来 —— 不得改写、增删、臆造、变形**。这是**下指令要求"照抄"**，**不是把文字内容写进提示词**（内容仍由参考图 / `props.final_prompt` 管，见上文「画面内文字 ②」）。
      - 中文写法：`@道具名上的任何文字、表格线与印章，必须与参考图中的完全一致，不得改写、增删或臆造。`
      - 英文写法：`Any text, table lines or seal on <Subject N> must match <Picture N> exactly — do not reword, add or invent.`
@@ -97,31 +84,13 @@ MiniMax H3 的 prompt 上限是 **7000 字符，这是官方 hard limit、不可
      - **② 正文每一拍都要重复提到该道具**：不能只在第一拍写一次、后面默认"还在"。**每拍至少点名一次**（中文 `@道具名` / 英文 `the form`），并带上该拍的状态（`in her hand` / `on the bench` / `still in her grip`）。
      - **③ 收尾自检（数一遍）**：道具出现的拍数 **=** `retention_analysis` 里列它的拍数 **=** 正文提到它的拍数。**三者不等就是漏了**。
      - 2026-10-10 实测：ep7 重拆后 36 条分镜里，**8 条道具只出现在 1 个镜头、14 条完全没提道具** → 那些镜头里的道具必然失控。
-   - **道具必须至少有一个"能看清全貌"的镜头，但靠机位不靠角色举（2026-10-09 三轮实测定稿）**：
-     - **为什么需要**：如果 `<Subject N>` 全程只是"被攥在手里 / 被折起来 / 塞进口袋"，画面里没有可锁定的载体，模型会脑补 → 道具必丢。
-     - **🔴 怎么给：禁止写 `facing the camera` / `toward the camera` / `presented to the viewer`** —— 这些词会让模型把道具/肢体**正对观众展示**，成片就是"角色举着道具给观众看"，非常出戏（2026-10-09 实测复现，用户明确否掉）。
-     - **🔴🔴 同时禁止"俯拍 + 平摊"这个组合（2026-10-09 第三轮实测，几何必然）**：`settles high above them, looking down at the form lying open in her palms` 这种写法，**镜头在正上方 + 纸平摊在掌心 = 纸面正对镜头**，而且从镜头看纸顶的文字是**上下颠倒**的 —— 成片就是"角色倒着拿给观众看"。**俯拍不是解法，是新坑。**
      - **✅ 正确姿势（三条同时满足）**：
-       ① **机位取侧向/斜上方，不要正上方**：`the camera at a low three-quarter angle beside her hands`、`over her shoulder, from her side`
-       ② **道具的印刷面朝向角色自己，背对镜头**：`the printed side turned toward her, away from the lens`、`the text facing her, the blank back toward the camera`
-       ③ **道具要有透视角度，不许平摊正对**：`the form held at an angle in her hands`，禁止 `lying flat` / `lying open` / `flat against her palms`
-     - **🔴 道具数量必须显式锁死（防止复制成两张）**：正文里至少写一次 `a single sheet, exactly one form in her hands, never duplicated`；`retention_analysis` 里加 `only one form, never duplicated`。**只在 subject_definitions 写 `single` 不够**——2026-10-09 实测：定义里写了 `a single white paper slip`，成片后半段照样变成两张上下压着（`lying open` 被画成摊开的多张）
-     - **🔴 不许自己加镜头**：剧本 description 里没写的道具镜头，一个都不许补（2026-10-09 实测：146 镜头1 剧本只有掌心，LLM 自己加了报到单平铺朝镜头）。
-     - **反例（全部禁用）**：`the form lying flat and fully visible facing the camera` ❌ / `settles high above them, looking down at the form lying open in her palms` ❌
-     - **正例**：`the camera at a low three-quarter angle beside her hands, the printed side of the single form turned toward her and away from the lens, held at an angle, her gaze down on the paper` ✅
-     - **🔴🔴 单视角正面参考图 + "背对镜头" = H3 会选参考图（2026-10-11 实测定根因）**：道具参考图大多是**正面单视角（字朝上）**，`subject_definitions` 会从图里读到"有文字"这个特征；正文若只写 `the printed side away from the lens` 这类**单薄否定**，H3 **优先照参考图把正面画出来**（实测 sb302 Shot 2：正文写了 3 遍"背对镜头"，成片仍把印字面转向观众、还自己按了一下翻回去）。
-     - **✅ 写法：把"只见背面"提升为 `<Subject N>` 定义里的固有属性，正文写"镜头看到的是什么"（正面可观测，不用否定句）**：
-       - `subject_definitions` 里加一句：`in this video it is seen only as its blank opaque back, the printed side pressed against <Subject N>'s palm and hidden from the lens`
-       - 正文每一拍写镜头所见：`the camera sees only the blank opaque back of the form, the printed side pressed against her palm, out of view`
-       - **禁止**只靠 `never` / `away from` 这类否定当锁 —— 必须写清**镜头里实际是什么**（社区实测：可观测的正面描述比反复否定有效）
-     - **🔴 既然整片只见背面，背面透字就是致命穿帮（2026-10-11 配套立）**：`subject_definitions` 里必须**同时**写死"空白不透光的纸背"（`opaque` + `blank back` + `never showing the front's text, table lines or seal through`）；正文每一拍写"镜头所见"时，`back` 前面必须带 **`opaque`**（写 `the blank opaque back`，**不能只写 `blank`**）—— 镜头全程对着背面时，纸一透光，正面的字/表格线/印章就直接穿帮。
 
      - **🔴🔴 要"给观众看清道具内容"时，机位必须从角色身后往前拍（过肩/背后视角）；禁止从角色正前方拍（2026-10-11 用户观察立规）**：
        - **症状**：镜头从角色**正前方**拍手部特写 → 角色低头看纸，观众却看到**纸的正面文字** → 视角自相矛盾（角色的视线方向与观众的视线方向相反），成片就是"拿着给观众看"。
        - **✅ 正解（本意就是让观众读道具内容）**：机位放在角色**身后/肩上** —— `over-the-shoulder, from behind her, looking down at the form in her hands`、`shot from behind her shoulder along her line of sight`。观众与角色**同一视线方向**，纸面朝角色 = 朝镜头，视角自洽，内容自然可见。
        - **✅ 反解（本意只是角色自己看，观众不该读到内容）**：机位放**侧前方**（现有规则：`the camera at a low three-quarter angle beside her hands`），纸面朝角色、背对镜头，只见空白背面。
        - **🔴 判断口径**：先问"这一拍观众**该不该**读到纸上的字"——**该读**用过肩/背后视角；**不该读**用侧前方视角 + 只见背面。**两种都不许用"角色正面拍、纸面朝镜头"这个组合**（视角打架）。
-   - **鞋写 `cloth shoes`（布鞋），禁写 `liberation shoes`**——直译词会被模型渲染成奇怪的靴子
    - **🔴 声音卡判定（2026-10-10 修）**：`read_storyboard_context` 返回的每个角色都带 `has_voice_card` 与 `voice_desc` 两个字段。**凡本段出场且 `has_voice_card: true` 的角色，必须写 `<Audio 1>` 行**（写法见下）；`has_voice_card: false` 的角色不写。**绝不许**在 `overall_soundscape` 里写 `No human voice...` 的同时**不写** `<Audio>` —— 这个组合会让 H3 把参考音频当素材自己发挥，听感就是「把参考音频念出来了」（2026-10-10 实测事故：全库 11 个英文提示词 `<Audio>` 命中 0 次，皆因此）
    - **🔴 中英台词必须一致（2026-10-10 修）**：`video_prompt`（中文工作版）与 `video_prompt_en`（英文发送版）是同一件事的两个版本，**台词条数与内容必须逐字对应**——**中文版说了几句，英文版就必须有几句 `<d>`，一句不多一句不少**。**禁止**只写中文版而英文版丢台词（2026-10-10 实测：中文版有画外音、英文版 0 条 `<d>`，H3 用英文版 → 声音全乱）。
      - **写法差异（正常，别混）**：中文工作版是**给人读的**，台词写 `旁白：「…」` / `X说：「…」` 即可，**不需要 `<d>` 标签**；英文发送版是**给 H3 的**，台词一律 `<d>[Chinese] 台词原文</d>`。所以**中文版 0 个 `<d>`、英文版 2 个 `<d>` 是正常的**，只要**说的内容对得上**。
@@ -129,62 +98,22 @@ MiniMax H3 的 prompt 上限是 **7000 字符，这是官方 hard limit、不可
    - **有声音卡时**追加一行 `<Audio 1>`。**声音卡是音色参考；画外音没有单独的参考音源，所以旁白必须指定画面里某个角色当旁白者**（一般就是主角自己）：
      - 本段**有旁白/画外音** → `<Audio 1> is the voice-timbre reference for <Subject N>'s off-screen narration (S1); use it only as a timbre reference and do not reproduce its words.`
        （绑的是**该角色的旁白音色**，不是"画面里正在说话的嘴"）
-     - 本段**全是在场对白、没有旁白** → `<Audio 1> is the voice-timbre reference for <Subject N> (S1).`
 2. **`summary`**：一段英文，**以方括号任务类型开头**，只用 `[reference generation]`（有参考图但不以某图为具体帧/被编辑视频时）。官方任务类型表：`keyframe completion`（图当首帧/关键帧/尾帧）/`reference generation`（图或音只提供参考）/`video editing` / `video continuation` / `audio reuse` / `audio reference`。多种关系用 ` + ` 连接
 3. **`retention_analysis`**：每个标签一行。官方固定英文关系词只能取这几个：`fully_preserved` / `partially_preserved` / `attribute_transfer` / `weak_reference`。格式 `<Subject 1> (appears in [Shot 1], [Shot 2]): fully_preserved - <保住了什么>`
    - **`<Audio N>` 用另一组关系词**：`reference`（只参考音色/节奏/风格，不复制信号）。
-     - 有旁白时：`<Audio 1>: reference - its vocal timbre guides <Subject N>'s off-screen narration without copying the original signal.`
-     - 全是在场对白时：`<Audio 1>: reference - its vocal timbre guides the dialogue delivery of <Subject N> without copying the original signal.`
    - **`retention_analysis` 里严禁出现 `(S1)` 这类说话人编号**（官方原文：*Do not write `(Sx)` in `retention_analysis`.*）
 4. **`detailed_description`**：正文主体。
    - **`[Shot 1]` 不加时间戳**；后续镜头写 `[Shot 2] At 00:06.000, ...`（官方格式 `[Shot N] At MM:SS.mmm, ...`）
-   - **🔴 切镜必须用官方动词（2026-10-10 实测：我们一个都没写）**：切镜写成 `the camera cuts to` / `the shot cuts to` / `the shot transitions to` / `the shot changes to` / `the shot switches to`，**写在该镜的句子里** —— 如 `[Shot 2] At 00:03.500, the camera cuts to an extreme close-up of ...`。**不许只写 `[Shot 2] At 00:02.000, extreme close-up of ...` 而不带动词** —— 没动词 H3 可能读成**同一镜头的延续**而不是切镜。cross-dissolve / fade / wipe 只在明确需要时用。
-   - **🔴🔴 镜头怎么写（2026-10-10 查官方 + 社区指南后补全，5 条硬规）**：
-     - **① 景别用标准词**：`wide shot` / `wide establishing shot` / `medium shot` / `medium close-up` / `close-up` / `extreme close-up` / `over-the-shoulder` / `POV shot` / `low angle` / `high angle`。**不要自造说法** —— H3 就是在这些固定英文词上训练的。
-     - **② 每镜只给一个主要机位**（one main camera behaviour per shot）：一个 `[Shot N]` 里**只定一个景别/机位**，不要在同一拍里既写 `wide shot` 又写 `extreme close-up`。
-     - **③ 禁止堆矛盾指令**：`wide shot, extreme close-up, pan left, and static camera` 这种堆叠会逼模型在两套互斥指令间自行仲裁，出来是乱切或干脆不动。**一个镜头要么切、要么运镜，只能选一种。**
-     - **④ 镜头运动写三要素（官方原文）**：**motion type**（Zoom In/Out、Push In/Pull Out、Pan、Truck、Tilt、Pedestal、Arc、Tracking、Static、Shake、POV、Roll）＋ **amplitude**（small/large）＋ **speed**（slow/fast），**写成一个自然的英文动作句**，**禁止**把标签堆在句尾。
-       - ✅ `The camera pushes in with small amplitude at slow speed toward the folded letter in her hands.`
-       - ❌ `..., push in, small amplitude, slow speed.`
-     - **⑤ framing 变化要连贯**：同一镜内景别推进要写出**中间过程**，让镜头真的"移动"，而不是把主体突然缩小/放大。✅ `close portrait → chest-up frame → full-body view → wide view`；❌ 直接从 `close-up` 跳到 `wide shot`。
-     - **🔴🔴 每个拍点 = 硬切点：只有真换了「景别 / 机位 / 对象」三者之一，才起新拍**。同一机位同一景别的连续运镜（继续横移、缓慢推近、继续跟拍），以及"静止 → 横移/推近"这类只是**运镜状态**变了的情况，**必须写在同一个拍里**；拆开就会在拍点硬切，成片表现是"忽然闪一下"。写 `continues without a cut` 这句话**没用**（实测写明"不切"照样硬切）。
-     - **🔴 拍首一律不许出现 `the same …`（不论后面接什么词 —— 写 `the same close camera pushes in` 也算违规）或任何「没变 / 继续」的说法**（出现即说明这拍不该起 —— 把它的运镜接到上一拍句尾）：`the same … framing holds` / `the same framing continues` / `without a cut` / `continues without a cut`；也**不许出现 cut 动词却不换画面**（`cuts to the same wide framing` / `cuts back to the same shot`）—— cut 动词只在真的换了景别/机位/对象时才用。
-**🔴 拍数必须严格等于分镜 description 里【镜头N】的数量（硬规则）**：**有几个【镜头N】就写几拍 —— 2 个镜头写 2 拍、3 个镜头写 3 拍，一个不多、一个不少**。**任何理由都不许增减拍数**：运镜变化（继续推近/继续横移）、台词窗口、安静拍、动作阶段 —— 全都不算。「近景缓推」这种"一个景别＋一个运镜"的镜头**就是一拍**（切到该景别后在同一拍内完成推近）。
-     - **🔴🔴 硬切到底是什么（引擎口径 —— 必须这样理解，别再自己解释）**：这份提示词是**按 `[Shot N]` 分段的**。**每一行 `[Shot N] At MM:SS` = 引擎在那个时间点"开一个新镜头"**。引擎**看不见**"你写的第 2 个镜头是不是还是同一个机位" —— 它只看见"第 2 个镜头从 4.0 秒开始" → **它就在那里切一刀**。
-       **所以：在文字里写「同一机位继续 / 同一次运镜延续 / 不作硬切 / the same camera continues」完全没有用** —— 那只是镜头**内容**描述，**改不了时间轴结构**，该切还是切（实测：分镜1、分镜4 都这么写过，成片照切）。
-       **判据只有一条**：**同一段连续运镜（先静置→再横移、切到近景→继续推近）必须写在同一个 `[Shot N]` 里**；**只要你写了第二个 `[Shot N]`，那里就一定是一刀** —— 无论你正文或注释怎么解释。
-     - **若 description 里没有【镜头N】标记**（写成了一整段叙述）：按剧情里真实的动作/视线转折拆 **2-3 拍**。
-     - **🔴 新拍开头写「承接态」**（`already lifted her gaze` / 她已经抬起头）：动作当成**上一拍已完成**，只写本拍的新微动，**禁止重演**上一拍已完成的大动作。
-     - **🔴 群演/背景群众必须写「差异」**：只写"宾客三三两两举杯交谈"会让模型给所有人套同一套衣服。写清颜色错开（深蓝 / 酒红 / 米白 / 浅灰）、款式/发型/年龄/高矮各异；纯衬景可虚化成剪影色块。英文范式：`the guests wear a mix of colours — deep navy, burgundy, cream and pale grey — with different hairstyles, builds and ages; no uniform crowd, no repeated identical outfits`。
-     - **上述几条**在动笔时**一次写到这个标准**（不必事后再回头翻文件、逐拍提问或核对清单）—— 拍结构直接照这个来：✅ `0-7秒：全景机位先静置一秒，随后缓慢向右横移，扫过香槟塔与人群；旁白：「…」`（"先静置、再横移"写在同一条拍里）。**绝不要把同一次运镜切成两个时间段** —— 那就是假切点。
-       - ✅ `4-9秒：切到近景…随后机位以极小幅度缓慢向前推近到胸部以上近景…`（切镜与推近写在同一条拍里）
-   - **🔴 台词跨切镜 → `<scenetrans>`（官方规则，我们 2026-10-10 之前从未实现）**：同一句台词/歌词跨切镜时，**切口两端都标 `<scenetrans>`**，并声明音频连续（`continues seamlessly across the cut` / `carries over from the previous shot`）。
-   - **🔴 台词被视频结尾截断 → `<cutoff>`（官方）**：给被截断那句标 `<cutoff>`。
-   - **🔴 说话人首次发声要给稳定声音身份（官方）**：角色第一次出声时，在 `<d>` 块**外**写清身份 —— 角色类型、年龄、性别、是否在画面内、音高、音色、语速、口音。
-    - **根治仍在参考图**：两个角色的参考图本身辨识度低时，提示词只能缓解——要彻底分开需重做参考图（加独有特征）
-     - **⚠️ 但不要照抄坐标**：H3 不是 Veo，`x50 y74` 这类像素坐标对 H3 无效。H3 要的是**文字描述的相对位置**：`centre-frame` / `screen-left looking camera-right` / `behind her` / `at waist height` / `1.5 m from her`。
    - **风格句写在 `[Shot 1]` 之前、单独一两句**（这是官方与 T2VA 的差异点：T2VA 写在 Shot1 之后）。**全局光线/曝光一致性只在风格句里交代一次**，写成 `consistent exposure and white balance throughout, no new light source` 这种一句带过；**严禁在每个 `[Shot N]` 里复读 `Same exposure, same white balance, no new light source`**——官方 Ref2VA 指南全文没有这句话（实测 0 命中），每拍复读纯烧 token 还稀释真正有用的画面细节（2026-10-09 用户确认要删）
    - **主体首次清晰出现时，描述它的外观特征、在画面中的位置和当前动作**；后续镜头继续用同一个 `<Subject N>`，**不要重复定义它是什么**
-   - **说话人只有一种写法**（2026-10-09 立，取代此前所有旧写法）：
-     - **在场对白**（该拍人物真在说话）：`<Subject 2> (S1) says, <d>[Chinese] 台词</d>`
      - **🔴 画外音/旁白 —— 官方原文写法（2026-10-10 修正；我们之前自创的写法是错的）**。H3 只认一句固定短语，写法 = **主语写 `<Subject N> (Sx)` + 官方固定短语 + `<d>` 台词块 + 紧跟其后的锁嘴句**：
-       `<Subject 2> (S1) says in an off-screen voiceover: <d>[Chinese] 台词原文</d> while her lips remain completely closed.`
        - 🔴 **固定短语 `says in an off-screen voiceover` 必须逐字照抄**。官方 base 指南原话：*「For voiceover, use the exact phrase `says in an off-screen voiceover`. Immediately after every voiceover `<d>` block, state that the corresponding on-screen character's lips remain closed.」* 官方示例：`The man (S1) says in an off-screen voiceover: <d>[English] I still remember that road.</d> while his lips remain completely closed.`
        - 🔴 **禁用自创写法**：`speaks off-screen`、`voice-over`、`narrates`、`<Subject N>'s voice-over (S1) speaks off-screen` —— 我们用了一周，全部不触发 H3 的画外音通道（2026-10-10 实测：嘴照动）。
        - 🔴 **锁嘴句紧跟在 `<d>` 块之后**（`while her lips remain completely closed.`），**不是**放在台词前面。
        - 🔴 **说话人写成 `<Subject N> (Sx)`**，不写 `<Subject N>'s voice-over (Sx)`。
        - 🔴 **不要强制"脸不入画"**。官方指南从没这条要求；正常中景/近景都可以，只要保住固定短语 + 锁嘴句两要素（2026-10-10 用户确认：以前脸在画面里的旁白拍是正常的，是被我改坏的）。
-     - **旁白者必须指定为画面里某个角色**（一般就是主角自己）——画外音没有独立参考音源，不指定旁白者 = 模型自己编一个声音
-     - **🔴 禁用这两种写法**（都会让模型把说话动作挂到画面里的人身上，导致嘴动/双人）：① `<Subject 2> (S1) says off-screen` ② `A young woman's low restrained voice (S1) speaks off-screen`（嗓音描述式 = 没指定旁白者，2026-10-09 实测复现）
    - **🔴🔴 旁白拍的正文禁止"演脸"强调词（2026-10-11 立，实测根因）**：景别照正常写（`chest-up close portrait` 没问题、不必改成背影），但**禁止** `frontally` / `her face fully in frame` / `her whole face in frame` / `facing the lens` / `head and face fully visible` / `looks straight at the camera` —— 这些词与紧邻的锁嘴句**直接打架**，H3 优先演脸 → 嘴照动。实测 sb302：Shot 2（手部特写，只写 `mouth off-screen`）旁白正常；Shot 3 写了 `frontally` + `her face fully in frame` + `complete head and face` → **旁白被读出来、嘴照动**。官方示例（DomoAI / Artificial Studio）的旁白句**从不描述脸**。
-   - **🔴 锁嘴必须与台词同句**（不能隔动作描写）：官方示例原句 `She closes her lips`。锁嘴必须**直接贴在 `<d>` 前或后**，中间不得插入任何动作/画面描写（2026-10-09 实测：锁嘴写在拍子开头、台词在末尾，中间隔了三个动作从句 → 模型照样让嘴动）
-   - **🔴🔴 镜头按正常给，不许为了防嘴改镜头（2026-10-10 用户拍板，硬规）**：
-     - **画外音拍就用正常镜头** —— 中景、近景、特写、俯拍都行，**按该拍要表达的东西给**（有表情就给脸，有动作就给手，要交代环境就给全景）。**镜头跟着内容走，不跟着"防嘴"走。**
-     - **禁止**为了躲口型而把镜头改成：纯背影 / 后脑勺 / 只手不露人 / 空镜 / "下巴以下"这类半张脸。**这些改法会丢掉表情和表演，已被用户否掉**（2026-10-10 实测：为了防嘴把 Shot 3 改成后脑勺，结果 description 里写的"垂眼看纸、眉眼清亮"全丢了）。
-     - **防嘴只靠两件事，不靠镜头**：① 固定短语 `says in an off-screen voiceover` ② 紧跟 `<d>` 的锁嘴句 `while her lips remain completely closed`。这两样写对，**脸在画面里也不动嘴**（用户确认："以前只有脸的也可以做到有旁白"）。
-     - **镜头以 `description` 的【镜头N】为准**：分镜拆解阶段已经定了每一拍拍什么，提示词**照它写** —— 它说"垂眼看纸"就写垂眼看纸，**不许自作主张换成背影**。
    - **🔴 台词只许整句删，不许截断或改写（2026-10-09 实测）**：`「这个日子我认得。前世我进厂也是这天，撞见了张建国。」` 被写成 `「这个日子我认得。」` + `「前世我进厂也是这天。」`，**「撞见了张建国」整个剧情爆点被悄悄吞掉**。正确做法：一句里塞不下就**整句删掉**，绝不允许把一句话砍一半或拆成两句改写；删句必须在**中文工作版**里显式标注（如 `（本段未采用：撞见了张建国。——原因：10秒装不下）`），让用户看得见删了什么，删错了才好用**补充说明**指回来
-     - **🔴 写作说明/注释里不要用「」引用台词（2026-10-12 实测：白跑 2 轮修复）**：后端按「旁白/画外音/说 + …「」」数中文台词条数，再与英文 `<d>` 条数比对 —— 说明里把台词抄一遍会被数成"多一句"，触发「中英台词条数不一致」假警报、白跑两轮修复（还挤占生成步数）。**要提台词就写文字、不加「」引号**（或写"第 1 句"）。
    - 画面内可见文字保留中文原文（如招牌、纸面文字）
    - 生成类任务正文 **350–500 英文词**；台词密集时以"完整说完"优先，不要为凑词数硬灌
 5. **`overall_soundscape`**：整段环境音与物理声（英文）。**没有台词/旁白的镜头必须在此写死无人声**，官方口径：安静镜头冒出没要求的人声 → 把音频字段写明再重跑。写 `(No human voice in this segment except the dialogue lines explicitly written below; no narration, no humming, no singing.)`
@@ -193,20 +122,5 @@ MiniMax H3 的 prompt 上限是 **7000 字符，这是官方 hard limit、不可
 **编号一致性（硬性）**：`<Subject N>` / `<Picture N>` / `<Audio J>` 与 `(Sx)` 四套编号各自独立计数。`(S1)` 归**旁白者**——旁白者必须是画面里某个角色（一般就是主角自己），**不是独立的陌生人**；`<Audio J>` 绑的是**该角色的旁白音色**，写成 `<Subject N>'s off-screen narration (S1)`。
 
 **🔴 禁止输出 HTML 实体（2026-10-10 实测新增）**：`<Subject N>` / `<Picture N>` / `<Audio N>` / `<d>` 一律**用裸尖括号**，**绝不许写成 `&lt;Subject 1&gt;` / `&gt;` / `&amp;`**。实测：某次局部重写把 `subject_definitions` 整段写成 HTML 实体，H3 完全不认识 `<Subject 1>`，**身份绑定当场失效**（保存前搜一遍 `&lt;`/`&gt;`，命中即改回裸标签）。
-
-**🔴🔴 质量硬规（2026-10-10 读完官方 `ref-en.txt` 全文 + RefMod 作者 README 后补，逐条执行）**：
-
-- **① 禁止写成剧情摘要**（官方原话 *Avoid reducing the description to a plot summary or a list of reference relationships*）：每一拍必须写**镜头里看得见的东西**，不许写「他回忆起往事」「两人关系缓和」这类概括；也不许把内容写成"参考关系清单"。
-- **② 每拍七要素写全**（官方 `Description detail`）：**构图 / 主体外观与位置 / 环境与光线 / 动作与状态变化 / 运镜 / 当前声音 / 参考在哪一拍生效**。**镜头少 ≠ 可以写短**（官方：*A single shot does not automatically justify a shorter description*）—— 细节按信息量分配到各拍。
-- **③ 标签在全部六段里含义一致**（官方：*Once a reference label is assigned, it keeps the same meaning across* 六段）：`<Subject 1>` 在 `subject_definitions` 里指谁，在 `detailed_description` 里就还指谁，**不许中途换指**。
-- **④ 不许留未解决的标签**（官方 *unresolved reference labels*）：定义过的 `<Subject N>`/`<Picture N>`/`<Audio N>` 必须在某处用到；**不许**使用没定义的编号。
-- **⑤ `summary` 段不许引入新标签**（官方：*Do not introduce new reference labels in this section*）—— 只能用前面已定义的。
-- **⑥ `overall_soundscape` / `non_diegetic_music` 里不许重复 `<d>` 台词**（官方：台词只在 `detailed_description` 的 `<d>` 里写一次）。
-- **⑦ 听不清的台词写 `[unclear]`**（官方：*Write `[unclear]` for unintelligible spans instead of guessing or paraphrasing them*）—— **禁止猜测、禁止转述**。
-- **⑧ `<d>` 内标点规范化**（官方）：去掉重复波浪号 / emoji / 项目符号 / 装饰性标点；完整陈述句、疑问句、感叹句分别以 `.`、`?`、`!` 收尾。
-- **⑨ 只参考音色/节奏/情感时，禁止把参考音频的原话搬进目标视频**（官方）。
-- **⑩ 卡会串味 —— 必须靠 `<Picture N>` 明确指向**（RefMod 作者原话：*identity, clothing, background and composition can still mix*）：每拍都要写清该拍用哪张参考图；**不同角色必须分开存卡**（作者：*Keep different characters in separate files*）；编号**必须**来自 `reference_order`（作者：*`<Subject n>` is not automatically bound to a loader slot*），**不许**按"谁先出场/谁先说话"排。
-- **⑪ 别指望靠重复或加强度锁身份**（作者）：视觉强度是 `w·latent + (1−w)·blur(latent)` —— **不是注意力权重、不是身份百分比**；`multiplier`/`copies` 只增成本不加信息。
-- **⑫ 高速动作会被抹平变慢**（作者实测：快速手部动作 / 打斗 / 快舞被抹成又慢又软，因为参考被压成少量 latent 帧）—— 分镜应**避免高速动作**；若 `description` 里确有快速动作，提示词**要用文字描述该动作**给模型锚点。
 
 **收尾自检（保存前逐项核）**：官方六段名齐全且顺序对 / **道具表面文字没写内容**（只出现 `the printed side`/载体+动作这类说法，**没有**任何引号里的纸面文字原文；见「画面内文字 ②」） / `subject_definitions` 每行都有 `<Picture N>` 且带 `with` 外观 / `retention_analysis` 无 `(Sx)` / 台词**全句**逐字来自 description（无截断改写，删句已标注）/ 旁白者指定为画面里某个角色且声音卡写成 `<Subject N>'s off-screen narration` / 锁嘴紧贴在 `<d>` 台词旁（没隔动作描写）/ `Same exposure...` 只在风格句出现一次（没每拍复读）/ 正文英文（除 `<d>` 与画面文字） / **中文工作版除编号标记外无任何英文**（搜英文字母） / **中文工作版无 `说（画外` 写法**（一律 `旁白：`） / **道具上的文字写了「必须与参考图完全一致」的照抄指令**（有文字/表格线/印章的道具） / **单视角道具没写角度词**（搜 `three angles`/`three ways`，`final_prompt` 没写明多视角时命中即删） / **无 HTML 转义**（搜 `&lt;`/`&gt;`，命中即改回裸标签） / **逐拍台词字数达标**（逐拍数：每拍字数 ≤ 拍长秒数 × 4.5，**2 秒拍 ≤9 字**；超了拆拍或换窗口长的拍）
