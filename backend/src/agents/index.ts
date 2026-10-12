@@ -190,7 +190,9 @@ function openaiThinkingOffPatch(): Record<string, any> {
   const fallback = {
     thinking: { type: 'disabled' },   // new-api 通用 / DeepSeek
     enable_thinking: false,           // Qwen / 阿里系
-    reasoning_effort: 'none',         // OpenAI 风格枚举(Gemini 渠道映射为 budget 0)
+    // halogen(zzz 8731) 的档位是 high/medium/minimal —— 发 'none' 它不认；
+    // 但真正生效的是上面的 enable_thinking:false（优先级高于 effort），这里只是兜底
+    reasoning_effort: 'minimal',      // OpenAI 风格枚举(Gemini 渠道映射为 budget 0)
   }
   const raw = process.env.AI_THINKING_OFF_PATCH
   if (!raw) return fallback
