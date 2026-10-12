@@ -4,7 +4,7 @@ import { db, getInsertId, schema } from '../db/index.js'
 import { success, notFound, created, badRequest, now } from '../utils/response.js'
 import { toSnakeCase } from '../utils/transform.js'
 import { joinProviderUrl } from '../services/adapters/url.js'
-import { isOfficialProvider, parseConfigTemperature } from '../services/ai.js'
+import { isOfficialProvider, parseConfigTemperature, parseConfigEnableThinking } from '../services/ai.js'
 import { redactUrl, logTaskError, logTaskProgress, logTaskSuccess } from '../utils/task-logger.js'
 
 const app = new Hono()
@@ -17,12 +17,22 @@ function normalizeTemperature(v: any): number | null {
   return n
 }
 
-/** 把 settings JSON 中的 temperature 透出为顶层字段，便于前端直接读写 */
+/** 归一化 enable_thinking 入参：null=跟随默认；布尔原样 */
+function normalizeEnableThinking(v: any): boolean | null {
+  if (v === null || v === undefined || v === '') return null
+  if (typeof v === 'boolean') return v
+  if (v === 'true') return true
+  if (v === 'false') return false
+  throw new Error('invalid enable_thinking')
+}
+
+/** 把 settings JSON 中的 temperature / enable_thinking 透出为顶层字段，便于前端直接读写 */
 function withParsedFields(r: any) {
   return {
     ...toSnakeCase(r),
     model: r.model ? JSON.parse(r.model) : [],
     temperature: parseConfigTemperature(r.settings),
+    enable_thinking: parseConfigEnableThinking(r.settings),
   }
 }
 
@@ -146,6 +156,14 @@ app.post('/', async (c) => {
       return badRequest(c, 'temperature 须为 0 到 2 之间的数字')
     }
   }
+  let enableThinking: boolean | null = null
+  if ('enable_thinking' in body) {
+    try {
+      enableThinking = normalizeEnableThinking(body.enable_thinking)
+    } catch {
+      return badRequest(c, 'enable_thinking 须为 true / false')
+    }
+  }
 
   const res = await db.insert(schema.aiServiceConfigs).values({
     serviceType: body.service_type,
@@ -156,7 +174,9 @@ app.post('/', async (c) => {
     model: JSON.stringify(body.model || []),
     priority: body.priority || 0,
     isActive: true,
-    settings: temperature !== null ? JSON.stringify({ temperature }) : null,
+    settings: (temperature !== null || enableThinking !== null)
+      ? JSON.stringify({ ...(temperature !== null ? { temperature } : {}), ...(enableThinking !== null ? { enable_thinking: enableThinking } : {}) })
+      : null,
     createdAt: ts,
     updatedAt: ts,
   })
@@ -282,6 +302,20 @@ app.put('/:id', async (c) => {
     try { settings = existing.settings ? JSON.parse(existing.settings) : {} } catch { settings = {} }
     if (temperature === null) delete settings.temperature
     else settings.temperature = temperature
+    updates.settings = Object.keys(settings).length ? JSON.stringify(settings) : null
+  }
+  if ('enable_thinking' in body) {
+    let enableThinking: boolean | null
+    try {
+      enableThinking = normalizeEnableThinking(body.enable_thinking)
+    } catch {
+      return badRequest(c, 'enable_thinking 须为 true / false')
+    }
+    // 与已有 settings 合并（temperature 等其它键保留），清空则移除
+    let settings: Record<string, any> = {}
+    try { settings = existing.settings ? JSON.parse(existing.settings) : {} } catch { settings = {} }
+    if (enableThinking === null) delete settings.enable_thinking
+    else settings.enable_thinking = enableThinking
     updates.settings = Object.keys(settings).length ? JSON.stringify(settings) : null
   }
 

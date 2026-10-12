@@ -15,6 +15,9 @@ export interface AIConfig {
   model: string
   /** 采样温度，null 表示不设置（跟随服务商默认）。存于 ai_service_configs.settings JSON */
   temperature?: number | null
+  /** 思考模式开关（2026-10-12 加）：true=开思考 / false=关思考 / null=跟随全局默认。
+   *  同样存于 ai_service_configs.settings JSON，UI 在「设置 → 编辑服务器配置 → 温度下方」。 */
+  enableThinking?: boolean | null
 }
 
 /** 从 settings JSON 解析 temperature；非法值一律视为未设置 */
@@ -23,6 +26,17 @@ export function parseConfigTemperature(settingsRaw: string | null | undefined): 
   try {
     const t = JSON.parse(settingsRaw)?.temperature
     return typeof t === 'number' && Number.isFinite(t) ? t : null
+  } catch {
+    return null
+  }
+}
+
+/** 从 settings JSON 解析思考模式开关；非法/缺省一律视为 null（跟随默认） */
+export function parseConfigEnableThinking(settingsRaw: string | null | undefined): boolean | null {
+  if (!settingsRaw) return null
+  try {
+    const v = JSON.parse(settingsRaw)?.enable_thinking
+    return typeof v === 'boolean' ? v : null
   } catch {
     return null
   }
@@ -92,6 +106,7 @@ export async function getActiveConfig(serviceType: ServiceType): Promise<AIConfi
     apiKey: active.apiKey,
     model: models[0] || '',
     temperature: parseConfigTemperature(active.settings),
+    enableThinking: parseConfigEnableThinking(active.settings),
   }
 }
 
@@ -145,5 +160,6 @@ export async function getConfigById(id: number): Promise<AIConfig | null> {
     apiKey: row.apiKey,
     model: models[0] || '',
     temperature: parseConfigTemperature(row.settings),
+    enableThinking: parseConfigEnableThinking(row.settings),
   }
 }

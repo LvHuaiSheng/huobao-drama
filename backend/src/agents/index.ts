@@ -202,9 +202,35 @@ function openaiThinkingOffPatch(): Record<string, any> {
   }
 }
 
-function createThinkingOffFetch(providerName: string, baseURL: string): typeof fetch | undefined {
-  if (!thinkingOffEnabled || isOfficialTextHost(baseURL)) return undefined
-  const openaiPatch = openaiThinkingOffPatch()
+/** 开思考的注入参数（2026-10-12 加）：中转站风格不一，默认三种都给，可用 AI_THINKING_ON_PATCH 覆盖 */
+function openaiThinkingOnPatch(): Record<string, any> {
+  const fallback = {
+    thinking: { type: 'enabled' },    // new-api 通用 / DeepSeek
+    enable_thinking: true,             // Qwen / 阿里系
+    reasoning_effort: 'medium',        // OpenAI 风格枚举
+  }
+  const raw = process.env.AI_THINKING_ON_PATCH
+  if (!raw) return fallback
+  try {
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed : fallback
+  } catch {
+    return fallback
+  }
+}
+
+/**
+ * 思考模式请求补丁（2026-10-12 改成按配置三态）
+ *  - enableThinking === true  → 注入「开思考」参数（覆盖全局默认）
+ *  - enableThinking === false → 注入「关思考」参数
+ *  - null / undefined         → 跟随全局默认（AI_DISABLE_THINKING，默认关）
+ */
+function createThinkingOffFetch(providerName: string, baseURL: string, enableThinking?: boolean | null): typeof fetch | undefined {
+  if (isOfficialTextHost(baseURL)) return undefined
+  const explicit = typeof enableThinking === 'boolean'
+  if (!explicit && !thinkingOffEnabled) return undefined
+  const wantOn = enableThinking === true
+  const openaiPatch = wantOn ? openaiThinkingOnPatch() : openaiThinkingOffPatch()
 
   return async (input: any, init?: any) => {
     try {
@@ -216,13 +242,14 @@ function createThinkingOffFetch(providerName: string, baseURL: string): typeof f
           // 2.x 及更早仍用 thinkingBudget: 0。模型名从 URL(/models/<model>:)或 body 嗅探
           const url = String(typeof input === 'string' ? input : input?.url || '')
           const isGemini3 = /gemini-3/i.test(url) || /gemini-3/i.test(String(body?.model || ''))
-          body.generationConfig = {
+          if (wantOn) { /* 开思考：不动 generationConfig，交给服务商默认 */ }
+          else body.generationConfig = {
             ...(body.generationConfig || {}),
             thinkingConfig: isGemini3
               ? { thinkingLevel: 'low' }
               : { thinkingBudget: 0, includeThoughts: false },
           }
-          init = { ...init, body: JSON.stringify(body) }
+          if (!wantOn) init = { ...init, body: JSON.stringify(body) }
         } else if (Array.isArray(body?.messages)) {
           // OpenAI 兼容格式
           Object.assign(body, openaiPatch)
@@ -310,7 +337,9 @@ export async function getModel(fileModel: string | undefined, modelOverride?: st
   const providerName = textConfig.provider.toLowerCase()
   const resolvedBaseURL = getTextProviderBaseUrl(textConfig)
   const temperature = textConfig.temperature ?? null
-  const endpointKey = `${providerName}|${resolvedBaseURL}|${modelName}|t=${temperature ?? 'default'}`
+  const enableThinking = textConfig.enableThinking ?? null
+  // endpointKey 必须带思考开关：Agent 按 key 缓存，否则改了开关还复用旧 Agent（开关不生效）
+  const endpointKey = `${providerName}|${resolvedBaseURL}|${modelName}|t=${temperature ?? 'default'}|think=${enableThinking ?? 'default'}`
   if (endpointKey !== lastLoggedTextEndpointKey) {
     lastLoggedTextEndpointKey = endpointKey
     logTaskProgress('AIConfig', 'text-model-endpoint', {
@@ -318,11 +347,12 @@ export async function getModel(fileModel: string | undefined, modelOverride?: st
       baseUrl: resolvedBaseURL,
       model: modelName,
       ...(temperature !== null ? { temperature } : {}),
+      ...(enableThinking !== null ? { enable_thinking: enableThinking } : {}),
     })
   }
 
   // 叠加请求补丁：thinking-off（非官方端点）+ 配置温度 + 输出上限（非官方 OpenAI）
-  const thinkingOffFetch = createThinkingOffFetch(providerName, resolvedBaseURL)
+  const thinkingOffFetch = createThinkingOffFetch(providerName, resolvedBaseURL, enableThinking)
   const tempFetch = temperature !== null
     ? createTemperatureFetch(providerName, temperature, thinkingOffFetch)
     : thinkingOffFetch

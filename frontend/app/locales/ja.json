@@ -448,7 +448,12 @@
       "reachable": "エンドポイントが応答しました",
       "unreachable": "エンドポイントのテストに失敗しました",
       "providerRequired": "プロバイダーを選択してください",
-      "tempInvalid": "Temperature は 0〜2 の数値で入力してください"
+      "tempInvalid": "Temperature は 0〜2 の数値で入力してください",
+      "thinkingLabel": "思考モード",
+      "thinkingHint": "オフ=最速",
+      "thinkingOn": "オン（考える分だけ遅い）",
+      "thinkingOff": "オフ（直接回答・最速・推奨）",
+      "thinkingNote": "オフにすると思考トークンを出さず、動画プロンプト生成が明確に速くなります。じっくり考えさせたい時だけオンに。"
     },
     "styleDialog": {
       "editTitle": "スタイルプリセットを編集",

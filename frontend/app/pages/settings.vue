@@ -580,6 +580,15 @@
             <input v-model="cfgForm.temperature" class="input" type="number" step="0.1" min="0" max="2" :placeholder="t('settings.cfg.tempPlaceholder')" />
             <span class="field-hint">{{ t('settings.cfg.tempNote') }}</span>
           </label>
+          <!-- 2026-10-12：思考模式开关（温度下方）。关=最快（推荐）；开=模型先想再答，慢但可能更稳 -->
+          <label v-if="cfgForm.service_type === 'text'" class="field">
+            <span class="field-label">{{ t('settings.cfg.thinkingLabel') }} <span class="dim">({{ t('settings.cfg.thinkingHint') }})</span></span>
+            <label class="switch-row">
+              <input type="checkbox" v-model="cfgForm.enable_thinking" />
+              <span>{{ cfgForm.enable_thinking ? t('settings.cfg.thinkingOn') : t('settings.cfg.thinkingOff') }}</span>
+            </label>
+            <span class="field-hint">{{ t('settings.cfg.thinkingNote') }}</span>
+          </label>
           <div v-if="cfgTestResult" class="test-result" :class="{ ok: cfgTestResult.reachable, bad: !cfgTestResult.reachable }">
             <div class="test-result-head">
               <span class="tag" :class="cfgTestResult.reachable ? 'tag-success' : 'tag-error'">{{ cfgTestResult.status || 'ERROR' }}</span>
@@ -787,7 +796,7 @@ const huobaoSaving = ref(false)
 // 火宝节点选择：默认跟随界面语言（中文→国内 .cn，其他→国外 .com），一键配置与取 Key 链接共用
 const huobaoRegion = ref(locale.value?.startsWith('zh') ? 'cn' : 'com')
 const huobaoSiteUrl = computed(() => `https://api.firemux.${huobaoRegion.value}`)
-const cfgForm = reactive({ name: '', provider: '', api_key: '', base_url: '', models: [], service_type: 'text', priority: 0, temperature: '' })
+const cfgForm = reactive({ name: '', provider: '', api_key: '', base_url: '', models: [], service_type: 'text', priority: 0, temperature: '', enable_thinking: false })
 // 模型标签编辑器：首位即默认模型；输入框支持回车添加、逗号/换行批量粘贴
 const modelInput = ref('')
 function addModel() {
@@ -926,7 +935,7 @@ async function applyHuobaoQuickConfig() {
 function startAddCfg(t) {
   cfgEditId.value = null
   cfgTestResult.value = null
-  Object.assign(cfgForm, { name: '', provider: '', api_key: '', base_url: '', models: [], service_type: t, priority: 0, temperature: '' })
+  Object.assign(cfgForm, { name: '', provider: '', api_key: '', base_url: '', models: [], service_type: t, priority: 0, temperature: '', enable_thinking: false })
   const firstPreset = presetsByType(t)[0]
   if (firstPreset) applyProviderPreset(t, firstPreset.provider)
   cfgDialog.value = true
@@ -943,6 +952,8 @@ function startEditCfg(c) {
     service_type: c.service_type,
     priority: c.priority ?? 0,
     temperature: c.temperature ?? '',
+    // 2026-10-12：思考模式开关；老配置没有该字段 → 视为「关」（最快，与旧行为一致）
+    enable_thinking: c.enable_thinking === true,
   })
   cfgDialog.value = true
 }
@@ -985,8 +996,8 @@ async function saveCfg() {
     toast.warning(t('settings.cfg.tempInvalid')); return
   }
   try {
-    if (cfgEditId.value) await aiConfigAPI.update(cfgEditId.value, { name: cfgForm.name, provider: cfgForm.provider, api_key: cfgForm.api_key, base_url: cfgForm.base_url, model: models, priority: cfgForm.priority, temperature })
-    else await aiConfigAPI.create({ service_type: cfgForm.service_type, provider: cfgForm.provider, name: cfgForm.name || `${cfgForm.provider}-${cfgForm.service_type}`, api_key: cfgForm.api_key, base_url: cfgForm.base_url, model: models, priority: cfgForm.priority, temperature })
+    if (cfgEditId.value) await aiConfigAPI.update(cfgEditId.value, { name: cfgForm.name, provider: cfgForm.provider, api_key: cfgForm.api_key, base_url: cfgForm.base_url, model: models, priority: cfgForm.priority, temperature, enable_thinking: !!cfgForm.enable_thinking })
+    else await aiConfigAPI.create({ service_type: cfgForm.service_type, provider: cfgForm.provider, name: cfgForm.name || `${cfgForm.provider}-${cfgForm.service_type}`, api_key: cfgForm.api_key, base_url: cfgForm.base_url, model: models, priority: cfgForm.priority, temperature, enable_thinking: !!cfgForm.enable_thinking })
     cfgDialog.value = false; toast.success(t('common.saved')); loadCfgs()
   } catch (e) { toastError(e) }
 }
@@ -1903,4 +1914,8 @@ onBeforeUnmount(stopUsagePoll)
   background: var(--accent);
   transition: width 0.2s ease;
 }
+
+/* 2026-10-12：思考模式开关 */
+.switch-row { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+.switch-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent, #7c6cff); cursor: pointer; }
 </style>

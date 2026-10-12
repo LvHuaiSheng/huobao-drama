@@ -448,7 +448,12 @@
       "reachable": "Endpoint responded",
       "unreachable": "Endpoint failed the test",
       "providerRequired": "Select a provider",
-      "tempInvalid": "Temperature must be a number between 0 and 2"
+      "tempInvalid": "Temperature must be a number between 0 and 2",
+      "thinkingLabel": "Thinking mode",
+      "thinkingHint": "off = fastest",
+      "thinkingOn": "On (the model reasons before answering — slower)",
+      "thinkingOff": "Off (answers directly — fastest, recommended)",
+      "thinkingNote": "With thinking off the model emits no reasoning tokens and video-prompt generation is markedly faster. Turn it on only for tasks that need extra deliberation."
     },
     "styleDialog": {
       "editTitle": "Edit Style Preset",

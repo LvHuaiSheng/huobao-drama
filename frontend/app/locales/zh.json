@@ -448,7 +448,12 @@
       "reachable": "端点已响应",
       "unreachable": "端点未通过测试",
       "providerRequired": "选择服务商",
-      "tempInvalid": "Temperature 需为 0~2 的数字"
+      "tempInvalid": "Temperature 需为 0~2 的数字",
+      "thinkingLabel": "思考模式",
+      "thinkingHint": "关=最快",
+      "thinkingOn": "已开启（模型先思考再作答，较慢）",
+      "thinkingOff": "已关闭（直接作答，最快，推荐）",
+      "thinkingNote": "关掉后模型不产出思考过程，视频提示词生成明显更快；只有遇到\"要它多想一步\"的任务才需要打开。"
     },
     "styleDialog": {
       "editTitle": "编辑风格预设",
