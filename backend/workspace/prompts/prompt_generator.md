@@ -69,6 +69,7 @@ MiniMax H3 的 prompt 上限是 **7000 字符，这是官方 hard limit、不可
 - `overall_soundscape` ≤ 300（官方：1–4 句）
 - `non_diegetic_music` ≤ 120（官方：1–3 句；没有配乐写 `N/A`）
 - **合计 5720（+ 5 个换行 = 5725）≤ 6200 全文硬上限**
+- 🔴 **就按这六个数字写死**：`subject_definitions` 1700 / `summary` 340 / `retention_analysis` 760 / `detailed_description` 2500 / `overall_soundscape` 300 / `non_diegetic_music` 120 —— **后端正是按这六个数字逐段核定的**，别自己重新分配额度。
 **超了就砍，顺序**：① `summary` 的冗余从句 ② `overall_soundscape` 与正文重复的音效 ③ `subject_definitions` 的外观修饰词 ④ `detailed_description` 里重复的动作铺垫。
 **绝不许砍**：`<d>` 台词、`retention_analysis` 里每条 `fully_preserved`、`subject_definitions` 的 `<Picture N>` 与 `with` 外观。
    - **🔴 `<Picture N>` 编号 = `read_storyboard_context` 返回的 `reference_order` 表，逐条照抄（2026-10-10 立，实测事故）**：本管线的参考图顺序固定为 **场景第 1 张 → 角色（id 升序）→ 道具最后**（与 `@图片N` 注入顺序、RefMod 卡槽 `mod_N` 三者同号）。

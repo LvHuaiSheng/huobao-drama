@@ -59,8 +59,8 @@ export const PROMPT_HEAD_RESERVE = 32
 export function promptEnLimit(headLen: number): number {
   return Math.min(PROMPT_EN_LIMIT, H3_PROMPT_HARD_LIMIT - Math.max(0, headLen) - PROMPT_HEAD_RESERVE)
 }
-/** 每一层（整体生成 / 单组重写）的重试次数上限 */
-const MAX_SEG_RETRY = 3
+/** 重写轮数上限（2026-10-12 提速 A：合并重写后一轮 = 1 次请求，2 轮足够） */
+const MAX_SEG_RETRY = 2
 /** 「整体生成」的重试次数上限（2026-10-11 加）：模型偶尔只回一句开场白、不输出任何段名 */
 const MAX_FULL_RETRY = 3
 
@@ -265,6 +265,50 @@ ${extra ? `\n**压缩时仍必须继续满足补充说明**：${extra}\n` : ''}�
 ${current}`
 }
 
+/** 多组合并重写指令（2026-10-12 提速 A）：把所有超标的组**一次性**交给模型压到位。
+ *  原来是「每组各发一次请求」（3 组 × 最多 3 次 = 最多 9 次）→ 实测一个分镜要跑 8~12 次 LLM、
+ *  最坏 617 秒。合并后最多 MAX_SEG_RETRY 次请求，长度治理的目标/怎么压/必保项全在同一个 prompt 里。 */
+function buildRewriteMultiPrompt(
+  sb: { id: number; storyboardNumber: number | null },
+  items: Array<{ stage: { label: string; segs: string[]; limit: number }; current: string; problem: string }>,
+  attempt: number,
+  extra?: string,
+  zhPrompt?: string,
+): string {
+  const quotaLines = items
+    .map(it => `- 【${it.stage.label}】≤ ${it.stage.limit} 字符（组内逐段：${it.stage.segs
+      .map(s => `${s.replace(':', '')} ≤${(EN_SECTION_QUOTA.find(([k]) => k === s) || ['', 0])[1]}`)
+      .join(' / ')}）—— 现状：${it.problem}`)
+    .join('\n')
+  const zhTimeline = zhPrompt
+    ? (zhPrompt.match(/^\s*\d+\s*-\s*\d+\s*秒[：:].*$/gm) || []).join('\n')
+    : ''
+  const bodies = items.map(it => `【${it.stage.label} 原文】\n${it.current}`).join('\n\n')
+  return `分镜 #${sb.storyboardNumber}(ID:${sb.id}) 的 video_prompt_en 有 ${items.length} 组超标，**一次全部压到位**（第 ${attempt} 次合并压缩）。
+
+超标组与目标：
+${quotaLines}
+
+**怎么压（照做，这些都是安全的）**：
+1. 删修饰性形容词与程度词：\`wind-and-oil weathered wheat-toned skin\` → \`weathered skin\`；\`slightly\` / \`very\` / \`gently\` / \`faintly\` 一律删
+2. 同一件事只说一遍：retention_analysis 说过的保留项，detailed_description 里不再复述外观细节；画面里同一动作只写一次
+3. \`subject_definitions\` 每个主体只留 5~6 个辨识特征（脸型 / 发型 / 服装主色 / 关键道具），其余删
+4. \`retention_analysis\` 每条压成一句话：\`<Subject N> (appears in ...): fully_preserved - <一句>\`，不要重述外观细节
+5. 镜头描述去掉氛围补充：\`soft modelling\`、\`light level unchanged\`、\`consistent exposure\` 这类删掉
+6. \`overall_soundscape\` 只留 3~5 个主要音效，其余删
+7. 删掉所有重复的 "stays identical to the reference" 类尾句，保留一次即可
+
+**必须保留（砍了会穿帮）**：
+- <d>…</d> 里的台词原文（一个字都不能改）
+- 每个 Subject 的 fully_preserved 字样（retention 状态不能降级）
+- <Picture N> 编号（参考图绑定）
+- 主体编号与名称的对应关系
+${zhTimeline ? `\n**🔴 时间轴必须与中文工作版逐拍一致（压缩时不许改动任何秒数）**：\n${zhTimeline}\n` : ''}
+${extra ? `\n**压缩时仍必须继续满足补充说明**：${extra}\n` : ''}输出要求：**上面列出的每一组都要压到位**，按组输出、每组保留自己的段名行；**不要输出未列出的组**；不要解释、前言、结语；不要代码块围栏；不要调用任何保存工具。
+
+${bodies}`
+}
+
 /** 诊断日志：把每轮 Agent 的原始输出记到 data/debug/video-prompt.log，便于事后复盘 */
 export function debugLog(episodeId: number, sbId: number, tag: string, text: string, extra?: Record<string, unknown>) {
   try {
@@ -324,37 +368,47 @@ async function generateEnByStages(
     return { text: '', ok: false }
   }
 
-  // ② 逐组核定：超标/缺失的组单独重写（容错抽取：Agent 又输出全文也只取该组）
-  const failedStages: Array<{ key: string; problem: string }> = []
-  for (const stage of EN_STAGES) {
-    let cur = stage.segs.map(s => parts.get(s) || '').filter(Boolean).join('\n')
-    let problem = groupProblem(cur, stage)
-    for (let attempt = 0; problem && attempt < MAX_SEG_RETRY; attempt++) {
-      logTaskProgress('VideoPrompt', 'segment-retry', {
-        episodeId, storyboardId: sb.id, stage: stage.key, attempt: attempt + 1, problem, len: cur.length, limit: stage.limit,
-      })
-      const res = (await agent.generate(
-        [{ role: 'user', content: buildRewritePrompt(sb, stage, cur, problem, attempt + 1, extra, zhPrompt) }],
-        { maxSteps: 6, requestContext },
-      )) as { text?: string } | undefined
-      const raw = cleanSegText(res?.text || '')
-      debugLog(episodeId, sb.id, `rewrite-${stage.key}-${attempt + 1}`, raw, { under: raw.length <= stage.limit })
-      const got = extractSections(raw, stage.segs)
-      if (!got) continue   // Agent 没给全这几段 → 再来一次
-      cur = got
-      problem = groupProblem(cur, stage)
-    }
-    if (problem) {
-      // 不立刻放弃：记录这一组没压到位，继续处理其他组 —— 最后按「全文是否 ≤ 硬上限」
-      // 统一裁决（个别组略超自己的配额是可以容忍的，不该让整条作废）
-      failedStages.push({ key: stage.key, problem })
-      logTaskProgress('VideoPrompt', 'segment-over-quota', { episodeId, storyboardId: sb.id, stage: stage.key, problem })
-    }
-    // 核定后的组内容写回（没压到位也写回最后一次的输出，保证拼接时有内容）
-    for (const s of stage.segs) {
-      const one = extractSections(cur, [s])
+  // ② 逐组核定 → 超标组**一次性合并重写**（2026-10-12 提速 A）。
+  //    原来「每组各发一次请求」（3 组 × 最多 3 次 = 最多 9 次）→ 实测一个分镜 8~12 次 LLM、最坏 617 秒；
+  //    合并后最多 MAX_SEG_RETRY 次请求，长度治理的目标/怎么压/必保项仍全在同一个 prompt 里。
+  //    容错抽取不变：Agent 若又输出全文，只取需要的段；写回"最后一次输出"，保证拼接时有内容。
+  const writeBack = (raw: string, segs: string[]) => {
+    const got = extractSections(raw, segs)
+    if (!got) return
+    for (const s of segs) {
+      const one = extractSections(got, [s])
       if (one) parts.set(s, one)
     }
+  }
+  const checkStages = () => EN_STAGES
+    .map(stage => {
+      const cur = stage.segs.map(s => parts.get(s) || '').filter(Boolean).join('\n')
+      return { stage, cur, problem: groupProblem(cur, stage) }
+    })
+    .filter(x => x.problem)
+
+  let bad = checkStages()
+  for (let round = 0; bad.length && round < MAX_SEG_RETRY; round++) {
+    logTaskProgress('VideoPrompt', 'segment-retry', {
+      episodeId, storyboardId: sb.id, attempt: round + 1,
+      stages: bad.map(b => b.stage.key), problem: bad.map(b => b.problem).join(' | '),
+    })
+    const res = (await agent.generate(
+      [{ role: 'user', content: buildRewriteMultiPrompt(sb, bad, round + 1, extra, zhPrompt) }],
+      { maxSteps: 6, requestContext },
+    )) as { text?: string } | undefined
+    const raw = cleanSegText(res?.text || '')
+    debugLog(episodeId, sb.id, `rewrite-multi-${round + 1}`, raw, { groups: bad.map(b => b.stage.key) })
+    writeBack(raw, bad.flatMap(b => b.stage.segs))
+    bad = checkStages()
+  }
+  // 不立刻放弃：没压到位的组记下来，最后按「全文是否 ≤ 硬上限」统一裁决
+  //（个别组略超自己的配额可以容忍，不该让整条作废）
+  const failedStages: Array<{ key: string; problem: string }> = bad.map(b => ({ key: b.stage.key, problem: b.problem }))
+  if (failedStages.length) {
+    logTaskProgress('VideoPrompt', 'segment-over-quota', {
+      episodeId, storyboardId: sb.id, stages: failedStages.map(f => `${f.key}: ${f.problem}`),
+    })
   }
 
   // ③ 按文档顺序拼接 + 统一裁决

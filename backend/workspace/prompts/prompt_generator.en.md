@@ -61,7 +61,7 @@ General rules:
 The MiniMax H3 prompt limit is **7000 characters — an official hard limit that cannot be relaxed** (RunDiffusion / AtlasCloud / MiniMax official GitHub all state this), and the backend prepends a photorealistic style header before sending, so headroom is mandatory.
 **Going over means the request is rejected outright and no video is produced** (measured 2026-10-09: sb147 reached 7608 characters → 8403 after concatenation → error "prompt too long: MiniMax H3 limit 7000 characters, current 8403").
 
-Per-section quotas (allocate to these; count each section when done; **reconfigured 2026-10-10 evening to the official wording** — the self-added CAST/BLOCKING sections are gone, back to the official six):
+**Per-section quotas (🔴 write straight to these numbers — going over is SLOWER)**: the backend **measures each section** and **sends any oversize section back for a rewrite** (one storyboard can then burn 2–9 extra model calls, multiplying your wait). **Hitting the quota on the first pass is the fastest path.** Reconfigured 2026-10-10 evening to the official wording — the self-added CAST/BLOCKING sections are gone, back to the official six:
 - `subject_definitions` ≤ 1700
 - `summary` ≤ 340 (official: one short English paragraph)
 - `retention_analysis` ≤ 760

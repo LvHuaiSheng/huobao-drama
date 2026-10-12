@@ -167,7 +167,7 @@ Call `update_storyboard` to update only this storyboard segment's `video_prompt`
 The MiniMax H3 prompt limit is **7000 characters — an official hard limit that cannot be relaxed** (RunDiffusion / AtlasCloud / MiniMax official GitHub all state this), and the backend prepends a photorealistic style header before sending, so headroom is mandatory.
 **Going over means the request is rejected outright and no video is produced** (measured 2026-10-09: sb147 reached 7608 characters → 8403 after concatenation → error "prompt too long: MiniMax H3 limit 7000 characters, current 8403").
 
-Per-section quotas (allocate to these; count each section when done; reconfigured 2026-10-10 to official guidance):
+**Per-section quotas (🔴 write straight to these numbers — going over is SLOWER)**: the backend **measures each section** and **sends any oversize section back for a rewrite** (one storyboard can then burn 2–9 extra model calls, multiplying your wait). **Hitting the quota on the first pass is the fastest path.** Reconfigured 2026-10-10 to official guidance:
 - `subject_definitions` ≤ 1700
 - `summary` ≤ 340 (official: one short English paragraph)
 - `retention_analysis` ≤ 760
@@ -175,6 +175,7 @@ Per-section quotas (allocate to these; count each section when done; reconfigure
 - `overall_soundscape` ≤ 300 (official: 1–4 sentences)
 - `non_diegetic_music` ≤ 120 (official: 1–3 sentences; write `N/A` when absent)
 - **Total 5720 (+5 newlines = 5725) ≤ 6200 = the whole-prompt hard limit**
+- 🔴 **Write to exactly these six numbers**: `subject_definitions` 1700 / `summary` 340 / `retention_analysis` 760 / `detailed_description` 2500 / `overall_soundscape` 300 / `non_diegetic_music` 120 — **these are the numbers the backend measures each section against**; do not redistribute the budget yourself.
 **When over budget, cut in this order**: ① redundant clauses in `summary` ② `soundscape` effects already stated in the body ③ appearance modifiers in `subject_definitions` ④ filler action set-up duplicated in `detailed_description`.
 **Never cut**: `<d>` dialogue, any `fully_preserved` line in `retention_analysis`, `<Picture N>` and the `with` clause.
 
