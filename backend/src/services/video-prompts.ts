@@ -332,7 +332,7 @@ export function debugLog(episodeId: number, sbId: number, tag: string, text: str
 /** 生成完整 video_prompt_en：整体生成 → 逐组核定 → 只重写超标组 */
 async function generateEnByStages(
   agent: { generate: (m: unknown, o: unknown) => Promise<unknown> },
-  sb: { id: number; storyboardNumber: number | null },
+  sb: { id: number; storyboardNumber: number | null; description?: string | null },
   videoLabel: string,
   requestContext: unknown,
   episodeId: number,
@@ -442,7 +442,12 @@ async function generateEnByStages(
   }
 
   // ③ 按文档顺序拼接 + 统一裁决
+  // 2026-10-12：拼装时剥掉「【…】」分组标题行 —— 那些是后端重写指令里的分组标题
+  //（EN_STAGES 的 label），模型会照抄进正文（实测 sb356/分镜9 混进 2 行），必须一律清掉。
   const assemble = () => EN_SECTION_QUOTA.map(([s]) => parts.get(s) || '').filter(Boolean).join('\n')
+    .replace(/^[ \t]*【[^】]{2,60}】[ \t]*$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
   let text = assemble()
   debugLog(episodeId, sb.id, 'assembled', text, {
     segments: EN_SECTION_QUOTA.filter(([s]) => parts.get(s)).length,
@@ -500,6 +505,38 @@ async function generateEnByStages(
     return { text: '', ok: false }
   }
 
+  // ③.3 英文版拍数硬校验（2026-10-12 加）：中文工作版早就有这道闸，英文版一直没有 →
+  //      实测 sb356(分镜9) description 只有 2 个【镜头】，英文版却写了 3 拍（0-3/3-6/6-9），
+  //      成片会多切一刀（假切点复发）。不符就带「必须 N 拍、上一版 M 拍」重写，最多 2 轮；
+  //      只有拿到完整六段才整份替换（拿不全就保留原版，避免越改越坏）。
+  const expBeats = ((sb.description || '').match(/【镜头/g) || []).length
+  if (expBeats) {
+    for (let round = 0; round < 2; round++) {
+      const gotBeats = countEnBeats(text)
+      if (gotBeats === expBeats) break
+      logTaskProgress('VideoPrompt', 'en-beat-count-retry', {
+        episodeId, storyboardId: sb.id, round: round + 1, expected: expBeats, got: gotBeats,
+      })
+      const res = (await agent.generate(
+        [{ role: 'user', content: buildBeatFixPrompt(sb, text, expBeats, gotBeats) }],
+        { maxSteps: 6, requestContext },
+      )) as { text?: string } | undefined
+      const raw = cleanSegText(res?.text || '')
+      debugLog(episodeId, sb.id, `beat-fix-${round + 1}`, raw, { expected: expBeats, got: gotBeats })
+      const got = splitEnSections(raw)
+      if (EN_SECTION_QUOTA.every(([k]) => got.get(k))) {
+        for (const [k, v] of got) parts.set(k, v)
+        text = assemble()
+      }
+    }
+    const finalBeats = countEnBeats(text)
+    if (finalBeats !== expBeats) {
+      logTaskProgress('VideoPrompt', 'en-beat-count-unresolved', {
+        episodeId, storyboardId: sb.id, expected: expBeats, got: finalBeats,
+      })
+    }
+  }
+
   const under = text.length > 0 && text.length <= budget.limit
   if (!text) {
     logTaskError('VideoPrompt', 'segment-give-up', { episodeId, storyboardId: sb.id, stage: 'all', error: '拼接结果为空' })
@@ -521,6 +558,32 @@ async function generateEnByStages(
     })
   }
   return { text, ok: true }
+}
+
+/** 统计英文版的拍数（`[Shot N]` 个数） */
+function countEnBeats(en: string): number {
+  return (en.match(/\[Shot \d+\]/g) || []).length
+}
+
+/** 英文版拍数不符时的重写指令（2026-10-12 加）：
+ *  要求「输出完整六段」，这样后端能整份替换、不会越改越坏。 */
+function buildBeatFixPrompt(
+  sb: { id: number; storyboardNumber: number | null },
+  current: string,
+  expected: number,
+  got: number,
+): string {
+  return `分镜 #${sb.storyboardNumber}(ID:${sb.id}) 的 video_prompt_en **拍数不对**。
+
+🔴🔴 这个分镜的 description 里有 **${expected} 个【镜头N】** → 英文版必须**正好写 ${expected} 拍**（${expected} 个 \`[Shot N]\`）。
+你现在写了 **${got} 拍** —— 多出来的是把「同一机位/同一景别、只是运镜延续（继续推近／继续横移／静止→横移）」拆成了两拍。
+
+**怎么改**：把这种相邻两拍**合并成一拍** —— 切镜与随后的运镜写在**同一个** \`[Shot N]\` 里（例：\`[Shot 2] At 00:04.000, the camera cuts to a close-up and then pushes in slowly to chest-up\`）。**不要用删台词、删镜头内容、或把两拍挤成一句的方式凑数**；时间戳按合并后的真实节奏重排（第 1 拍不带时间戳）。
+
+**输出要求**：输出**完整六段**（\`subject_definitions:\` / \`summary:\` / \`retention_analysis:\` / \`detailed_description:\` / \`overall_soundscape:\` / \`non_diegetic_music:\`，段名与顺序不变），**除拍结构外其余内容一字不改**；不要解释、前言、结语；不要代码块围栏；不要调用任何保存工具。
+
+【当前版本】
+${current}`
 }
 
 /** 统计中文工作版的拍数（`X-Y秒：` 行数） */
