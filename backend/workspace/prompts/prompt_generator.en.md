@@ -69,6 +69,7 @@ The MiniMax H3 prompt limit is **7000 characters — an official hard limit that
 - `overall_soundscape` ≤ 300 (official: 1–4 sentences)
 - `non_diegetic_music` ≤ 120 (official: 1–3 sentences; write `N/A` when there is no score)
 - **Total 5720 (+ 5 newlines = 5725) ≤ 6200 = the hard full-prompt limit**
+- 🔴 **Write to exactly these six numbers**: `subject_definitions` 1700 / `summary` 340 / `retention_analysis` 760 / `detailed_description` 2500 / `overall_soundscape` 300 / `non_diegetic_music` 120 — **these are the numbers the backend measures each section against**; do not redistribute the budget yourself.
 **Never cut**: `<d>` dialogue, every `fully_preserved` line in `retention_analysis`, the `<Picture N>` and `with` clause in `subject_definitions`.
 
 Six section names, fixed order, one per line:
