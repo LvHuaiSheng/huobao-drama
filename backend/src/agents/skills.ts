@@ -119,7 +119,22 @@ async function readLocalizedSkill(relPath: string, lang: string): Promise<string
  *  因此设置页新建的子技能（如 storyboard-breaker/xxx）无需改代码即可生效。
  *  lang 非 zh 时逐技能优先 SKILL.<lang>.md，缺失回退基础版（中文）
  *  only 非空时只注入列表里的技能路径（按需注入，见 context.ts 的 promptTask） */
-export async function loadAgentSkills(agentType: string, lang?: string | null, only?: string[]): Promise<string> {
+/**
+ * 按阶段过滤技能正文（2026-10-12 加，提速）：
+ * 技能文件里用 <!--stage:zh-->…<!--/stage:zh--> / <!--stage:en-->…<!--/stage:en--> 圈出
+ * 「只对某个阶段有用」的段落。生成中文工作版时不需要英文六段细则、反之亦然 ——
+ * 实测中文技能里「英文发送版」一节占 16.8K 字符（占技能 70%），两次生成却各读一遍。
+ * 无标记或未指定 stage → 原样返回（向后兼容）。
+ */
+function filterByStage(body: string, stage?: 'zh' | 'en'): string {
+  if (!stage || !body.includes('<!--stage:')) return body
+  const other = stage === 'zh' ? 'en' : 'zh'
+  const re = new RegExp(`<!--stage:${other}-->[\\s\\S]*?<!--/stage:${other}-->`, 'g')
+  const out = body.replace(re, '').replace(/<!--\/?stage:(zh|en)-->/g, '')
+  return out.replace(/\n{3,}/g, '\n\n').trim()
+}
+
+export async function loadAgentSkills(agentType: string, lang?: string | null, only?: string[], stage?: 'zh' | 'en'): Promise<string> {
   const workspace = skillWorkspaces[agentType]
   const prefixes = AGENT_SKILL_MAP[agentType] || []
   if (!workspace || !prefixes.length) return ''
@@ -139,7 +154,7 @@ export async function loadAgentSkills(agentType: string, lang?: string | null, o
       const skill = await workspace.skills?.get(`skills/${relPath}`)
       body = skill?.instructions?.trim()
     }
-    if (body) contents.push(formatSkillSection(relPath, body))
+    if (body) contents.push(formatSkillSection(relPath, filterByStage(body, stage)))
   }
 
   if (!contents.length) return ''

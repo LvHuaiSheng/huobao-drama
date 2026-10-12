@@ -17,6 +17,9 @@ export interface AgentRequestContextValues {
    *  ≈3 万 tokens，其中约 40% 与本次任务无关 —— 既慢、又稀释模型对关键规则的注意力）。
    *  不设时保持旧行为（全量注入），裸 Agent 聊天走这条。 */
   promptTask?: 'image' | 'video'
+  /** 视频提示词的生成阶段（2026-10-12 加）：'zh' = 中文工作版，'en' = 英文发送版。
+   *  仅用于按阶段裁剪技能正文（技能里 <!--stage:en--> 那段 16.8K 字符只对英文版有用）。 */
+  promptStage?: 'zh' | 'en'
 }
 
 export function buildAgentRequestContext(values: AgentRequestContextValues): RequestContext<AgentRequestContextValues> {
@@ -26,6 +29,7 @@ export function buildAgentRequestContext(values: AgentRequestContextValues): Req
   if (values.modelOverride) rc.set('modelOverride', values.modelOverride)
   if (values.textConfigId) rc.set('textConfigId', values.textConfigId)
   if (values.promptTask) rc.set('promptTask', values.promptTask)
+  if (values.promptStage) rc.set('promptStage', values.promptStage)
   // 语言在构建处统一解析：4 条链路（chat/提取/图片提示词/视频提示词）都经过这里，
   // 全局设置一处生效；显式传入 values.language 可按请求覆盖
   rc.set('language', values.language ?? getContentLanguage())
@@ -46,4 +50,10 @@ export function getDramaId(requestContext: RequestContext | undefined): number |
 export function getContentLanguageFromRC(requestContext: RequestContext | undefined): ContentLanguage | null {
   const v = requestContext?.get('language' as never)
   return typeof v === 'string' && v ? (v as ContentLanguage) : null
+}
+
+/** 读取请求上下文中的视频提示词阶段；未设置返回 null（调用方按"不裁剪"处理） */
+export function getPromptStage(requestContext: RequestContext | undefined): 'zh' | 'en' | null {
+  const v = requestContext?.get('promptStage' as never)
+  return v === 'zh' || v === 'en' ? v : null
 }

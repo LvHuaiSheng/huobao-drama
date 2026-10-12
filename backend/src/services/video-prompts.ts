@@ -340,6 +340,9 @@ async function generateEnByStages(
   zhPrompt?: string,
   budget: { limit: number; headLen: number } = { limit: PROMPT_EN_LIMIT, headLen: 0 },
 ): Promise<{ text: string; ok: boolean }> {
+  // 2026-10-12：本函数全程走英文发送版 —— 标记阶段，让技能注入保留共享段 + 英文专用段
+  requestContext?.set?.('promptStage' as never, 'en' as never)
+
   // ① 整体生成：**空转可重试**（2026-10-11 加）。
   //    原注释说「不做整体重试」——那条经验只对"写得不够短要压缩"成立（重试长度几乎一样，
   //    真正有效的是下面「按组局部重写」）。但实测（sb339）模型会只回一句开场白
@@ -628,7 +631,9 @@ export async function startVideoPromptBatch(
       logTaskProgress('VideoPrompt', 'batch-shot', { episodeId, storyboardId: sb.id, index: task.completed + task.failed + 1, total: task.total })
       try {
         // 1) 中文工作版（**先生成** —— 它是本次时间轴的基准，英文版必须逐拍对齐它）
-        const zh = await generateZhPrompt(agent, sb, videoLabel, requestContext, opts.extra)
+        // 2026-10-12：标记阶段 —— 中文工作版不需要技能里「英文发送版」那 16.8K 细则，注入时裁掉
+  requestContext?.set?.('promptStage' as never, 'zh' as never)
+  const zh = await generateZhPrompt(agent, sb, videoLabel, requestContext, opts.extra)
         if (!zh) {
           task.failed++
           logTaskError('VideoPrompt', 'batch-shot', { storyboardId: sb.id, error: '中文工作版生成为空' })

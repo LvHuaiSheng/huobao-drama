@@ -150,6 +150,7 @@ description: 视频提示词规范 — 根据分镜段落内容生成按时间�
 
 调用 `update_storyboard` 仅更新该分镜段落的 `video_prompt` 字段，不要改动其他字段，不要重新拆分整集。
 
+<!--stage:en-->
 ## 英文发送版（H3 官方 Ref2VA 六段）— 2026-10-09 立规
 
 `video_prompt_en` 是**真正发给视频模型的那一份**，规则来源 = MiniMax 官方 H3 提示词写作指南（Ref2VA 全参考模式改写输出格式）。**除对话、歌词与画面内可见文字外全部英文。**
@@ -299,3 +300,4 @@ non_diegetic_music:
 - **⑫ 高速动作会被抹平变慢**（作者实测：快速手部动作 / 打斗 / 快舞被抹成又慢又软，因为参考被压成少量 latent 帧）—— 分镜应**避免高速动作**；若 `description` 里确有快速动作，提示词**要用文字描述该动作**给模型锚点。
 
 **保存前自检**：官方六段名齐全且顺序对 / **道具表面文字没写内容**（只出现 `the printed side`/载体+动作这类说法，**没有**任何引号里的纸面文字原文） / 每行 `subject_definitions` 都有 `<Picture N>` + `with` 外观 / `retention_analysis` 无 `(Sx)` / 台词**全句**逐字来自 description（无截断改写，删句已标注）/ 旁白者指定为画面里某个角色且声音卡写成 `<Subject N>'s off-screen narration` / 锁嘴紧贴在 `<d>` 台词旁（没隔动作描写）/ `Same exposure...` 只在风格句出现一次（没每拍复读）/ 正文英文（除 `<d>` 与画面文字）
+<!--/stage:en-->

@@ -408,7 +408,11 @@ function buildInstructions(type: string) {
       : task === 'video'
         ? ['prompt-generator/video-prompt']
         : ['prompt-generator/character-prompt', 'prompt-generator/scene-prompt', 'prompt-generator/prop-prompt']
-    const skillInstructions = await loadAgentSkills(type, lang, onlySkills)
+    // 2026-10-12 按阶段裁剪：生成中文工作版/英文发送版时只注入各自用得上的那部分技能
+    const stage = type === 'prompt_generator' && task === 'video'
+      ? (requestContext?.get('promptStage' as never) as 'zh' | 'en' | undefined)
+      : undefined
+    const skillInstructions = await loadAgentSkills(type, lang, onlySkills, stage)
     // 2026-10-11 项目画风规范注入（图片任务 + 视频任务都注入）：
     // 实测结论 —— 风格头（保存/发送时拼在提示词最前方）改不动画风，头/尾/夹击都试过、无差别；
     // 只有「正文本身用该画风的介质语言写」才真的锁得住。而正文是 Agent 写的、Agent 原本看不到
