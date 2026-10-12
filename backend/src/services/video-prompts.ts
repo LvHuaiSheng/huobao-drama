@@ -276,9 +276,14 @@ function buildRewriteMultiPrompt(
   zhPrompt?: string,
 ): string {
   const quotaLines = items
-    .map(it => `- 【${it.stage.label}】≤ ${it.stage.limit} 字符（组内逐段：${it.stage.segs
-      .map(s => `${s.replace(':', '')} ≤${(EN_SECTION_QUOTA.find(([k]) => k === s) || ['', 0])[1]}`)
-      .join(' / ')}）—— 现状：${it.problem}`)
+    .map(it => {
+      const quota = it.stage.segs
+        .map(s => `${s.replace(':', '')} ≤${(EN_SECTION_QUOTA.find(([k]) => k === s) || ['', 0])[1]}`)
+        .join(' / ')
+      // 缺段 ≠ 超标：缺段要「补写」，只喊压缩它救不回来（实测 sb354 缺 subject_definitions 后仍缺）
+      const verb = /缺少|没有内容/.test(it.problem) ? `🔴 **这一段是缺失的，请补写它**（段名 + 完整内容）` : '压缩'
+      return `- 【${it.stage.label}】${verb}｜目标 ≤ ${it.stage.limit} 字符（组内逐段：${quota}）—— 现状：${it.problem}`
+    })
     .join('\n')
   const zhTimeline = zhPrompt
     ? (zhPrompt.match(/^\s*\d+\s*-\s*\d+\s*秒[：:].*$/gm) || []).join('\n')
@@ -304,7 +309,7 @@ ${quotaLines}
 - <Picture N> 编号（参考图绑定）
 - 主体编号与名称的对应关系
 ${zhTimeline ? `\n**🔴 时间轴必须与中文工作版逐拍一致（压缩时不许改动任何秒数）**：\n${zhTimeline}\n` : ''}
-${extra ? `\n**压缩时仍必须继续满足补充说明**：${extra}\n` : ''}输出要求：**上面列出的每一组都要压到位**，按组输出、每组保留自己的段名行；**不要输出未列出的组**；不要解释、前言、结语；不要代码块围栏；不要调用任何保存工具。
+${extra ? `\n**压缩时仍必须继续满足补充说明**：${extra}\n` : ''}输出要求：**上面列出的每一组都要处理到位**（标了「补写」的写全，其余压到配额内），按组输出、每组保留自己的段名行；**不要输出未列出的组**；不要解释、前言、结语；不要代码块围栏；不要调用任何保存工具。
 
 ${bodies}`
 }
@@ -355,7 +360,9 @@ async function generateEnByStages(
       under: full.length <= budget.limit,
       sections: parts.size,
     })
-    if (parts.size) break
+    // 2026-10-12：判据从「切出任何一段」改成「**六段齐**」——实测（sb354）模型首轮只输出 5 段
+    //（漏 subject_definitions），旧的「有段就 break」会让残废输出过关，最后被视频侧拒发。
+    if (parts.size >= EN_SECTION_QUOTA.length) break
     logTaskProgress('VideoPrompt', 'full-retry', {
       episodeId, storyboardId: sb.id, attempt, len: full.length, head: full.slice(0, 60),
     })
@@ -368,10 +375,7 @@ async function generateEnByStages(
     return { text: '', ok: false }
   }
 
-  // ② 逐组核定 → 超标组**一次性合并重写**（2026-10-12 提速 A）。
-  //    原来「每组各发一次请求」（3 组 × 最多 3 次 = 最多 9 次）→ 实测一个分镜 8~12 次 LLM、最坏 617 秒；
-  //    合并后最多 MAX_SEG_RETRY 次请求，长度治理的目标/怎么压/必保项仍全在同一个 prompt 里。
-  //    容错抽取不变：Agent 若又输出全文，只取需要的段；写回"最后一次输出"，保证拼接时有内容。
+  /** 容错写回：Agent 若又输出全文，只取需要的段 */
   const writeBack = (raw: string, segs: string[]) => {
     const got = extractSections(raw, segs)
     if (!got) return
@@ -380,6 +384,29 @@ async function generateEnByStages(
       if (one) parts.set(s, one)
     }
   }
+
+  // ①.5 缺段补写（2026-10-12 加）：首轮可能整段漏掉（模型直接从 summary: 开始写）。
+  //      缺段不是"超标"，压缩指令救不回来 → 单独一次「补写」请求；最多 2 轮。
+  const missingSegs = () => EN_SECTION_QUOTA.map(([s]) => s).filter(s => !parts.get(s))
+  for (let round = 0; missingSegs().length && round < 2; round++) {
+    const miss = missingSegs()
+    logTaskProgress('VideoPrompt', 'segment-missing', { episodeId, storyboardId: sb.id, round: round + 1, missing: miss })
+    const res = (await agent.generate(
+      [{ role: 'user', content: buildRewriteMultiPrompt(sb, miss.map(s => {
+        const stage = EN_STAGES.find(st => st.segs.includes(s)) || EN_STAGES[0]
+        return { stage, current: '', problem: `缺少这一段：${s}` }
+      }), round + 1, extra, zhPrompt) }],
+      { maxSteps: 6, requestContext },
+    )) as { text?: string } | undefined
+    const raw = cleanSegText(res?.text || '')
+    debugLog(episodeId, sb.id, `write-missing-${round + 1}`, raw, { missing: miss })
+    writeBack(raw, miss)
+  }
+
+  // ② 逐组核定 → 超标组**一次性合并重写**（2026-10-12 提速 A）。
+  //    原来「每组各发一次请求」（3 组 × 最多 3 次 = 最多 9 次）→ 实测一个分镜 8~12 次 LLM、最坏 617 秒；
+  //    合并后最多 MAX_SEG_RETRY 次请求，长度治理的目标/怎么压/必保项仍全在同一个 prompt 里。
+  //    容错抽取不变：Agent 若又输出全文，只取需要的段；写回"最后一次输出"，保证拼接时有内容。
   const checkStages = () => EN_STAGES
     .map(stage => {
       const cur = stage.segs.map(s => parts.get(s) || '').filter(Boolean).join('\n')
@@ -456,6 +483,18 @@ async function generateEnByStages(
     if (problem) {
       logTaskProgress('VideoPrompt', 'zh-en-unresolved', { episodeId, storyboardId: sb.id, problem })
     }
+  }
+
+  // ③.2 六段齐全闸（2026-10-12 加）：缺任一段 = 残废提示词，绝不能落库 ——
+  //      以前拼装是 `parts.get(段名) || ''` 静默跳过，结果 5 段提示词进了库，
+  //      直到"生成视频"那一步才被拒（sb354 分镜7 实测：报「不是六段式，已拒绝发」）。
+  const stillMissing = EN_SECTION_QUOTA.map(([s]) => s).filter(s => !parts.get(s))
+  if (stillMissing.length) {
+    logTaskError('VideoPrompt', 'segment-give-up', {
+      episodeId, storyboardId: sb.id, stage: 'six-sections',
+      error: `六段不全，缺：${stillMissing.join(' ')}（补写与重写都没救回来）`,
+    })
+    return { text: '', ok: false }
   }
 
   const under = text.length > 0 && text.length <= budget.limit
