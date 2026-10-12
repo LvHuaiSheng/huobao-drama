@@ -1,3 +1,4 @@
+import { filterByStage } from './skills.js'
 /**
  * Agent prompt 文件加载 — workspace/prompts/<agent_type>.md
  * 文件格式（参照 SKILL.md 惯例）：
@@ -66,10 +67,13 @@ export function loadBasePromptFile(agentType: string): Promise<AgentPromptFile |
  * 读取 Agent 的 prompt 文件；lang 非 zh 时优先语言变体（<type>.<lang>.md），缺失回退基础版。
  * 变体的 model 字段无效：返回时 model 始终取基础版的值。
  */
-export async function loadAgentPromptFile(agentType: string, lang?: string | null): Promise<AgentPromptFile | null> {
+export async function loadAgentPromptFile(agentType: string, lang?: string | null, stage?: 'zh' | 'en'): Promise<AgentPromptFile | null> {
   const base = await loadBasePromptFile(agentType)
-  if (!lang || lang === 'zh') return base
+  // 2026-10-12：按生成阶段裁剪（流程单里 <!--stage:en--> 那段只对英文发送版有用，10.4K 字符）
+  const cut = (f: AgentPromptFile | null): AgentPromptFile | null =>
+    f && stage ? { ...f, instructions: filterByStage(f.instructions || '', stage) } : f
+  if (!lang || lang === 'zh') return cut(base)
   const localized = await readPromptFile(promptFilePath(agentType, lang))
-  if (!localized) return base
-  return { ...localized, model: base?.model || '' }
+  if (!localized) return cut(base)
+  return cut({ ...localized, model: base?.model || '' })
 }

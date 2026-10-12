@@ -396,7 +396,11 @@ function buildInstructions(type: string) {
   return async ({ requestContext }: { requestContext?: RequestContext }) => {
     const defaults = DEFAULT_PROMPTS[type]
     const lang = getContentLanguageFromRC(requestContext)
-    const promptFile = await loadAgentPromptFile(type, lang)
+    // 2026-10-12：视频任务按阶段（中文工作版/英文发送版）裁剪技能与流程单注入
+    const vstage = type === 'prompt_generator' && (requestContext?.get('promptTask' as never) === 'video')
+      ? (requestContext?.get('promptStage' as never) as 'zh' | 'en' | undefined)
+      : undefined
+    const promptFile = await loadAgentPromptFile(type, lang, vstage)
     const baseInstructions = promptFile?.instructions || defaults.instructions
     // 2026-10-10 按需注入：prompt_generator 同时管「图片提示词」与「视频提示词」两类任务，
     // 但一次请求只做其中一类。旧行为把 4 个技能全文（92KB ≈3 万 tokens）全塞进去，
@@ -409,10 +413,7 @@ function buildInstructions(type: string) {
         ? ['prompt-generator/video-prompt']
         : ['prompt-generator/character-prompt', 'prompt-generator/scene-prompt', 'prompt-generator/prop-prompt']
     // 2026-10-12 按阶段裁剪：生成中文工作版/英文发送版时只注入各自用得上的那部分技能
-    const stage = type === 'prompt_generator' && task === 'video'
-      ? (requestContext?.get('promptStage' as never) as 'zh' | 'en' | undefined)
-      : undefined
-    const skillInstructions = await loadAgentSkills(type, lang, onlySkills, stage)
+    const skillInstructions = await loadAgentSkills(type, lang, onlySkills, vstage)
     // 2026-10-11 项目画风规范注入（图片任务 + 视频任务都注入）：
     // 实测结论 —— 风格头（保存/发送时拼在提示词最前方）改不动画风，头/尾/夹击都试过、无差别；
     // 只有「正文本身用该画风的介质语言写」才真的锁得住。而正文是 Agent 写的、Agent 原本看不到

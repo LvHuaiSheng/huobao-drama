@@ -126,7 +126,7 @@ async function readLocalizedSkill(relPath: string, lang: string): Promise<string
  * 实测中文技能里「英文发送版」一节占 16.8K 字符（占技能 70%），两次生成却各读一遍。
  * 无标记或未指定 stage → 原样返回（向后兼容）。
  */
-function filterByStage(body: string, stage?: 'zh' | 'en'): string {
+export function filterByStage(body: string, stage?: 'zh' | 'en'): string {
   if (!stage || !body.includes('<!--stage:')) return body
   const other = stage === 'zh' ? 'en' : 'zh'
   const re = new RegExp(`<!--stage:${other}-->[\\s\\S]*?<!--/stage:${other}-->`, 'g')
