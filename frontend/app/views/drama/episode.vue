@@ -3134,17 +3134,28 @@ function taskCreatedAt(t) { return t?.created_at || t?.createdAt || '' }
 function isCurrentVideo(t) { const p = taskVideoPath(t); return !!p && p === getVideoUrl(selectedSb.value) }
 
 async function loadSbVideoHistory() {
-  previewVideoUrl.value = ''
-  if (!selectedSb.value?.id) { sbVideoHistory.value = []; return }
+  if (!selectedSb.value?.id) { sbVideoHistory.value = []; previewVideoUrl.value = ''; return }
   try {
     const rows = await taskAPI.list({ type: 'video', storyboard_id: selectedSb.value.id })
     sbVideoHistory.value = (Array.isArray(rows) ? rows : [])
       .filter(t => t.status === 'completed' && taskVideoPath(t))
       .sort((a, b) => taskCreatedAt(b).localeCompare(taskCreatedAt(a)))
+    // 正在预览的那条若已不在列表里（被删掉 / 记录没了）→ 退回主视频，别去播一个不存在的文件
+    if (previewVideoUrl.value && !sbVideoHistory.value.some(h => taskVideoPath(h) === previewVideoUrl.value)) {
+      previewVideoUrl.value = ''
+    }
   } catch { sbVideoHistory.value = [] }
 }
 
-watch(() => [selectedSb.value?.id, getVideoUrl(selectedSb.value)], () => { loadSbVideoHistory() })
+// ⚠️ 必须用**原始值**的多源写法（id / url 字符串），不能写成 `() => [id, url]` 那种单 getter 返回数组：
+// 数组每次求值都是新对象，refresh() 把 selectedSb 换成新对象（id/url 其实没变）也会被判成"变了"，
+// 于是重跑下面的回调、把刚点开的历史视频重置回当前主视频 ——
+// 用户 2026-10-12 报的就是这个：「历史视频里点击非当前视频会自动切回当前视频」。
+// 现在只在「真的换了分镜」或「主视频真的换了」时才清掉预览。
+watch([() => selectedSb.value?.id, () => getVideoUrl(selectedSb.value)], () => {
+  previewVideoUrl.value = ''
+  loadSbVideoHistory()
+})
 
 // 2026-10-09：切换分镜时收起英文版（英文区是按分镜的，别把上一条的展开状态带过来）
 watch(() => selectedSb.value?.id, () => { showVideoPromptEn.value = false })
