@@ -441,6 +441,7 @@ async function generateZhPrompt(
   sb: { id: number; storyboardNumber: number | null; description?: string | null },
   videoLabel: string,
   requestContext: unknown,
+  extra?: string,
 ): Promise<string> {
   const expected = ((sb.description || '').match(/【镜头/g) || []).length
   let last = ''
@@ -457,7 +458,7 @@ async function generateZhPrompt(
         {
           role: 'user',
           content: `请为分镜 #${sb.storyboardNumber}(ID:${sb.id})生成中文工作版视频提示词(video_prompt)。视频模型:${videoLabel},请根据该模型的特性和时长限制生成。
-请先调用 read_storyboard_context 获取该分镜的画面描述(含【镜头N】子镜头与台词/旁白)、氛围及时长。${rule}
+请先调用 read_storyboard_context 获取该分镜的画面描述(含【镜头N】子镜头与台词/旁白)、氛围及时长。${rule}${extra ? `\n\n【补充说明 — 必须在生成时逐条满足】\n${extra}\n（若该分镜已有 video_prompt，请在其基础上按补充说明改写，不要把补充说明当新剧情编造。）` : ''}
 这份是给人看的工作版（不直接发给视频模型，无长度限制），写法见 video-prompt 技能的中文工作版章节。
 **只输出正文**：不要输出解释、前言、结语；不要用代码块围栏；不要调用任何保存工具。`,
         },
@@ -534,7 +535,7 @@ export async function startVideoPromptBatch(
       logTaskProgress('VideoPrompt', 'batch-shot', { episodeId, storyboardId: sb.id, index: task.completed + task.failed + 1, total: task.total })
       try {
         // 1) 中文工作版（**先生成** —— 它是本次时间轴的基准，英文版必须逐拍对齐它）
-        const zh = await generateZhPrompt(agent, sb, videoLabel, requestContext)
+        const zh = await generateZhPrompt(agent, sb, videoLabel, requestContext, opts.extra)
         if (!zh) {
           task.failed++
           logTaskError('VideoPrompt', 'batch-shot', { storyboardId: sb.id, error: '中文工作版生成为空' })
