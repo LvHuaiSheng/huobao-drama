@@ -455,9 +455,56 @@ async function generateEnByStages(
     failedStages: failedStages.map(f => f.key),
   })
 
+  // ③.2 六段齐全闸（2026-10-12 加）：缺任一段 = 残废提示词，绝不能落库 ——
+  //      以前拼装是 `parts.get(段名) || ''` 静默跳过，结果 5 段提示词进了库，
+  //      直到"生成视频"那一步才被拒（sb354 分镜7 实测：报「不是六段式，已拒绝发」）。
+  const stillMissing = EN_SECTION_QUOTA.map(([s]) => s).filter(s => !parts.get(s))
+  if (stillMissing.length) {
+    logTaskError('VideoPrompt', 'segment-give-up', {
+      episodeId, storyboardId: sb.id, stage: 'six-sections',
+      error: `六段不全，缺：${stillMissing.join(' ')}（补写与重写都没救回来）`,
+    })
+    return { text: '', ok: false }
+  }
+
+  // ③.3 英文版拍数硬校验（2026-10-12 加）：中文工作版早就有这道闸，英文版一直没有 →
+  //      实测 sb356(分镜9) description 只有 2 个【镜头】，英文版却写了 3 拍（0-3/3-6/6-9），
+  //      成片会多切一刀（假切点复发）。不符就带「必须 N 拍、上一版 M 拍」重写，最多 2 轮；
+  //      只有拿到完整六段才整份替换（拿不全就保留原版，避免越改越坏）。
+  const expBeats = ((sb.description || '').match(/【镜头/g) || []).length
+  if (expBeats) {
+    for (let round = 0; round < 2; round++) {
+      const gotBeats = countEnBeats(text)
+      if (gotBeats === expBeats) break
+      logTaskProgress('VideoPrompt', 'en-beat-count-retry', {
+        episodeId, storyboardId: sb.id, round: round + 1, expected: expBeats, got: gotBeats,
+      })
+      const res = (await agent.generate(
+        [{ role: 'user', content: buildBeatFixPrompt(sb, text, expBeats, gotBeats, extra, zhPrompt) }],
+        { maxSteps: 6, requestContext },
+      )) as { text?: string } | undefined
+      const raw = cleanSegText(res?.text || '')
+      debugLog(episodeId, sb.id, `beat-fix-${round + 1}`, raw, { expected: expBeats, got: gotBeats })
+      const got = splitEnSections(raw)
+      if (EN_SECTION_QUOTA.every(([k]) => got.get(k))) {
+        for (const [k, v] of got) parts.set(k, v)
+        text = assemble()
+      }
+    }
+    const finalBeats = countEnBeats(text)
+    if (finalBeats !== expBeats) {
+      logTaskProgress('VideoPrompt', 'en-beat-count-unresolved', {
+        episodeId, storyboardId: sb.id, expected: expBeats, got: finalBeats,
+      })
+    }
+  }
+
   // ③.5 中英一致性程序校验（时间轴逐拍对齐 / 台词条数一致 / 无 HTML 实体）
   //      不合格 → 自动重写对应的组（时间轴/台词在 detail 组；HTML 实体在它出现的组），
   //      最多 2 轮；仍不达标则留痕放行（不硬拦，避免像 sb147 那样卡死）
+  //      2026-10-12 挪到「③.3 拍数修复」**之后**（原来在它之前）：拍数修复会重写时间戳，
+  //      先跑校验会被它推翻 → 结构先定、时间轴最后过闸（实测 sb362：中文 2 秒起、
+  //      英文被拍数修复改成 At 00:04.000，而校验是在改写之前跑的，没人复核）。
   {
     let problem = zhEnConsistency(text, zhPrompt)
     for (let attempt = 0; problem && attempt < 2; attempt++) {
@@ -491,48 +538,11 @@ async function generateEnByStages(
     if (problem) {
       logTaskProgress('VideoPrompt', 'zh-en-unresolved', { episodeId, storyboardId: sb.id, problem })
     }
-  }
-
-  // ③.2 六段齐全闸（2026-10-12 加）：缺任一段 = 残废提示词，绝不能落库 ——
-  //      以前拼装是 `parts.get(段名) || ''` 静默跳过，结果 5 段提示词进了库，
-  //      直到"生成视频"那一步才被拒（sb354 分镜7 实测：报「不是六段式，已拒绝发」）。
-  const stillMissing = EN_SECTION_QUOTA.map(([s]) => s).filter(s => !parts.get(s))
-  if (stillMissing.length) {
-    logTaskError('VideoPrompt', 'segment-give-up', {
-      episodeId, storyboardId: sb.id, stage: 'six-sections',
-      error: `六段不全，缺：${stillMissing.join(' ')}（补写与重写都没救回来）`,
-    })
-    return { text: '', ok: false }
-  }
-
-  // ③.3 英文版拍数硬校验（2026-10-12 加）：中文工作版早就有这道闸，英文版一直没有 →
-  //      实测 sb356(分镜9) description 只有 2 个【镜头】，英文版却写了 3 拍（0-3/3-6/6-9），
-  //      成片会多切一刀（假切点复发）。不符就带「必须 N 拍、上一版 M 拍」重写，最多 2 轮；
-  //      只有拿到完整六段才整份替换（拿不全就保留原版，避免越改越坏）。
-  const expBeats = ((sb.description || '').match(/【镜头/g) || []).length
-  if (expBeats) {
-    for (let round = 0; round < 2; round++) {
-      const gotBeats = countEnBeats(text)
-      if (gotBeats === expBeats) break
-      logTaskProgress('VideoPrompt', 'en-beat-count-retry', {
-        episodeId, storyboardId: sb.id, round: round + 1, expected: expBeats, got: gotBeats,
-      })
-      const res = (await agent.generate(
-        [{ role: 'user', content: buildBeatFixPrompt(sb, text, expBeats, gotBeats) }],
-        { maxSteps: 6, requestContext },
-      )) as { text?: string } | undefined
-      const raw = cleanSegText(res?.text || '')
-      debugLog(episodeId, sb.id, `beat-fix-${round + 1}`, raw, { expected: expBeats, got: gotBeats })
-      const got = splitEnSections(raw)
-      if (EN_SECTION_QUOTA.every(([k]) => got.get(k))) {
-        for (const [k, v] of got) parts.set(k, v)
-        text = assemble()
-      }
-    }
-    const finalBeats = countEnBeats(text)
-    if (finalBeats !== expBeats) {
-      logTaskProgress('VideoPrompt', 'en-beat-count-unresolved', {
-        episodeId, storyboardId: sb.id, expected: expBeats, got: finalBeats,
+    // 时间轴校正可能又把拍数改坏 → 复核一次，只留痕（结构问题下次生成会再拦）
+    const beatsAfterFix = countEnBeats(text)
+    if (expBeats && beatsAfterFix !== expBeats) {
+      logTaskProgress('VideoPrompt', 'en-beat-count-after-zhen', {
+        episodeId, storyboardId: sb.id, expected: expBeats, got: beatsAfterFix,
       })
     }
   }
@@ -565,22 +575,37 @@ function countEnBeats(en: string): number {
   return (en.match(/\[Shot \d+\]/g) || []).length
 }
 
-/** 英文版拍数不符时的重写指令（2026-10-12 加）：
- *  要求「输出完整六段」，这样后端能整份替换、不会越改越坏。 */
+/** 英文版拍数不符时的重写指令（2026-10-12 加）：要求「输出完整六段」，这样后端能整份替换、不会越改越坏。
+ *  2026-10-12 补（根因修复）：这一步以前**既不带补充说明、也不带中文时间轴**，而且它的示例里写死了
+ *  一句 `[Shot 2] At 00:04.000` —— 模型照抄 → 英文版时间轴被改坏、补充说明被整份重写抹掉。
+ *  中文工作版没有这条流程，所以症状表现为「补充说明只对中文有效、英文无效」
+ *  （实测 sb362：中文 0-2/2-9 秒，英文却是 [Shot 2] At 00:04.000，且日志里没有任何 fix-zhen 校正记录）。
+ *  现在两个都带上，示例时间戳按中文第 2 拍起点实算，杜绝照抄。 */
 function buildBeatFixPrompt(
   sb: { id: number; storyboardNumber: number | null },
   current: string,
   expected: number,
   got: number,
+  extra?: string,
+  zhPrompt?: string,
 ): string {
+  const zhTimeline = zhPrompt
+    ? (zhPrompt.match(/^\s*\d+\s*-\s*\d+\s*秒[：:].*$/gm) || []).join('\n')
+    : ''
+  const zhStarts = zhPrompt
+    ? [...zhPrompt.matchAll(/^\s*(\d+)\s*-\s*\d+\s*秒\s*[：:]/gm)].map(m => Number(m[1]))
+    : []
+  const secondStart = zhStarts.length > 1
+    ? `00:${String(zhStarts[1]).padStart(2, '0')}.000`
+    : '00:MM.000（MM = 中文第 2 拍的起始秒数）'
   return `分镜 #${sb.storyboardNumber}(ID:${sb.id}) 的 video_prompt_en **拍数不对**。
 
 🔴🔴 这个分镜的 description 里有 **${expected} 个【镜头N】** → 英文版必须**正好写 ${expected} 拍**（${expected} 个 \`[Shot N]\`）。
 你现在写了 **${got} 拍** —— 多出来的是把「同一机位/同一景别、只是运镜延续（继续推近／继续横移／静止→横移）」拆成了两拍。
 
-**怎么改**：把这种相邻两拍**合并成一拍** —— 切镜与随后的运镜写在**同一个** \`[Shot N]\` 里（例：\`[Shot 2] At 00:04.000, the camera cuts to a close-up and then pushes in slowly to chest-up\`）。**不要用删台词、删镜头内容、或把两拍挤成一句的方式凑数**；时间戳按合并后的真实节奏重排（第 1 拍不带时间戳）。
-
-**输出要求**：输出**完整六段**（\`subject_definitions:\` / \`summary:\` / \`retention_analysis:\` / \`detailed_description:\` / \`overall_soundscape:\` / \`non_diegetic_music:\`，段名与顺序不变），**除拍结构外其余内容一字不改**；不要解释、前言、结语；不要代码块围栏；不要调用任何保存工具。
+**怎么改**：把这种相邻两拍**合并成一拍** —— 切镜与随后的运镜写在**同一个** \`[Shot N]\` 里（例：\`[Shot 2] At ${secondStart}, the camera cuts to a close-up and then pushes in slowly to chest-up\`）。**不要用删台词、删镜头内容、或把两拍挤成一句的方式凑数**。
+${zhTimeline ? `\n🔴🔴 **时间轴基准（本次中文工作版已定，绝不许自己另算）**：合并后**每一拍的起始秒数都必须与中文工作版同一拍一致**（第 1 拍不带时间戳）。中文工作版每一拍如下：\n\n${zhTimeline}\n` : '\n时间戳按合并后的真实节奏重排（第 1 拍不带时间戳）。\n'}${extra ? `\n🔴 **补充说明必须继续满足（合并拍结构时一个字都不许丢）**：${extra}\n` : ''}
+**输出要求**：输出**完整六段**（\`subject_definitions:\` / \`summary:\` / \`retention_analysis:\` / \`detailed_description:\` / \`overall_soundscape:\` / \`non_diegetic_music:\`，段名与顺序不变），**除拍结构（含时间戳）外其余内容一字不改**；不要解释、前言、结语；不要代码块围栏；不要调用任何保存工具。
 
 【当前版本】
 ${current}`
