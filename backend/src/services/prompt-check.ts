@@ -84,6 +84,26 @@ function sectionRe(name: string): RegExp {
   return new RegExp('(^|\\n)[ \\t]*' + name + '[ \\t]*[:：]', 'g')
 }
 
+/** 取 detailed_description 段正文（拍头应只在这里出现；到下一个段名为止） */
+function enDetailSection(en: string): string {
+  const m = en.match(/detailed_description:([\s\S]*?)(?:\n[a-z_]+:|$)/)
+  return m ? m[1] : ''
+}
+
+/** 英文版拍头数（2026-10-13 修口径）：只数 detailed_description 段内的 `[Shot N]`。
+ *  为什么：① retention_analysis 里的 `(appears in [Shot 1], …)` 是引用、不是拍头，全文数会把拍数数虚高；
+ *  ② 旧实现按「行首」计数，遇到「拍头挤在同一行」的产出会数成 0（实测 id=385：写了 3 拍却报 0）。
+ *  段内计数两头都躲开：引用不在这一段，拍头无论换不换行都算。 */
+function countEnBeatsInDetail(en: string): number {
+  return count(/\[Shot \d+\]/g, enDetailSection(en))
+}
+
+/** 拍头是否没独占一行（有 [Shot N] 却不在行首）——格式问题，另外报警 */
+function countEnBeatsNotAnchored(en: string): number {
+  const sec = enDetailSection(en)
+  return count(/\[Shot \d+\]/g, sec) - count(/^[ \t]*\[Shot \d+\]/gm, sec)
+}
+
 function count(re: RegExp, s: string): number {
   return (s.match(re) || []).length
 }
@@ -175,7 +195,7 @@ export function checkStoryboardPrompt(sb: StoryboardCheckInput, opts: CheckOptio
 
   // ④ 拍数：中文描述【镜头】= 中文工作版拍数 = 英文 [Shot N] 拍头数
   const descBeats = count(/【镜头/g, desc)
-  const enHeads = count(RE_SHOT_HEADER, en)
+  const enHeads = countEnBeatsInDetail(en)
   const zhBeats = count(RE_ZH_BEAT, zh)
 
   if (descBeats && zhBeats !== descBeats) {
@@ -194,6 +214,15 @@ export function checkStoryboardPrompt(sb: StoryboardCheckInput, opts: CheckOptio
     out.push(mk({
       level: 'warn', code: 'en-zh-beat-mismatch', location: 'detailed_description',
       message: `英文版 ${enHeads} 拍，与中文工作版 ${zhBeats} 拍不一致`,
+    }))
+  }
+
+  // ④b 拍头没独占一行（2026-10-13 加）：能切但格式不合规 —— 实测 id=385 整段挤成一行
+  const notAnchored = countEnBeatsNotAnchored(en)
+  if (notAnchored > 0) {
+    out.push(mk({
+      level: 'warn', code: 'shot-header-not-line-start', location: 'detailed_description',
+      message: `有 ${notAnchored} 个 [Shot N] 拍头夹在正文里（没独占一行）—— H3 按 [Shot N] 切拍，拍头独占一行才稳`,
     }))
   }
 
@@ -395,6 +424,7 @@ const REPAIR_TEXT: Record<string, string> = {
   'en-beat-mismatch': '拍数必须正好等于 description 里【镜头N】的个数：同一机位的运镜延续写在同一个 [Shot N] 里，不要另起一拍。',
   'en-zh-beat-mismatch': '英文版拍数必须与中文工作版完全一致，一拍不多一拍不少。',
   'zh-beat-mismatch': '中文工作版拍数必须正好等于 description 里【镜头N】的个数。',
+  'shot-header-not-line-start': '每个 `[Shot N]` 拍头必须独占一行（前面只能是换行），不要把 `[Shot N]` 夹在句子中间。',
   'timeline-count': '英文版只有第 2 拍起才写时间戳（[Shot N] At 00:xx.000），第 1 拍不写；数量与中文拍数减一相同。',
   'timeline-mismatch': '英文版每一拍的时间戳必须与中文工作版该拍的起始秒数完全一致。',
   'dialogue-count': '台词句数与中文工作版完全一致、逐字取自 description，不许新增或删除台词。',
