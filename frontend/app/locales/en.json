@@ -733,7 +733,10 @@
       "jump": "Click to jump →",
       "untitled": "(untitled)",
       "noPrompt": "no EN version",
-      "batchNoEn": " — {n} shot(s) have no EN version yet (use \"batch fill prompts\" or auto-repair all)"
+      "batchNoEn": " — {n} shot(s) have no EN version yet (use \"batch fill prompts\" or auto-repair all)",
+      "repairingN": "Rewriting {done}/{total}…",
+      "fixProgress": "Rewriting and re-linting: {done}/{total} ({pct}%)",
+      "viewProgress": "View progress"
     },
     "sb": {
       "title": "Storyboard Breakdown",

@@ -733,7 +733,10 @@
       "jump": "クリックで移動 →",
       "untitled": "（無題）",
       "noPrompt": "英語版未生成",
-      "batchNoEn": "（うち {n} カットは英語版未生成。「プロンプト一括補完」か自動修正で対応）"
+      "batchNoEn": "（うち {n} カットは英語版未生成。「プロンプト一括補完」か自動修正で対応）",
+      "repairingN": "書き直し中 {done}/{total}…",
+      "fixProgress": "書き直しと再診断：{done}/{total}（{pct}%）",
+      "viewProgress": "進捗を見る"
     },
     "sb": {
       "title": "分镜分解",

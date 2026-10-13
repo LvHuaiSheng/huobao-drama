@@ -733,7 +733,10 @@
       "jump": "单击跳转 →",
       "untitled": "（无标题）",
       "noPrompt": "未生成英文版",
-      "batchNoEn": "，其中 {n} 条还没生成英文版（点「批量补齐提示词」或直接一键修复全部）"
+      "batchNoEn": "，其中 {n} 条还没生成英文版（点「批量补齐提示词」或直接一键修复全部）",
+      "repairingN": "正在重写 {done}/{total}…",
+      "fixProgress": "正在逐条重写并体检：{done}/{total}（{pct}%）",
+      "viewProgress": "查看进度"
     },
     "sb": {
       "title": "分镜拆分",

@@ -733,7 +733,10 @@
       "jump": "클릭하여 이동 →",
       "untitled": "(제목 없음)",
       "noPrompt": "영문판 없음",
-      "batchNoEn": " ({n}컷은 영문판 미생성 — \"프롬프트 일괄 채우기\" 또는 일괄 자동 수정)"
+      "batchNoEn": " ({n}컷은 영문판 미생성 — \"프롬프트 일괄 채우기\" 또는 일괄 자동 수정)",
+      "repairingN": "다시 쓰는 중 {done}/{total}…",
+      "fixProgress": "재작성 및 재점검: {done}/{total} ({pct}%)",
+      "viewProgress": "진행 상황 보기"
     },
     "sb": {
       "title": "스토리보드 분해",

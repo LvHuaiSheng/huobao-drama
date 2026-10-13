@@ -493,15 +493,15 @@
                   <svg v-else width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
                   {{ sbs.length ? t('episode.sb.rebreak') : t('episode.sb.startBreak') }}
                 </button>
-                <button class="btn btn-sm" :disabled="videoPromptBatch.running || !sbs.length" @click="batchVideoPrompts">
+                <button class="btn btn-sm" :disabled="videoPromptBatch.running || batchCheck.fixing || promptCheck.repairing || !sbs.length" @click="batchVideoPrompts">
                   <Loader2 v-if="videoPromptBatch.running" :size="11" class="animate-spin" />
                   <svg v-else width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
                   {{ videoPromptBatch.running ? t('episode.sb.promptProgress', { done: videoPromptBatch.completed, total: videoPromptBatch.total }) : (videoSelectMode && selectedVideoSbIds.length ? t('episode.sb.promptSelected', { n: selectedVideoSbIds.length }) : t('episode.sb.batchPrompts')) }}
                 </button>
-                <button class="btn btn-sm" :disabled="batchCheck.running || !sbs.length" @click="runBatchCheck">
-                  <Loader2 v-if="batchCheck.running" :size="11" class="animate-spin" />
+                <button class="btn btn-sm" :disabled="batchCheck.running || promptCheck.repairing || !sbs.length" @click="batchCheck.fixing ? (batchCheck.open = true) : runBatchCheck()">
+                  <Loader2 v-if="batchCheck.running || batchCheck.fixing" :size="11" class="animate-spin" />
                   <svg v-else width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-                  {{ batchCheck.running ? t('episode.check.batchRunning') : t('episode.check.batchBtn') }}
+                  {{ batchCheck.running ? t('episode.check.batchRunning') : (batchCheck.fixing ? t('episode.check.repairingN', { done: batchCheck.fixDone, total: batchCheck.fixTotal }) : t('episode.check.batchBtn')) }}
                 </button>
                 <button v-if="videoTaskFailedCount" class="btn btn-sm video-retry-failed" @click="retryFailedVideos">
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
@@ -680,10 +680,11 @@
                   <section class="video-inspector-section">
                     <div class="video-inspector-prompt-head">
                       <span class="video-inspector-label video-inspector-label-hero">{{ t('episode.sb.videoPromptSection') }}</span>
+                      <div class="video-inspector-actions">
                       <button
                         type="button"
                         class="btn btn-sm"
-                        :disabled="videoPromptGeneratingIds.includes(selectedSb?.id) || videoPromptBatch.running"
+                        :disabled="videoPromptGeneratingIds.includes(selectedSb?.id) || videoPromptBatch.running || batchCheck.fixing || promptCheck.repairing"
                         @click="genVideoPrompt(selectedSb)"
                       >
                         <Loader2 v-if="videoPromptGeneratingIds.includes(selectedSb?.id)" :size="11" class="animate-spin" />
@@ -692,13 +693,14 @@
                       <button
                         type="button"
                         class="btn btn-sm"
-                        :disabled="promptCheck.running || !selectedSb"
+                        :disabled="promptCheck.running || !selectedSb || batchCheck.fixing || promptCheck.repairing"
                         @click="runPromptCheck(selectedSb)"
                       >
                         <Loader2 v-if="promptCheck.running" :size="11" class="animate-spin" />
                         <svg v-else width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
                         {{ t('episode.sb.promptCheck') }}
                       </button>
+                      </div>
                     </div>
                     <MentionTextarea
                       :model-value="selectedSb.video_prompt || selectedSb.videoPrompt || ''"
@@ -1491,11 +1493,11 @@
                   v-if="batchBadItems.length"
                   type="button"
                   class="btn btn-sm btn-primary"
-                  :disabled="batchCheck.fixing"
+                  :disabled="batchCheck.fixing || promptCheck.repairing || videoPromptBatch.running"
                   @click="fixAllChecked"
                 >
                   <Loader2 v-if="batchCheck.fixing" :size="11" class="animate-spin" />
-                  {{ batchCheck.fixing ? t('episode.check.repairing') : t('episode.check.repairAll', { n: batchBadItems.length }) }}
+                  {{ batchCheck.fixing ? t('episode.check.repairingN', { done: batchCheck.fixDone, total: batchCheck.fixTotal }) : t('episode.check.repairAll', { n: batchBadItems.length }) }}
                 </button>
                 <button type="button" class="btn btn-sm" @click="batchCheck.open = false">{{ t('common.close') }}</button>
               </div>
@@ -1504,6 +1506,10 @@
               <span v-if="!batchBadItems.length" class="check-ok">{{ t('episode.check.batchAllOk', { n: batchCheck.summary.total }) }}</span>
               <span v-else>{{ t('episode.check.batchSummary', { total: batchCheck.summary.total, bad: batchBadItems.length, block: batchCheck.summary.blocking, err: batchCheck.summary.err, warn: batchCheck.summary.warn }) }}<template v-if="batchNoEnCount">{{ t('episode.check.batchNoEn', { n: batchNoEnCount }) }}</template></span>
             </p>
+            <div v-if="batchCheck.fixing || batchCheck.fixDone" class="check-progress">
+              <div class="check-progress-bar"><span :style="{ width: progressPct + '%' }" /></div>
+              <span class="check-progress-text">{{ t('episode.check.fixProgress', { done: batchCheck.fixDone, total: batchCheck.fixTotal, pct: progressPct }) }}</span>
+            </div>
             <div class="check-list">
               <div
                 v-for="it in batchBadItems"
@@ -1540,7 +1546,7 @@
                   v-if="promptCheck.repairNotes"
                   type="button"
                   class="btn btn-sm btn-primary"
-                  :disabled="promptCheck.repairing"
+                  :disabled="promptCheck.repairing || batchCheck.fixing"
                   @click="runPromptRepair"
                 >
                   <Loader2 v-if="promptCheck.repairing" :size="11" class="animate-spin" />
@@ -3057,6 +3063,7 @@ function restoreIgnored() {
 }
 async function runPromptCheck(sb) {
   if (!sb || promptCheck.running) return
+  if (batchCheck.fixing) return
   promptCheck.sb = sb
   promptCheck.running = true
   try {
@@ -3076,7 +3083,7 @@ async function runPromptCheck(sb) {
 }
 // 一键修复：带着「修法清单」把这一条重写一遍，轮询到结束再自动重新体检
 async function runPromptRepair() {
-  if (promptCheck.repairing || !promptCheck.sb || !promptCheck.repairNotes) return
+  if (promptCheck.repairing || batchCheck.fixing || !promptCheck.sb || !promptCheck.repairNotes) return
   promptCheck.repairing = true
   try {
     const res = await episodeAPI.generateVideoPrompts(epId.value, chatModelOverride(), chatConfigId(), [promptCheck.sb.id], promptCheck.repairNotes)
@@ -3099,7 +3106,7 @@ async function runPromptRepair() {
 // 2026-10-13 用户需求：集级「体检全部」—— 一次查完整集，列出哪些分镜有问题，单击跳过去，
 // 总览页也能「一键修复全部」。全部只读、不占 GPU；修复走生产同一条生成通道。
 // 注意：本文件是 <script setup>（无 lang="ts"）= 纯 JS。
-const batchCheck = reactive({ running: false, open: false, items: [], summary: {}, fixing: false })
+const batchCheck = reactive({ running: false, open: false, items: [], summary: {}, fixing: false, fixTotal: 0, fixDone: 0 })
 
 // 已全部被你忽略的分镜不算「有问题」（忽略是逐条按指纹记的）
 function isBatchClean(it) {
@@ -3109,9 +3116,14 @@ function isBatchClean(it) {
 }
 const batchBadItems = computed(() => (batchCheck.items || []).filter(it => !isBatchClean(it)))
 const batchNoEnCount = computed(() => (batchCheck.items || []).filter(it => !it.has_prompt_en).length)
+const progressPct = computed(() => {
+  const total = batchCheck.fixTotal || 0
+  if (!total) return 0
+  return Math.min(100, Math.round(((batchCheck.fixDone || 0) / total) * 100))
+})
 
 async function runBatchCheck() {
-  if (batchCheck.running || !sbs.value.length) return
+  if (batchCheck.running || batchCheck.fixing || promptCheck.repairing || !sbs.value.length) return
   batchCheck.running = true
   try {
     const res = await episodeAPI.promptCheckAll(epId.value)
@@ -3163,18 +3175,29 @@ function buildUnionRepairNotes(items) {
 // 一键修复全部：一次性把「有问题的分镜」重写一遍（带合并后的修法清单），跑完自动重新体检
 async function fixAllChecked() {
   const targets = batchBadItems.value
-  if (batchCheck.fixing || !targets.length) return
+  if (batchCheck.fixing || promptCheck.repairing || videoPromptBatch.running || !targets.length) return
   const ids = targets.map(it => it.storyboard_id)
   const notes = buildUnionRepairNotes(targets)
   batchCheck.fixing = true
+  batchCheck.fixTotal = ids.length
+  batchCheck.fixDone = 0
   try {
     const res = await episodeAPI.generateVideoPrompts(epId.value, chatModelOverride(), chatConfigId(), ids, notes)
     if (res && res.already_running) { toast.info(t('episode.check.busy')); return }
+    if (res && res.total) batchCheck.fixTotal = res.total
+    let prev = -1
+    // 轮询期间把「已完成/总数」喂给界面（逐条刷新，提示词边写边出现）
     for (let i = 0; i < 300; i++) {
       await new Promise(resolve => setTimeout(resolve, 3000))
       const st = await episodeAPI.videoPromptsStatus(epId.value)
+      if (st) {
+        if (typeof st.total === 'number' && st.total) batchCheck.fixTotal = st.total
+        if (typeof st.completed === 'number') batchCheck.fixDone = st.completed
+        if (batchCheck.fixDone !== prev) { prev = batchCheck.fixDone; await refresh() }
+      }
       if (st && st.status !== 'running') break
     }
+    batchCheck.fixDone = batchCheck.fixTotal
     await refresh()
     await runBatchCheck()
     toast.success(t('episode.check.repairAllDone', { n: ids.length }))
@@ -3227,6 +3250,8 @@ async function onBreakdownDone() {
 // 2026-10-09：补充说明（videoPromptExtra，可留空）随请求一起回喂；同批出中文工作版 + 英文官方六段式版
 async function genVideoPrompt(sb) {
   if (!sb || videoPromptGeneratingIds.value.includes(sb.id)) return
+  // 2026-10-13：一键修复全部在跑时不重写同一条（防冲突）
+  if (batchCheck.fixing || promptCheck.repairing) return
   const idx = sbs.value.indexOf(sb) + 1
   videoPromptGeneratingIds.value.push(sb.id)
   try {
@@ -5607,6 +5632,14 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); }
   justify-content: space-between;
   gap: 8px;
 }
+/* 「重新生成」与「体检」挨着放（2026-10-13 用户要求：原来被 space-between 挤到中间/右边） */
+.video-inspector-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  flex: none;
+}
 /* MentionTextarea 内部元素需 :deep 穿透（scoped 样式默认到不了子组件内部） */
 :deep(.video-inspector-prompt) {
   min-height: 176px;
@@ -6650,4 +6683,8 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); }
 .batch-row { cursor: pointer; }
 .batch-row:hover { background: var(--surface-2, rgba(255, 255, 255, .06)); }
 .batch-go { margin-left: auto; flex: none; font-size: 11px; color: var(--text-3, #8a8a92); white-space: nowrap; }
+.check-progress { display: flex; align-items: center; gap: 10px; }
+.check-progress-bar { flex: 1; height: 4px; border-radius: 3px; background: var(--surface-2, rgba(255, 255, 255, .1)); overflow: hidden; }
+.check-progress-bar span { display: block; height: 100%; background: var(--accent); transition: width .3s ease; }
+.check-progress-text { flex: none; font-size: 11.5px; color: var(--text-2, #a0a0a8); font-variant-numeric: tabular-nums; }
 </style>
