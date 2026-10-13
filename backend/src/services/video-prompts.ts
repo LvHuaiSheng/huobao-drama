@@ -23,6 +23,7 @@ import { mastra } from '../mastra/index.js'
 import { buildAgentRequestContext } from '../agents/context.js'
 import { getDramaStylePrompt } from './style-preset.js'
 import { STORAGE_ROOT } from '../utils/paths.js'
+import { buildMediaRefs } from './prompt-media.js'
 import { logTaskError, logTaskProgress, logTaskStart, logTaskSuccess } from '../utils/task-logger.js'
 
 export interface VideoPromptBatchStatus {
@@ -113,6 +114,54 @@ export function findChineseOutsideDialogue(en: string): { count: number; sample:
   if (!hits.length) return { count: 0, sample: '' }
   const i = body.search(/[\u4e00-\u9fff]/)
   return { count: hits.length, sample: body.slice(Math.max(0, i - 40), i + 40).replace(/\n/g, ' ') }
+}
+
+/** 落库前的源头兜底（2026-10-13，用户要求「不能只靠体检」）：机械清掉越界的主体/参考图编号。
+ *  实测模型仍会给「没被提取成道具资产」的东西编 `<Subject 3>`（甚至 `<Picture 3>`），规则层治不住 100%。
+ *  做法（确定性，不依赖模型）：
+ *    ① N > refCount 的整行 `<Subject N> …` → 删掉该行；若它是 `is …` 声明，记下名词短语
+ *    ② 正文里同编号的引用 → 换成记下的名词短语（没记到就用 the object）
+ *    ③ N > refCount 的 `<Picture N>` 标记 → 直接删标记（保留周围文字）
+ *  合法编号（N ≤ refCount）与 `<d>` 台词一字不动。
+ */
+export function stripOutOfRangeRefs(t: string, refCount: number): { text: string; stripped: string[] } {
+  const src = String(t || '')
+  if (!refCount || refCount <= 0) return { text: src, stripped: [] }
+  const stripped: string[] = []
+  const names = new Map<number, string>()
+  const kept: string[] = []
+  for (const line of src.split('\n')) {
+    const m = line.match(/^\s*<Subject (\d+)>(?=[\s(（:：]|$)/)
+    if (m && Number(m[1]) > refCount) {
+      const decl = line.match(/^\s*<Subject (\d+)>\s*(?:is|是)\s+(.{2,90}?)(?:[,，.。;；]|$)/)
+      names.set(Number(m[1]), decl ? decl[2].trim() : '')
+      stripped.push(`删行 <Subject ${m[1]}>（超出 ${refCount} 张参考图）`)
+      continue
+    }
+    kept.push(line)
+  }
+  let out = kept.join('\n')
+  for (const n of [...names.keys()].sort((a, b) => a - b)) {
+    const noun = names.get(n) || 'the object'
+    out = out.replace(new RegExp(`<Subject ${n}>`, 'g'), noun)
+  }
+  out = out.replace(/<Subject (\d+)>/g, (whole, d) => (Number(d) > refCount ? `the object${(stripped.push(`删引用 <Subject ${d}>`), '')}` : whole))
+  // 越界 <Picture N>：先把「介词 + 标记」整体删掉（`in <Picture 3>` → 空），再删裸标记；
+  // 不留 the prop 这类占位词，避免读起来别扭。
+  out = out.replace(/\b(?:in|on|from|per|see|shown in|as in)\s+<Picture (\d+)>/gi, (whole, d) =>
+    (Number(d) > refCount ? `_DEL_${(stripped.push(`删引用 <Picture ${d}>（含介词）`), '')}` : whole))
+  out = out.replace(/<Picture (\d+)>/g, (whole, d) => (Number(d) > refCount ? `_DEL_${(stripped.push(`删引用 <Picture ${d}>`), '')}` : whole))
+  out = out.replace(/_DEL_/g, '')
+  // 清掉标记被删后留下的空壳（成对括号、多余空格、行首尾空格）
+  out = out
+    .replace(/\(\s*\)/g, '')
+    .replace(/\s+([,;.])/g, '$1')
+    .replace(/[ \t]+([,;.])/g, '$1')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+  return { text: out, stripped }
 }
 
 /** 清洗 Agent 输出：去代码块围栏、去段名之前的废话、去尾部结语。循环跑到稳定
@@ -808,8 +857,18 @@ export async function startVideoPromptBatch(
           })
         }
         // 3) 后端落库（Agent 不落库，避免它顺手写别的字段）
+        //    2026-10-13 源头兜底：落库前机械清掉越界的主体/参考图编号。
+        //    规则层（技能/流程单）已要求「没被提取成道具资产的东西不许编号」，但模型实测仍会编；
+        //    体检只能事后报，所以这里做确定性的最后一道机械清理（体检保留为兜底）。
+        const refCount = (await buildMediaRefs(sb.id)).refs.length
+        const cleanEn = stripOutOfRangeRefs(sanitizeEnPrompt(en.text), refCount)
+        if (cleanEn.stripped.length) {
+          logTaskProgress('VideoPrompt', 'en-ref-out-of-range-stripped', {
+            episodeId, storyboardId: sb.id, refCount, stripped: cleanEn.stripped,
+          })
+        }
         await db.update(schema.storyboards)
-          .set({ videoPrompt: zh, videoPromptEn: sanitizeEnPrompt(en.text) })
+          .set({ videoPrompt: zh, videoPromptEn: cleanEn.text })
           .where(eq(schema.storyboards.id, sb.id))
         const [fresh] = await db.select().from(schema.storyboards).where(eq(schema.storyboards.id, sb.id))
         const freshEn = (fresh?.videoPromptEn || '').trim()
