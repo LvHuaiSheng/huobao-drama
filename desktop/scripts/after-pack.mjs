@@ -12,6 +12,7 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
+import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 const WIN_BIN = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'build', 'win-bin', 'better_sqlite3.node')
@@ -26,6 +27,24 @@ export default async function afterPack(context) {
   for (const name of [`ffmpeg${exe}`, `ffprobe${exe}`]) {
     const p = path.join(resourcesDir, 'bin', name)
     if (!fs.existsSync(p)) throw new Error(`打包产物缺少 bin/${name}（检查 prepare-resources 与 \${os} 目录命名）`)
+  }
+
+  if (context.electronPlatformName === 'darwin') {
+    // 2026-10-13 用户拍板：macOS 包做 ad-hoc 签名（免费，不需要 Apple 开发者证书）
+    // 为什么必须：electron-builder 配的是 identity: null（完全不打签名）→ arm64 上只剩 linker 签名、
+    // Sealed Resources=none，spctl 原话「code has no resources but signature indicates they must be present」。
+    // 浏览器下载再打上 quarantine 后，Gatekeeper 直接报「已损坏」（其实文件没坏，是签名不完整）。
+    // ad-hoc 签完整后该提示消失，变成普通的「未验证的开发者」——右键→打开即可。
+    const appName = `${context.packager.appInfo.productFilename}.app`
+    const appPath = path.join(context.appOutDir, appName)
+    const run = (cmd, args) => {
+      const r = spawnSync(cmd, args, { stdio: 'inherit' })
+      if (r.error) throw r.error
+      if (r.status !== 0) throw new Error(`${cmd} 失败（exit ${r.status}）：${args.join(' ')}`)
+    }
+    run('codesign', ['--force', '--deep', '--sign', '-', '--timestamp=none', appPath])
+    run('codesign', ['--verify', '--verbose=2', appPath])
+    console.log(`[after-pack] ${appName} 已 ad-hoc 签名并校验通过（arch=${context.arch}）`)
   }
 
   if (context.electronPlatformName !== 'win32') return
