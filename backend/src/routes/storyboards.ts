@@ -1,7 +1,10 @@
 import { Hono } from 'hono'
 import { eq } from 'drizzle-orm'
 import { PROMPT_EN_LIMIT, H3_PROMPT_HARD_LIMIT } from '../services/video-prompts.js'
-import { checkStoryboardPrompt } from '../services/prompt-check.js'
+import { checkStoryboardPrompt, buildRepairNotes } from '../services/prompt-check.js'
+import { refmodCardName, refmodCardPath } from '../services/refmod.js'
+import { voiceCardName } from '../services/voice.js'
+import fs from 'node:fs'
 import { db, getInsertId, schema } from '../db/index.js'
 import { success, created, now, badRequest } from '../utils/response.js'
 import { toSnakeCase } from '../utils/transform.js'
@@ -175,13 +178,58 @@ app.delete('/:id', async (c) => {
   return success(c)
 })
 
-// GET /storyboards/:id/prompt-check — 单条分镜的「提示词体检」（2026-10-13 用户需求）
-// 机械比对（六段/配额/拍数/时间轴/台词/转义），只报不改、不写库、不调模型、不占 GPU
+// GET /storyboards/:id/prompt-check — 单条分镜的「提示词体检」v2（2026-10-13）
+// 机械比对（六段/配额/拍数/时间轴/台词/转义）+ 参考素材预检；只报不改、不写库、不调模型、不占 GPU
 app.get('/:id/prompt-check', async (c) => {
   const id = Number(c.req.param('id'))
   const [sb] = await db.select().from(schema.storyboards).where(eq(schema.storyboards.id, id))
   if (!sb) return badRequest(c, '分镜不存在')
-  const issues = checkStoryboardPrompt(sb, { enLimit: PROMPT_EN_LIMIT, hardLimit: H3_PROMPT_HARD_LIMIT })
+
+  // 参考图顺序与 agents/tools/storyboard-tools.ts 的 reference_order 严格同序：
+  // 场景 → 角色 id 升序 → 道具 id 升序
+  const charLinks = await db.select().from(schema.storyboardCharacters)
+    .where(eq(schema.storyboardCharacters.storyboardId, id))
+  const propLinks = await db.select().from(schema.storyboardProps)
+    .where(eq(schema.storyboardProps.storyboardId, id))
+  const allChars = await db.select().from(schema.characters)
+  const allProps = await db.select().from(schema.props)
+  const allScenes = await db.select().from(schema.scenes)
+
+  const refs: Array<{ picture: number; kind: 'scene' | 'character' | 'prop'; id: number; name: string; hasImage: boolean; hasCard: boolean; hasVoiceCard?: boolean }> = []
+  let picNo = 1
+  const scene = sb.sceneId ? allScenes.find(s => s.id === sb.sceneId && !s.deletedAt) : undefined
+  if (scene) {
+    refs.push({
+      picture: picNo++, kind: 'scene', id: scene.id, name: scene.location || '',
+      hasImage: !!(scene.imageUrl || '').trim(),
+      hasCard: fs.existsSync(refmodCardPath(refmodCardName('scene', scene.id))),
+    })
+  }
+  for (const cid of charLinks.map(l => l.characterId).sort((a, b) => a - b)) {
+    const ch = allChars.find(x => x.id === cid && !x.deletedAt)
+    if (!ch) continue
+    refs.push({
+      picture: picNo++, kind: 'character', id: ch.id, name: ch.name,
+      hasImage: !!(ch.imageUrl || '').trim(),
+      hasCard: fs.existsSync(refmodCardPath(refmodCardName('character', ch.id))),
+      hasVoiceCard: fs.existsSync(refmodCardPath(voiceCardName(ch.id))),
+    })
+  }
+  for (const pid of propLinks.map(l => l.propId).sort((a, b) => a - b)) {
+    const pr = allProps.find(x => x.id === pid && !x.deletedAt)
+    if (!pr) continue
+    refs.push({
+      picture: picNo++, kind: 'prop', id: pr.id, name: pr.name,
+      hasImage: !!(pr.imageUrl || '').trim(),
+      hasCard: fs.existsSync(refmodCardPath(refmodCardName('prop', pr.id))),
+    })
+  }
+
+  const issues = checkStoryboardPrompt(sb, {
+    enLimit: PROMPT_EN_LIMIT,
+    hardLimit: H3_PROMPT_HARD_LIMIT,
+    media: { refs, slotLimit: 9 },
+  })
   return success(c, {
     storyboard_id: sb.id,
     storyboard_number: sb.storyboardNumber,
@@ -189,6 +237,10 @@ app.get('/:id/prompt-check', async (c) => {
     has_prompt_en: !!(sb.videoPromptEn || '').trim(),
     error_count: issues.filter(i => i.level === 'error').length,
     warn_count: issues.filter(i => i.level === 'warn').length,
+    blocking_count: issues.filter(i => i.blocking).length,
+    auto_fixable_count: issues.filter(i => i.autoFixable).length,
+    repair_notes: buildRepairNotes(issues),
+    reference_count: refs.length,
     issues,
   })
 })

@@ -707,9 +707,19 @@
     },
     "check": {
       "title": "프롬프트 점검 (컷 #{n})",
-      "summary": "오류 {err}건, 경고 {warn}건 (읽기 전용)",
+      "summary": "오류 {err}건, 경고 {warn}건 (차단 {block}건)",
       "allOk": "이 컷은 문제 없음 ✓",
-      "empty": "발견된 문제 없음"
+      "allIgnored": "남은 항목은 모두 무시됨 ✓",
+      "empty": "표시할 항목 없음",
+      "blocking": "차단",
+      "fixable": "자동 수정 가능",
+      "manual": "소재/대본 수정 필요",
+      "repair": "자동 수정",
+      "repairing": "다시 쓰는 중…",
+      "repairDone": "재작성 후 재점검 완료",
+      "busy": "배치 작업이 실행 중입니다",
+      "ignore": "무시",
+      "restoreIgnored": "무시한 {n}건 복원"
     },
     "sb": {
       "title": "스토리보드 분해",

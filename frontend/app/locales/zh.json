@@ -707,9 +707,19 @@
     },
     "check": {
       "title": "提示词体检（分镜 #{n}）",
-      "summary": "{err} 处问题、{warn} 处提醒（只报不改）",
+      "summary": "{err} 处问题、{warn} 处提醒，其中 {block} 处阻断生成",
       "allOk": "这条没问题 ✓",
-      "empty": "没有发现问题"
+      "allIgnored": "剩下的都被你忽略了 ✓",
+      "empty": "没有可显示的问题",
+      "blocking": "阻断",
+      "fixable": "可自动修",
+      "manual": "要动素材/描述",
+      "repair": "一键修复",
+      "repairing": "正在重写…",
+      "repairDone": "已重写并重新体检",
+      "busy": "已有批量任务在跑，稍后再试",
+      "ignore": "忽略这条",
+      "restoreIgnored": "恢复已忽略的 {n} 条"
     },
     "sb": {
       "title": "分镜拆分",

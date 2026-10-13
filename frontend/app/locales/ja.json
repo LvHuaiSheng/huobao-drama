@@ -707,9 +707,19 @@
     },
     "check": {
       "title": "プロンプト診断（カット #{n}）",
-      "summary": "エラー {err} 件、警告 {warn} 件（読み取り専用）",
+      "summary": "エラー {err} 件、警告 {warn} 件（うち {block} 件が生成を阻断）",
       "allOk": "このカットは問題なし ✓",
-      "empty": "問題は見つかりません"
+      "allIgnored": "残りはすべて無視済み ✓",
+      "empty": "表示する項目がありません",
+      "blocking": "阻断",
+      "fixable": "自動修正可",
+      "manual": "素材/脚本の修正要",
+      "repair": "自動修正",
+      "repairing": "書き直し中…",
+      "repairDone": "書き直して再診断しました",
+      "busy": "バッチ処理が実行中です",
+      "ignore": "無視",
+      "restoreIgnored": "無視した {n} 件を戻す"
     },
     "sb": {
       "title": "分镜分解",

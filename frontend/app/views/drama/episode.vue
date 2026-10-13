@@ -1480,17 +1480,39 @@
           <div class="check-dialog" role="dialog" aria-modal="true" :aria-label="t('episode.sb.promptCheck')">
             <div class="check-head">
               <h2 class="check-title">{{ t('episode.check.title', { n: promptCheck.storyboardNumber }) }}</h2>
-              <button type="button" class="btn btn-sm" @click="promptCheck.open = false">{{ t('common.close') }}</button>
+              <div class="check-head-actions">
+                <button
+                  v-if="promptCheck.repairNotes"
+                  type="button"
+                  class="btn btn-sm btn-primary"
+                  :disabled="promptCheck.repairing"
+                  @click="runPromptRepair"
+                >
+                  <Loader2 v-if="promptCheck.repairing" :size="11" class="animate-spin" />
+                  {{ promptCheck.repairing ? t('episode.check.repairing') : t('episode.check.repair') }}
+                </button>
+                <button type="button" class="btn btn-sm" @click="promptCheck.open = false">{{ t('common.close') }}</button>
+              </div>
             </div>
             <p class="check-summary">
               <span v-if="!promptCheck.issues.length" class="check-ok">{{ t('episode.check.allOk') }}</span>
-              <span v-else>{{ t('episode.check.summary', { err: promptCheck.errorCount, warn: promptCheck.warnCount }) }}</span>
+              <span v-else-if="!promptCheckVisible.length" class="check-ok">{{ t('episode.check.allIgnored') }}</span>
+              <span v-else>{{ t('episode.check.summary', { err: promptCheck.errorCount, warn: promptCheck.warnCount, block: promptCheck.blockingCount }) }}</span>
             </p>
             <div class="check-list">
-              <ul class="check-issues">
-                <li v-for="(iss, i) in promptCheck.issues" :key="i" :class="'is-' + iss.level">{{ iss.message }}</li>
-              </ul>
-              <div v-if="!promptCheck.issues.length" class="check-row-empty">{{ t('episode.check.empty') }}</div>
+              <div v-for="(iss, idx) in promptCheckVisible" :key="idx" class="check-item" :class="'is-' + iss.level">
+                <span v-if="iss.location" class="check-loc">{{ iss.location }}</span>
+                <span class="check-msg">{{ iss.message }}</span>
+                <span v-if="iss.blocking" class="check-flag is-block">{{ t('episode.check.blocking') }}</span>
+                <span class="check-flag" :class="iss.autoFixable ? 'is-auto' : 'is-manual'">
+                  {{ iss.autoFixable ? t('episode.check.fixable') : t('episode.check.manual') }}
+                </span>
+                <button type="button" class="check-ignore" :title="t('episode.check.ignore')" @click="ignoreIssue(iss)">✕</button>
+              </div>
+              <div v-if="!promptCheckVisible.length && promptCheck.issues.length" class="check-row-empty">{{ t('episode.check.empty') }}</div>
+            </div>
+            <div v-if="promptCheck.ignored.length" class="check-foot">
+              <button type="button" class="check-restore" @click="restoreIgnored">{{ t('episode.check.restoreIgnored', { n: promptCheck.ignored.length }) }}</button>
             </div>
           </div>
         </div>
@@ -2950,10 +2972,37 @@ function confirmBreakdown() {
 }
 
 // 2026-10-13 用户需求：单条分镜的「体检」按钮 —— 放在这条分镜的「重新生成」旁边，只查这一条、只报不改。
+// v2：报告带「位置 / 是否阻断 / 能否自动修 / 指纹」；支持忽略某条 + 一键修复（带修法清单重写一次再自动体检）
 // 注意：本文件是 <script setup>（无 lang="ts"）= 纯 JS，不要写 TS 类型标注。
-const promptCheck = reactive({ running: false, open: false, issues: [], storyboardNumber: '', errorCount: 0, warnCount: 0 })
+const PROMPT_CHECK_IGNORED_KEY = 'hb.promptCheck.ignored'
+const promptCheck = reactive({
+  running: false, open: false, sb: null, storyboardNumber: '',
+  issues: [], ignored: [], errorCount: 0, warnCount: 0, blockingCount: 0,
+  repairNotes: '', repairing: false,
+})
+try {
+  const rawIgnored = localStorage.getItem(PROMPT_CHECK_IGNORED_KEY)
+  if (rawIgnored) promptCheck.ignored = JSON.parse(rawIgnored) || []
+} catch (e) { promptCheck.ignored = [] }
+const promptCheckVisible = computed(() => {
+  const list = promptCheck.issues || []
+  return list.filter(iss => !promptCheck.ignored.includes(iss.fingerprint))
+})
+function saveIgnored() {
+  try { localStorage.setItem(PROMPT_CHECK_IGNORED_KEY, JSON.stringify(promptCheck.ignored)) } catch (e) { /* 隐私模式忽略 */ }
+}
+function ignoreIssue(iss) {
+  if (!iss || !iss.fingerprint || promptCheck.ignored.includes(iss.fingerprint)) return
+  promptCheck.ignored.push(iss.fingerprint)
+  saveIgnored()
+}
+function restoreIgnored() {
+  promptCheck.ignored = []
+  saveIgnored()
+}
 async function runPromptCheck(sb) {
   if (!sb || promptCheck.running) return
+  promptCheck.sb = sb
   promptCheck.running = true
   try {
     const res = await storyboardAPI.promptCheck(sb.id)
@@ -2961,11 +3010,34 @@ async function runPromptCheck(sb) {
     promptCheck.storyboardNumber = (res && res.storyboard_number) || sb.storyboard_number || sb.storyboardNumber || ''
     promptCheck.errorCount = (res && res.error_count) || 0
     promptCheck.warnCount = (res && res.warn_count) || 0
+    promptCheck.blockingCount = (res && res.blocking_count) || 0
+    promptCheck.repairNotes = (res && res.repair_notes) || ''
     promptCheck.open = true
   } catch (e) {
-    toast.error(String((e && e.message) || e))
+    toastError(e)
   } finally {
     promptCheck.running = false
+  }
+}
+// 一键修复：带着「修法清单」把这一条重写一遍，轮询到结束再自动重新体检
+async function runPromptRepair() {
+  if (promptCheck.repairing || !promptCheck.sb || !promptCheck.repairNotes) return
+  promptCheck.repairing = true
+  try {
+    const res = await episodeAPI.generateVideoPrompts(epId.value, chatModelOverride(), chatConfigId(), [promptCheck.sb.id], promptCheck.repairNotes)
+    if (res && res.already_running) { toast.info(t('episode.check.busy')); return }
+    for (let i = 0; i < 120; i++) {
+      await new Promise(resolve => setTimeout(resolve, 3000))
+      const st = await episodeAPI.videoPromptsStatus(epId.value)
+      if (st && st.status !== 'running') break
+    }
+    await refresh()
+    await runPromptCheck(promptCheck.sb)
+    toast.success(t('episode.check.repairDone'))
+  } catch (e) {
+    toastError(e)
+  } finally {
+    promptCheck.repairing = false
   }
 }
 
@@ -6415,4 +6487,19 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); }
 .check-issues li.is-warn { color: var(--action-warn, #e0b341); }
 .check-issues li.is-warn::before { content: '! '; }
 .check-row-empty { font-size: 12.5px; color: var(--text-2, #a0a0a8); }
+.check-head-actions { display: flex; gap: 8px; align-items: center; }
+.check-item { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; padding: 7px 2px; border-bottom: 1px dashed var(--border-1, rgba(255, 255, 255, .1)); font-size: 12.5px; line-height: 1.55; }
+.check-item:last-child { border-bottom: none; }
+.check-item.is-error .check-msg { color: var(--action-danger, #ff6b6b); }
+.check-item.is-warn .check-msg { color: var(--action-warn, #e0b341); }
+.check-loc { flex: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--text-3, #8a8a92); border: 1px solid var(--border-1, rgba(255, 255, 255, .14)); border-radius: 4px; padding: 0 5px; }
+.check-msg { flex: 1 1 60%; }
+.check-flag { flex: none; font-size: 10.5px; border-radius: 4px; padding: 0 5px; opacity: .9; }
+.check-flag.is-block { background: var(--action-danger-bg, rgba(255, 107, 107, .16)); color: var(--action-danger, #ff6b6b); }
+.check-flag.is-auto { background: var(--surface-2, rgba(255, 255, 255, .08)); color: var(--text-2, #a0a0a8); }
+.check-flag.is-manual { background: var(--surface-2, rgba(255, 255, 255, .08)); color: var(--action-warn, #e0b341); }
+.check-ignore { flex: none; border: none; background: transparent; color: var(--text-3, #8a8a92); cursor: pointer; font-size: 12px; padding: 0 4px; }
+.check-ignore:hover { color: var(--text-0, #ededed); }
+.check-foot { display: flex; justify-content: flex-start; }
+.check-restore { border: none; background: transparent; color: var(--text-2, #a0a0a8); cursor: pointer; font-size: 11.5px; text-decoration: underline; padding: 0; }
 </style>

@@ -707,9 +707,19 @@
     },
     "check": {
       "title": "Prompt lint (shot #{n})",
-      "summary": "{err} error(s), {warn} warning(s) — read-only",
+      "summary": "{err} error(s), {warn} warning(s); {block} blocking",
       "allOk": "No issues on this shot ✓",
-      "empty": "No issues found"
+      "allIgnored": "Everything left is ignored ✓",
+      "empty": "Nothing to show",
+      "blocking": "blocking",
+      "fixable": "auto-fixable",
+      "manual": "needs media/script",
+      "repair": "Auto-repair",
+      "repairing": "Rewriting…",
+      "repairDone": "Rewritten and re-checked",
+      "busy": "A batch job is running, try later",
+      "ignore": "Ignore this",
+      "restoreIgnored": "Restore {n} ignored"
     },
     "sb": {
       "title": "Storyboard Breakdown",
