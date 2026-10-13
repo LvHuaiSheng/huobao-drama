@@ -719,7 +719,21 @@
       "repairDone": "書き直して再診断しました",
       "busy": "バッチ処理が実行中です",
       "ignore": "無視",
-      "restoreIgnored": "無視した {n} 件を戻す"
+      "restoreIgnored": "無視した {n} 件を戻す",
+      "batchBtn": "全カット診断",
+      "batchRunning": "診断中…",
+      "batchTitle": "エピソード診断",
+      "batchSummary": "全 {total} カット中 {bad} カットに問題（{block} カットが生成阻断）｜エラー {err} 件、警告 {warn} 件",
+      "batchAllOk": "全 {n} カット問題なし ✓",
+      "repairAll": "まとめて自動修正（{n}）",
+      "repairAllDone": "{n} カットを書き直して再診断しました",
+      "blockingN": "阻断 {n}",
+      "errN": "問題 {n}",
+      "warnN": "警告 {n}",
+      "jump": "クリックで移動 →",
+      "untitled": "（無題）",
+      "noPrompt": "英語版未生成",
+      "batchNoEn": "（うち {n} カットは英語版未生成。「プロンプト一括補完」か自動修正で対応）"
     },
     "sb": {
       "title": "分镜分解",

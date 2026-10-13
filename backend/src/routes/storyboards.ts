@@ -2,9 +2,7 @@ import { Hono } from 'hono'
 import { eq } from 'drizzle-orm'
 import { PROMPT_EN_LIMIT, H3_PROMPT_HARD_LIMIT } from '../services/video-prompts.js'
 import { checkStoryboardPrompt, buildRepairNotes } from '../services/prompt-check.js'
-import { refmodCardName, refmodCardPath } from '../services/refmod.js'
-import { voiceCardName } from '../services/voice.js'
-import fs from 'node:fs'
+import { buildMediaRefs } from '../services/prompt-media.js'
 import { db, getInsertId, schema } from '../db/index.js'
 import { success, created, now, badRequest } from '../utils/response.js'
 import { toSnakeCase } from '../utils/transform.js'
@@ -185,50 +183,12 @@ app.get('/:id/prompt-check', async (c) => {
   const [sb] = await db.select().from(schema.storyboards).where(eq(schema.storyboards.id, id))
   if (!sb) return badRequest(c, '分镜不存在')
 
-  // 参考图顺序与 agents/tools/storyboard-tools.ts 的 reference_order 严格同序：
-  // 场景 → 角色 id 升序 → 道具 id 升序
-  const charLinks = await db.select().from(schema.storyboardCharacters)
-    .where(eq(schema.storyboardCharacters.storyboardId, id))
-  const propLinks = await db.select().from(schema.storyboardProps)
-    .where(eq(schema.storyboardProps.storyboardId, id))
-  const allChars = await db.select().from(schema.characters)
-  const allProps = await db.select().from(schema.props)
-  const allScenes = await db.select().from(schema.scenes)
-
-  const refs: Array<{ picture: number; kind: 'scene' | 'character' | 'prop'; id: number; name: string; hasImage: boolean; hasCard: boolean; hasVoiceCard?: boolean }> = []
-  let picNo = 1
-  const scene = sb.sceneId ? allScenes.find(s => s.id === sb.sceneId && !s.deletedAt) : undefined
-  if (scene) {
-    refs.push({
-      picture: picNo++, kind: 'scene', id: scene.id, name: scene.location || '',
-      hasImage: !!(scene.imageUrl || '').trim(),
-      hasCard: fs.existsSync(refmodCardPath(refmodCardName('scene', scene.id))),
-    })
-  }
-  for (const cid of charLinks.map(l => l.characterId).sort((a, b) => a - b)) {
-    const ch = allChars.find(x => x.id === cid && !x.deletedAt)
-    if (!ch) continue
-    refs.push({
-      picture: picNo++, kind: 'character', id: ch.id, name: ch.name,
-      hasImage: !!(ch.imageUrl || '').trim(),
-      hasCard: fs.existsSync(refmodCardPath(refmodCardName('character', ch.id))),
-      hasVoiceCard: fs.existsSync(refmodCardPath(voiceCardName(ch.id))),
-    })
-  }
-  for (const pid of propLinks.map(l => l.propId).sort((a, b) => a - b)) {
-    const pr = allProps.find(x => x.id === pid && !x.deletedAt)
-    if (!pr) continue
-    refs.push({
-      picture: picNo++, kind: 'prop', id: pr.id, name: pr.name,
-      hasImage: !!(pr.imageUrl || '').trim(),
-      hasCard: fs.existsSync(refmodCardPath(refmodCardName('prop', pr.id))),
-    })
-  }
+  const media = await buildMediaRefs(id)
 
   const issues = checkStoryboardPrompt(sb, {
     enLimit: PROMPT_EN_LIMIT,
     hardLimit: H3_PROMPT_HARD_LIMIT,
-    media: { refs, slotLimit: 9 },
+    media,
   })
   return success(c, {
     storyboard_id: sb.id,
@@ -240,7 +200,7 @@ app.get('/:id/prompt-check', async (c) => {
     blocking_count: issues.filter(i => i.blocking).length,
     auto_fixable_count: issues.filter(i => i.autoFixable).length,
     repair_notes: buildRepairNotes(issues),
-    reference_count: refs.length,
+    reference_count: media.refs.length,
     issues,
   })
 })

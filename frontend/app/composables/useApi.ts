@@ -58,6 +58,8 @@ export const episodeAPI = {
   extractStatus: (id: number) => api.get(`/episodes/${id}/extract-status`),
   generateVideoPrompts: (id: number, model?: string, configId?: number, storyboardIds?: number[], extra?: string) => api.post(`/episodes/${id}/generate-video-prompts`, { model: model || undefined, config_id: configId || undefined, storyboard_ids: storyboardIds?.length ? storyboardIds : undefined, extra: extra || undefined }),
   videoPromptsStatus: (id: number) => api.get(`/episodes/${id}/video-prompts-status`),
+  // 整集「提示词体检」（2026-10-13）：逐条机械体检 + 参考素材预检，只读
+  promptCheckAll: (id: number) => api.get(`/episodes/${id}/prompt-check`),
 
 }
 

@@ -719,7 +719,21 @@
       "repairDone": "Rewritten and re-checked",
       "busy": "A batch job is running, try later",
       "ignore": "Ignore this",
-      "restoreIgnored": "Restore {n} ignored"
+      "restoreIgnored": "Restore {n} ignored",
+      "batchBtn": "Lint all",
+      "batchRunning": "Linting…",
+      "batchTitle": "Episode lint",
+      "batchSummary": "{total} shots, {bad} with issues ({block} blocking) | {err} errors, {warn} warnings",
+      "batchAllOk": "All {n} shots pass ✓",
+      "repairAll": "Auto-repair all ({n})",
+      "repairAllDone": "Rewrote {n} shots and re-linted",
+      "blockingN": "{n} blocking",
+      "errN": "{n} errors",
+      "warnN": "{n} warnings",
+      "jump": "Click to jump →",
+      "untitled": "(untitled)",
+      "noPrompt": "no EN version",
+      "batchNoEn": " — {n} shot(s) have no EN version yet (use \"batch fill prompts\" or auto-repair all)"
     },
     "sb": {
       "title": "Storyboard Breakdown",

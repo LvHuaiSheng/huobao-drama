@@ -719,7 +719,21 @@
       "repairDone": "재작성 후 재점검 완료",
       "busy": "배치 작업이 실행 중입니다",
       "ignore": "무시",
-      "restoreIgnored": "무시한 {n}건 복원"
+      "restoreIgnored": "무시한 {n}건 복원",
+      "batchBtn": "전체 점검",
+      "batchRunning": "점검 중…",
+      "batchTitle": "에피소드 점검",
+      "batchSummary": "전체 {total}컷 중 {bad}컷 문제 ({block}컷 생성 차단) | 오류 {err}건, 경고 {warn}건",
+      "batchAllOk": "전체 {n}컷 통과 ✓",
+      "repairAll": "일괄 자동 수정 ({n})",
+      "repairAllDone": "{n}컷 재작성 후 재점검 완료",
+      "blockingN": "차단 {n}",
+      "errN": "오류 {n}",
+      "warnN": "경고 {n}",
+      "jump": "클릭하여 이동 →",
+      "untitled": "(제목 없음)",
+      "noPrompt": "영문판 없음",
+      "batchNoEn": " ({n}컷은 영문판 미생성 — \"프롬프트 일괄 채우기\" 또는 일괄 자동 수정)"
     },
     "sb": {
       "title": "스토리보드 분해",

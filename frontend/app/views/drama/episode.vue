@@ -498,6 +498,11 @@
                   <svg v-else width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
                   {{ videoPromptBatch.running ? t('episode.sb.promptProgress', { done: videoPromptBatch.completed, total: videoPromptBatch.total }) : (videoSelectMode && selectedVideoSbIds.length ? t('episode.sb.promptSelected', { n: selectedVideoSbIds.length }) : t('episode.sb.batchPrompts')) }}
                 </button>
+                <button class="btn btn-sm" :disabled="batchCheck.running || !sbs.length" @click="runBatchCheck">
+                  <Loader2 v-if="batchCheck.running" :size="11" class="animate-spin" />
+                  <svg v-else width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                  {{ batchCheck.running ? t('episode.check.batchRunning') : t('episode.check.batchBtn') }}
+                </button>
                 <button v-if="videoTaskFailedCount" class="btn btn-sm video-retry-failed" @click="retryFailedVideos">
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
                   {{ t('episode.vid.retryFailed', { n: videoTaskFailedCount }) }}
@@ -553,6 +558,7 @@
                 <div
                   v-for="task in videoTaskRows"
                   :key="task.id"
+                  :id="'sb-row-' + task.storyboard.id"
                   :class="['video-task-row', 'is-' + videoTaskState(task.storyboard), { active: !videoSelectMode && selectedSb?.id === task.storyboard.id, 'is-selected': videoSelectMode && isVideoSbSelected(task.id) }]"
                   role="button"
                   tabindex="0"
@@ -1475,6 +1481,55 @@
         @confirm="confirmBreakdown"
         @cancel="breakdownConfirm = false"
       />
+      <Teleport to="body">
+        <div v-if="batchCheck.open" class="check-overlay" @click.self="batchCheck.open = false">
+          <div class="check-dialog check-dialog-wide" role="dialog" aria-modal="true" :aria-label="t('episode.check.batchTitle')">
+            <div class="check-head">
+              <h2 class="check-title">{{ t('episode.check.batchTitle') }}</h2>
+              <div class="check-head-actions">
+                <button
+                  v-if="batchBadItems.length"
+                  type="button"
+                  class="btn btn-sm btn-primary"
+                  :disabled="batchCheck.fixing"
+                  @click="fixAllChecked"
+                >
+                  <Loader2 v-if="batchCheck.fixing" :size="11" class="animate-spin" />
+                  {{ batchCheck.fixing ? t('episode.check.repairing') : t('episode.check.repairAll', { n: batchBadItems.length }) }}
+                </button>
+                <button type="button" class="btn btn-sm" @click="batchCheck.open = false">{{ t('common.close') }}</button>
+              </div>
+            </div>
+            <p class="check-summary">
+              <span v-if="!batchBadItems.length" class="check-ok">{{ t('episode.check.batchAllOk', { n: batchCheck.summary.total }) }}</span>
+              <span v-else>{{ t('episode.check.batchSummary', { total: batchCheck.summary.total, bad: batchBadItems.length, block: batchCheck.summary.blocking, err: batchCheck.summary.err, warn: batchCheck.summary.warn }) }}<template v-if="batchNoEnCount">{{ t('episode.check.batchNoEn', { n: batchNoEnCount }) }}</template></span>
+            </p>
+            <div class="check-list">
+              <div
+                v-for="it in batchBadItems"
+                :key="it.storyboard_id"
+                class="check-item batch-row"
+                :class="it.blocking_count ? 'is-error' : 'is-warn'"
+                role="button"
+                tabindex="0"
+                @click="jumpToCheckedStoryboard(it)"
+                @keydown.enter.prevent="jumpToCheckedStoryboard(it)"
+              >
+                <span class="check-loc">#{{ it.storyboard_number }}</span>
+                <span class="check-msg">{{ it.title || t('episode.check.untitled') }}</span>
+                <span v-if="!it.has_prompt_en" class="check-flag is-block">{{ t('episode.check.noPrompt') }}</span>
+                <template v-else>
+                  <span v-if="it.blocking_count" class="check-flag is-block">{{ t('episode.check.blockingN', { n: it.blocking_count }) }}</span>
+                  <span class="check-flag is-auto">{{ t('episode.check.errN', { n: it.error_count }) }}</span>
+                  <span class="check-flag is-manual">{{ t('episode.check.warnN', { n: it.warn_count }) }}</span>
+                </template>
+                <span class="batch-go">{{ t('episode.check.jump') }}</span>
+              </div>
+              <div v-if="!batchBadItems.length" class="check-row-empty">{{ t('episode.check.empty') }}</div>
+            </div>
+          </div>
+        </div>
+      </Teleport>
       <Teleport to="body">
         <div v-if="promptCheck.open" class="check-overlay" @click.self="promptCheck.open = false">
           <div class="check-dialog" role="dialog" aria-modal="true" :aria-label="t('episode.sb.promptCheck')">
@@ -3038,6 +3093,95 @@ async function runPromptRepair() {
     toastError(e)
   } finally {
     promptCheck.repairing = false
+  }
+}
+
+// 2026-10-13 用户需求：集级「体检全部」—— 一次查完整集，列出哪些分镜有问题，单击跳过去，
+// 总览页也能「一键修复全部」。全部只读、不占 GPU；修复走生产同一条生成通道。
+// 注意：本文件是 <script setup>（无 lang="ts"）= 纯 JS。
+const batchCheck = reactive({ running: false, open: false, items: [], summary: {}, fixing: false })
+
+// 已全部被你忽略的分镜不算「有问题」（忽略是逐条按指纹记的）
+function isBatchClean(it) {
+  const list = it.issues || []
+  if (!list.length) return true
+  return list.every(iss => promptCheck.ignored.includes(iss.fingerprint))
+}
+const batchBadItems = computed(() => (batchCheck.items || []).filter(it => !isBatchClean(it)))
+const batchNoEnCount = computed(() => (batchCheck.items || []).filter(it => !it.has_prompt_en).length)
+
+async function runBatchCheck() {
+  if (batchCheck.running || !sbs.value.length) return
+  batchCheck.running = true
+  try {
+    const res = await episodeAPI.promptCheckAll(epId.value)
+    batchCheck.items = (res && res.items) || []
+    batchCheck.summary = {
+      total: (res && res.storyboard_count) || 0,
+      bad: (res && res.bad_count) || 0,
+      blocking: (res && res.blocking_storyboard_count) || 0,
+      err: (res && res.error_count) || 0,
+      warn: (res && res.warn_count) || 0,
+    }
+    batchCheck.open = true
+  } catch (e) {
+    toastError(e)
+  } finally {
+    batchCheck.running = false
+  }
+}
+
+// 单击某条 → 关总览 → 选中这条分镜 → 滚到它的行 → 直接打开它的单条体检（里面有「一键修复」）
+function jumpToCheckedStoryboard(it) {
+  const sb = sbs.value.find(x => x.id === it.storyboard_id)
+  if (!sb) return
+  batchCheck.open = false
+  onVideoTaskRowClick(sb)
+  setTimeout(() => {
+    const el = document.getElementById('sb-row-' + it.storyboard_id)
+    if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, 80)
+  setTimeout(() => { runPromptCheck(sb) }, 120)
+}
+
+// 把多条分镜的修法清单合并成一份「补充说明」（去重；同一套通用规则，不分条下发）
+function buildUnionRepairNotes(items) {
+  const seen = new Set()
+  const lines = []
+  for (const it of items) {
+    for (const raw of String(it.repair_notes || '').split('\n')) {
+      const line = raw.trim()
+      if (!line || line.indexOf('逐条满足') === 0 || seen.has(line)) continue
+      seen.add(line)
+      lines.push(line)
+    }
+  }
+  if (!lines.length) return ''
+  return '逐条满足以下自检要求（不改剧情、不改台词原文、不改参考图对应关系）：\n' + lines.join('\n')
+}
+
+// 一键修复全部：一次性把「有问题的分镜」重写一遍（带合并后的修法清单），跑完自动重新体检
+async function fixAllChecked() {
+  const targets = batchBadItems.value
+  if (batchCheck.fixing || !targets.length) return
+  const ids = targets.map(it => it.storyboard_id)
+  const notes = buildUnionRepairNotes(targets)
+  batchCheck.fixing = true
+  try {
+    const res = await episodeAPI.generateVideoPrompts(epId.value, chatModelOverride(), chatConfigId(), ids, notes)
+    if (res && res.already_running) { toast.info(t('episode.check.busy')); return }
+    for (let i = 0; i < 300; i++) {
+      await new Promise(resolve => setTimeout(resolve, 3000))
+      const st = await episodeAPI.videoPromptsStatus(epId.value)
+      if (st && st.status !== 'running') break
+    }
+    await refresh()
+    await runBatchCheck()
+    toast.success(t('episode.check.repairAllDone', { n: ids.length }))
+  } catch (e) {
+    toastError(e)
+  } finally {
+    batchCheck.fixing = false
   }
 }
 
@@ -6502,4 +6646,8 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); }
 .check-ignore:hover { color: var(--text-0, #ededed); }
 .check-foot { display: flex; justify-content: flex-start; }
 .check-restore { border: none; background: transparent; color: var(--text-2, #a0a0a8); cursor: pointer; font-size: 11.5px; text-decoration: underline; padding: 0; }
+.check-dialog-wide { max-width: 720px; width: min(720px, 92vw); }
+.batch-row { cursor: pointer; }
+.batch-row:hover { background: var(--surface-2, rgba(255, 255, 255, .06)); }
+.batch-go { margin-left: auto; flex: none; font-size: 11px; color: var(--text-3, #8a8a92); white-space: nowrap; }
 </style>

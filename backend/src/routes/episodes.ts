@@ -5,7 +5,9 @@ import { success, notFound, badRequest, now } from '../utils/response.js'
 import { toSnakeCaseArray, toSnakeCase } from '../utils/transform.js'
 import { getActiveConfigId } from '../services/ai.js'
 import { EXTRACT_TARGETS, getExtractionStatus, startExtraction, type ExtractTarget } from '../services/extraction.js'
-import { getVideoPromptBatchStatus, startVideoPromptBatch } from '../services/video-prompts.js'
+import { PROMPT_EN_LIMIT, H3_PROMPT_HARD_LIMIT, getVideoPromptBatchStatus, startVideoPromptBatch } from '../services/video-prompts.js'
+import { checkStoryboardPrompt, buildRepairNotes, summarizeChecks } from '../services/prompt-check.js'
+import { buildMediaRefs } from '../services/prompt-media.js'
 import { collectStoryboardFiles, purgeStorageFiles } from '../utils/storage-purge.js'
 
 const app = new Hono()
@@ -160,6 +162,48 @@ app.post('/:id/extract', async (c) => {
 app.get('/:id/extract-status', async (c) => {
   const id = Number(c.req.param('id'))
   return success(c, getExtractionStatus(id))
+})
+
+// GET /episodes/:id/prompt-check — 整集「提示词体检」（2026-10-13 用户需求：总按钮一键体检所有分镜）
+// 逐条跑同一套机械体检（六段/配额/拍数/时间轴/台词/转义 + 参考素材预检）；只读、不写库、不调模型、不占 GPU
+app.get('/:id/prompt-check', async (c) => {
+  const id = Number(c.req.param('id'))
+  const sbs = await db.select().from(schema.storyboards)
+    .where(eq(schema.storyboards.episodeId, id))
+    .orderBy(schema.storyboards.storyboardNumber)
+
+  const items = []
+  for (const sb of sbs) {
+    const media = await buildMediaRefs(sb.id)
+    const issues = checkStoryboardPrompt(sb, {
+      enLimit: PROMPT_EN_LIMIT,
+      hardLimit: H3_PROMPT_HARD_LIMIT,
+      media,
+    })
+    items.push({
+      storyboard_id: sb.id,
+      storyboard_number: sb.storyboardNumber,
+      title: sb.title,
+      has_prompt_en: !!(sb.videoPromptEn || '').trim(),
+      reference_count: media.refs.length,
+      error_count: issues.filter(i => i.level === 'error').length,
+      warn_count: issues.filter(i => i.level === 'warn').length,
+      blocking_count: issues.filter(i => i.blocking).length,
+      auto_fixable_count: issues.filter(i => i.autoFixable).length,
+      repair_notes: buildRepairNotes(issues),
+      issues,
+    })
+  }
+  const summary = summarizeChecks(items)
+  return success(c, {
+    episode_id: id,
+    storyboard_count: sbs.length,
+    bad_count: items.filter(i => i.issues.length).length,
+    blocking_storyboard_count: items.filter(i => i.blocking_count > 0).length,
+    error_count: summary.errorCount,
+    warn_count: summary.warnCount,
+    items,
+  })
 })
 
 // POST /episodes/:id/generate-video-prompts — 异步批量为缺少视频提示词的分镜生成（立即返回，前端轮询状态）

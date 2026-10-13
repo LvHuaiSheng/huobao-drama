@@ -719,7 +719,21 @@
       "repairDone": "已重写并重新体检",
       "busy": "已有批量任务在跑，稍后再试",
       "ignore": "忽略这条",
-      "restoreIgnored": "恢复已忽略的 {n} 条"
+      "restoreIgnored": "恢复已忽略的 {n} 条",
+      "batchBtn": "体检全部",
+      "batchRunning": "体检中…",
+      "batchTitle": "整集体检",
+      "batchSummary": "共 {total} 条分镜，{bad} 条有问题（{block} 条阻断生成）｜问题 {err} 处、提醒 {warn} 处",
+      "batchAllOk": "整集 {n} 条分镜全部通过 ✓",
+      "repairAll": "一键修复全部（{n} 条）",
+      "repairAllDone": "已重写 {n} 条并重新体检",
+      "blockingN": "{n} 阻断",
+      "errN": "{n} 问题",
+      "warnN": "{n} 提醒",
+      "jump": "单击跳转 →",
+      "untitled": "（无标题）",
+      "noPrompt": "未生成英文版",
+      "batchNoEn": "，其中 {n} 条还没生成英文版（点「批量补齐提示词」或直接一键修复全部）"
     },
     "sb": {
       "title": "分镜拆分",
