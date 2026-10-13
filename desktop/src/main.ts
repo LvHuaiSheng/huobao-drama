@@ -166,6 +166,20 @@ function stopBackend(): Promise<void> {
   })
 }
 
+/** 与后端共用同一个日志文件 <dataDir>/logs/backend-YYYY-MM-DD.log：
+ *  主进程侧补记后端 fork / exit（含退出码）与退出时机 —— 后端异常退出时原先不留任何痕迹。 */
+function appendDesktopLog(line: string): void {
+  try {
+    const dir = path.join(currentDataDir, 'logs')
+    fs.mkdirSync(dir, { recursive: true })
+    const d = new Date()
+    const p = (n: number, w = 2) => String(n).padStart(w, '0')
+    const file = path.join(dir, `backend-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}.log`)
+    const stamp = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`
+    fs.appendFileSync(file, `[${stamp}] [main] ${line}\n`, 'utf8')
+  } catch { /* 日志失败绝不影响主流程 */ }
+}
+
 function startBackend(): void {
   const resources = resolveResourceDir()
   const env: NodeJS.ProcessEnv = {
@@ -190,10 +204,12 @@ function startBackend(): void {
     stdio: 'pipe',
   })
   console.log(`[main] backend forked from ${BACKEND_BUNDLE}`)
+  appendDesktopLog(`backend forked (electron pid=${process.pid})`)
   backend.stdout?.on('data', chunk => process.stdout.write(`[backend] ${chunk}`))
   backend.stderr?.on('data', chunk => process.stderr.write(`[backend] ${chunk}`))
   backend.on('exit', code => {
     backend = null
+    appendDesktopLog(`backend exited (code=${code}) quitting=${quitting} restarting=${backendRestarting}`)
     // 迁移/重启期间的退出是预期行为，由调用方接管
     if (!quitting && !backendRestarting) {
       dialog.showErrorBox('火宝短剧', `后台服务异常退出（code ${code}），应用即将关闭。请重新启动。`)
@@ -247,6 +263,7 @@ async function bootstrap() {
     // 存储配置最先读（决定数据目录）；配置损坏时回退默认且不阻断启动
     currentDataDir = loadStorageConfig()
     fs.mkdirSync(currentDataDir, { recursive: true })
+    appendDesktopLog(`app bootstrap (port=${backendPort}, dataDir=${currentDataDir})`)
 
     const resources = resolveResourceDir()
     const templateDir = app.isPackaged
@@ -329,11 +346,13 @@ registerMigrationIpc(migrationDeps)
 registerUpdater(() => mainWindow)
 
 app.on('before-quit', () => {
+  appendDesktopLog('app before-quit')
   quitting = true
   markQuitting()
   backend?.kill()
 })
 
 app.on('window-all-closed', () => {
+  appendDesktopLog('app window-all-closed -> quit')
   app.quit()
 })

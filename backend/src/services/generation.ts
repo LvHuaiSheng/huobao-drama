@@ -15,6 +15,7 @@ import { getImageAdapter, getVideoAdapter } from './adapters/registry'
 import { voiceCardsForCharacters } from './voice.js' // 2026-10-08 声音卡下发
 import type { AIConfig } from './adapters/types'
 import { logTaskError, logTaskPayload, logTaskProgress, logTaskStart, logTaskSuccess, logTaskWarn, redactUrl } from '../utils/task-logger.js'
+import { decideRecoveryAction, type RecoveryProbe } from './recovery-policy.js'
 
 type TaskType = 'image' | 'video'
 
@@ -673,6 +674,111 @@ async function pollTask(record: SysTaskRecord, config: AIConfig, taskId: string)
     }
   }
   await failTask(record.id, 'Timeout: polling attempts exhausted')
+}
+
+/** 启动恢复统计（写日志/排查用） */
+export interface RecoverStats {
+  checked: number
+  completed: number
+  resumed: number
+  failed: number
+}
+
+/**
+ * 启动恢复：进程重启后内存里的轮询线程全部丢失，但服务商侧的任务可能还在跑、甚至已完成。
+ * 逐条查一次真实状态再决定，不再无条件标失败
+ * （2026-10-13 事故：后台服务异常退出后重启，3 条已在服务器上出片的任务被一次性判成失败）。
+ * 判定表见 recovery-policy.ts 的 decideRecoveryAction（纯函数，可离线干跑验证）。
+ */
+export async function recoverInterruptedTasks(): Promise<RecoverStats> {
+  const stats: RecoverStats = { checked: 0, completed: 0, resumed: 0, failed: 0 }
+
+  let pending: SysTaskRecord[] = []
+  try {
+    pending = await db.select().from(schema.sysTask).where(eq(schema.sysTask.status, 'processing'))
+  } catch (err: any) {
+    logTaskError('Startup', 'recover-query', { error: err?.message })
+    return stats
+  }
+  if (!pending.length) return stats
+
+  for (const record of pending) {
+    stats.checked++
+    const type = record.type as TaskType
+    const label = taskLabel(type)
+
+    // ---- 探测：对服务商查一次真实状态；任何环节出错都不抛出，转成 probe 判定 ----
+    let config: AIConfig | null = null
+    let probe: RecoveryProbe = 'ok'
+    let apiStatus: string | undefined
+    let productUrl: string | undefined
+    let productDuration: number | null | undefined
+    let failReason = '服务重启，生成任务中断，请重试'
+
+    try {
+      config = await getActiveConfig(type)
+      if (!config) {
+        probe = 'no-config'
+      } else if (!record.taskId) {
+        probe = 'no-task-id'
+      } else {
+        const adapter = type === 'image' ? getImageAdapter(config.provider) : getVideoAdapter(config.provider)
+        const { url, method, headers } = adapter.buildPollRequest(config, record.taskId)
+        const resp = await fetch(url, { method, headers, signal: AbortSignal.timeout(20_000) })
+        if (resp.status === 404 || resp.status === 410) {
+          probe = 'not-found'
+        } else if (!resp.ok) {
+          probe = 'probe-error'
+        } else {
+          const pollResp: any = adapter.parsePollResponse(await resp.json())
+          apiStatus = pollResp.status
+          productUrl = type === 'image' ? pollResp.imageUrl : pollResp.videoUrl
+          productDuration = pollResp.duration
+          if (pollResp.status === 'failed') failReason = pollResp.error || 'Generation failed'
+        }
+      }
+    } catch (err: any) {
+      probe = 'probe-error'
+      logTaskWarn(label, 'recover-error', { id: record.id, taskId: record.taskId, error: err?.message })
+    }
+
+    const action = decideRecoveryAction(probe, { apiStatus, hasProductUrl: !!productUrl })
+
+    if (action === 'fail') {
+      logTaskWarn(label, 'recover-fail', { id: record.id, taskId: record.taskId, probe, apiStatus })
+      await failTask(record.id, failReason)
+      stats.failed++
+      continue
+    }
+
+    if (action === 'restore-completed' && config && productUrl) {
+      logTaskSuccess(label, 'recover-completed', { id: record.id, taskId: record.taskId })
+      if (type === 'image') await handleImageComplete(record, productUrl)
+      else await handleVideoComplete(record, productUrl, productDuration)
+      stats.completed++
+      continue
+    }
+
+    // 其余一律恢复轮询（probe-error / processing / 完成但缺产物地址）
+    if (!config || !record.taskId) {
+      // 理论不可达（上面已判 fail）；保险起见标失败，而不是静默丢任务
+      await failTask(record.id, failReason)
+      stats.failed++
+      continue
+    }
+    logTaskProgress(label, 'recover-resume', { id: record.id, taskId: record.taskId, probe, apiStatus })
+    resumeInterruptedPolling(record, config, label)
+    stats.resumed++
+  }
+
+  return stats
+}
+
+/** 恢复轮询：detached 执行，异常只记日志，绝不冒泡到启动流程 */
+function resumeInterruptedPolling(record: SysTaskRecord, config: AIConfig, label: string) {
+  pollTask(record, config, record.taskId as string).catch((err: any) => {
+    logTaskError(label, 'recover-poll', { id: record.id, error: err?.message })
+  })
 }
 
 async function handleImageComplete(record: SysTaskRecord, imageUrl: string) {

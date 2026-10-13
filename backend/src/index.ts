@@ -27,10 +27,13 @@ import refmod from './routes/refmod.js'
 import voice from './routes/voice.js'
 import maintenance from './routes/maintenance.js'
 import { requestLogger, errorHandler } from './middleware/logger.js'
-import { db, schema } from './db/index.js'
-import { eq } from 'drizzle-orm'
-import { now } from './utils/response.js'
 import { DATA_ROOT } from './utils/paths.js'
+import { installFileLogging } from './utils/log-file.js'
+import { recoverInterruptedTasks } from './services/generation.js'
+
+// 最早安装：此后所有 console 输出（含崩溃堆栈）同时落盘
+// <DATA_ROOT>/logs/backend-YYYY-MM-DD.log —— 主进程崩溃/异常退出后才有据可查。
+installFileLogging()
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const projectRoot = path.resolve(__dirname, '../..')
@@ -85,6 +88,9 @@ app.use('/static/*', async (c, next) => {
   if (c.res.ok) c.header('Cache-Control', 'public, max-age=31536000, immutable')
 })
 app.use('/static/*', serveStatic({ root: DATA_ROOT }))
+// /static/* 下不存在的文件必须 404 —— 否则会落到下面的 SPA 兜底，返回 200 的 HTML：
+// 图片解码失败时前端拿不到「文件真的没有」这个信号（缩略图缺失时的回退就靠它）。
+app.use('/static/*', async (c) => c.body(null, 404))
 
 // Serve frontend (production build) — 桌面版由主进程注入 FRONTEND_DIST（resources/frontend）
 const distPath = process.env.FRONTEND_DIST || path.join(projectRoot, 'frontend', 'dist')
@@ -94,15 +100,13 @@ app.get('*', serveStatic({ root: distPath, path: 'index.html' }))
 const port = Number(process.env.PORT || 5679)
 console.log(`🚀 Huobao Drama TS server on http://localhost:${port}`)
 
-// 进程重启后内存中的轮询线程全部丢失,残留的 processing 任务永远不会完成,
-// 启动时统一标记为 failed,避免前端一直显示"生成中"
-db.update(schema.sysTask)
-  .set({ status: 'failed', errorMsg: '服务重启，生成任务中断，请重试', updatedAt: now() })
-  .where(eq(schema.sysTask.status, 'processing'))
-  .then(res => {
-    const affected = res?.changes ?? 0
-    if (affected > 0) console.log(`🔁 已清理 ${affected} 个中断的生成任务`)
-  })
-  .catch(err => console.error('清理中断任务失败:', err?.message))
+// 进程重启后内存中的轮询线程全部丢失。原实现在这里把所有 processing 任务无条件标失败，
+// 但服务商侧的任务其实还在跑、甚至已经跑完（实测 2026-10-13：后台服务异常退出后重启，
+// 3 条已经在服务器上出片的任务被一次性判成失败，成片只能事后手动捞回）。
+// 现在改为：逐条向服务商查一次真实状态再决定 —— 已完成直接接回、处理中恢复轮询、
+// 任务确实不存在才标失败。异步执行，不阻塞 serve()。
+recoverInterruptedTasks()
+  .then((stats) => console.log(`🔁 启动恢复：${JSON.stringify(stats)}`))
+  .catch((err) => console.error('启动恢复中断任务失败:', err?.message))
 
 serve({ fetch: app.fetch, port })

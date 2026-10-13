@@ -73,8 +73,10 @@
         @keydown.enter.prevent="openDrama(d)"
         @keydown.space.prevent="openDrama(d)"
       >
-        <div class="project-cover">
-          <span class="cover-initial">{{ coverInitial(d) }}</span>
+        <div class="project-cover" :class="{ 'has-image': !!coverImage(d) }" :style="coverImage(d) ? undefined : { background: coverStyle(d) }">
+          <img v-if="coverImage(d)" class="cover-img" :src="thumbOf(coverImage(d))" alt="" loading="lazy" @error="thumbFallback($event, coverImage(d))">
+          <div v-if="coverImage(d)" class="cover-shade"></div>
+          <span v-else class="cover-initial">{{ coverInitial(d) }}</span>
           <span v-if="d.aspect_ratio && d.aspect_ratio !== 'adaptive'" class="cover-ratio">{{ d.aspect_ratio }}</span>
           <div class="status-wrap" @click.stop>
             <AppMenu
@@ -268,9 +270,43 @@ function styleLabel(key) {
   return stylePresets.value.find(p => p.value === key)?.name || key || ''
 }
 
-// 封面：单色灰阶 + 首字符（状态色只以小圆点出现，封面保持中性）
+// 封面（2026-10-13 改版）：优先用该剧第一张场景图当封面（真实画面、一眼认得出是哪部戏），
+// 没有场景图的剧回退到「按剧名固定配色 + 首字」—— 同一部剧颜色永远一致，不再是一片灰底
+// 加半透明首字。首字要跳过书名号/引号/空白，否则《保洁女王…》会显示成「《」。
+// 场景图是单幅完整画面（适合当封面）；角色图是一帧四格参考板，不拿来当封面。
+const COVER_PALETTE = [
+  'linear-gradient(135deg, #2b2350 0%, #141024 100%)',
+  'linear-gradient(135deg, #10394a 0%, #0d1a24 100%)',
+  'linear-gradient(135deg, #4a2130 0%, #1d1116 100%)',
+  'linear-gradient(135deg, #1f3b2c 0%, #0f1a14 100%)',
+  'linear-gradient(135deg, #3d2f1a 0%, #1a140c 100%)',
+  'linear-gradient(135deg, #2a2f45 0%, #14161f 100%)',
+  'linear-gradient(135deg, #432447 0%, #1b0f1d 100%)',
+  'linear-gradient(135deg, #123a3a 0%, #0b1c1c 100%)',
+]
+
+/** 封面图：该剧第一张有图的场景图；返回可直接丢给 img 的地址（空串=没有） */
+function coverImage(d) {
+  const scenes = Array.isArray(d.scenes) ? d.scenes : []
+  const hit = scenes.find(s => s && s.image_url)
+  if (!hit) return ''
+  const raw = String(hit.image_url)
+  if (/^https?:\/\//i.test(raw) || raw.startsWith('/')) return raw
+  return `/${raw}`
+}
+
+/** 没有场景图时的兜底：按剧名算一个固定配色（同名同色，重开也一致） */
+function coverStyle(d) {
+  const text = String(d.title || '')
+  let hash = 0
+  for (let i = 0; i < text.length; i++) hash = (hash * 31 + text.charCodeAt(i)) >>> 0
+  return COVER_PALETTE[hash % COVER_PALETTE.length]
+}
+
+/** 兜底封面的首字：跳过书名号/引号/括号/空白等标点 */
 function coverInitial(d) {
-  return String(d.title || '?').trim().slice(0, 1).toUpperCase() || '?'
+  const text = String(d.title || '').trim().replace(/^[《〈「『【〔（(["'“”‘’\s]+/, '')
+  return (text.slice(0, 1) || '?').toUpperCase()
 }
 
 const filteredDramas = computed(() => {
@@ -470,7 +506,7 @@ onMounted(() => setTimeout(() => autoTour('index', INDEX_TOUR, t), 600))
   box-shadow: 0 0 0 3.5px var(--button-focus);
 }
 
-/* 封面：品牌柔光洗色 + 首字符，状态色只在圆点上出现 */
+/* 封面：有场景图就用图（上下加暗角保证角标可读）；没有图用「按剧名固定配色 + 首字」 */
 .project-cover {
   position: relative;
   aspect-ratio: 2.1 / 1;
@@ -479,12 +515,48 @@ onMounted(() => setTimeout(() => autoTour('index', INDEX_TOUR, t), 600))
   justify-content: center;
   background: linear-gradient(135deg, var(--accent-bg) 0%, var(--bg-1) 70%);
   border-bottom: 1px solid var(--border);
+  overflow: hidden;
 }
+.project-cover.has-image { background: #16181d; }
+.cover-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 42%;
+}
+.cover-shade {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.34) 0%, rgba(0, 0, 0, 0) 38%, rgba(0, 0, 0, 0.5) 100%);
+}
+/* 有照片时：角标一律换成「深色半透明 + 白字」，浅色主题下也不会糊在照片上 */
+.project-cover.has-image .cover-badge {
+  background: rgba(18, 18, 22, 0.62);
+  border-color: rgba(255, 255, 255, 0.22);
+  color: #fff;
+  backdrop-filter: blur(4px);
+}
+.project-cover.has-image .cover-badge:hover { background: rgba(18, 18, 22, 0.8); color: #fff; }
+.project-cover.has-image .cover-ratio {
+  background: rgba(18, 18, 22, 0.6);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+.project-cover.has-image .cover-more {
+  background: rgba(18, 18, 22, 0.55);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+.project-cover.has-image .cover-more:hover { background: rgba(18, 18, 22, 0.78); color: #fff; }
 .cover-initial {
-  font-size: 30px;
-  font-weight: 700;
-  color: var(--accent-text);
-  opacity: 0.55;
+  position: relative;
+  font-size: 34px;
+  font-weight: 600;
+  color: #fff;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.35);
   user-select: none;
 }
 .cover-ratio {
