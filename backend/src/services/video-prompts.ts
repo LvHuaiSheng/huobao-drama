@@ -94,6 +94,27 @@ const EN_STAGES: Array<{ key: string; label: string; segs: string[]; limit: numb
 /** 段名标记（正则片段），用于把 Agent 输出里段名之前的解释性前言裁掉 */
 const SEG_MARKERS = EN_SECTION_QUOTA.map(([s]) => s).join('|')
 
+/** 去掉英文版里被模型照抄进来的「【…】」分组标题行（后端重写指令用 【】 分组，模型会连标题一起抄）
+ *  2026-10-13 修：原正则卡了 `{2,60}`，而 `【detailed_description、overall_soundscape、non_diegetic_music 三段】`
+ *  是 63 字符 → 没被清掉、落库成中文（吃播第4集分镜1 实测）。现在放宽到 300 并支持「标题+段名同一行」。
+ *  英文版正文里不该出现整行 【…】 —— 一律清掉。 */
+export function sanitizeEnPrompt(t: string): string {
+  return String(t || '')
+    .replace(/^[ \t]*【[^】]{1,300}】[ \t]*$/gm, '')
+    .replace(/^[ \t]*【[^】]{1,300}】[ \t]*(?=[a-z_]+:)/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+/** 英文版 `<d>…</d>` 台词之外的汉字（个数 + 首个样例）—— 语言闸用 */
+export function findChineseOutsideDialogue(en: string): { count: number; sample: string } {
+  const body = String(en || '').replace(/<d>[\s\S]*?<\/d>/g, '')
+  const hits = body.match(/[\u4e00-\u9fff]/g) || []
+  if (!hits.length) return { count: 0, sample: '' }
+  const i = body.search(/[\u4e00-\u9fff]/)
+  return { count: hits.length, sample: body.slice(Math.max(0, i - 40), i + 40).replace(/\n/g, ' ') }
+}
+
 /** 清洗 Agent 输出：去代码块围栏、去段名之前的废话、去尾部结语。循环跑到稳定
  *  （围栏与前言同时出现时单趟清理会残留尾部围栏）。 */
 function cleanSegText(raw: string): string {
@@ -237,12 +258,14 @@ function buildRewritePrompt(
   const segQuota = stage.segs
     .map(s => `${s.replace(':', '')} ≤${(EN_SECTION_QUOTA.find(([k]) => k === s) || ['', 0])[1]}`)
     .join(' / ')
+  // 2026-10-13：指令里一律用 ASCII 段名，不再给模型中文分组标题 —— 实测它会把中文标题照抄进英文正文
+  const segNames = stage.segs.map(s => s.replace(':', '')).join(' / ')
   const zhTimeline = zhPrompt
     ? (zhPrompt.match(/^\s*\d+\s*-\s*\d+\s*秒[：:].*$/gm) || []).join('\n')
     : ''
   return `分镜 #${sb.storyboardNumber}(ID:${sb.id}) 的 video_prompt_en 需要局部压缩（第 ${attempt} 次）。
 
-问题：${stage.label} 这一组，${problem}。
+问题：${segNames} 这一组，${problem}。
 
 **怎么压（照做，这些都是安全的）**：
 1. 删修饰性形容词与程度词：\`wind-and-oil weathered wheat-toned skin\` → \`weathered skin\`；\`slightly\` / \`very\` / \`gently\` / \`faintly\` 一律删
@@ -259,7 +282,7 @@ function buildRewritePrompt(
 - <Picture N> 编号（参考图绑定）
 - 主体编号与名称的对应关系
 ${zhTimeline ? `\n**🔴 时间轴必须与中文工作版逐拍一致（压缩时不许改动任何秒数）**：\n${zhTimeline}\n` : ''}
-${extra ? `\n**压缩时仍必须继续满足补充说明**：${extra}\n` : ''}输出要求：**只压缩【${stage.label}】**并压到 ≤ ${stage.limit} 字符（组内逐段：${segQuota}）；输出这一组内容（保留段名行）；其他组不用输出；不要解释、前言、结语；不要代码块围栏；不要调用任何保存工具。
+${extra ? `\n**压缩时仍必须继续满足补充说明**：${extra}\n` : ''}输出要求：**只压缩上面列出的这一组（${segNames}）**并压到 ≤ ${stage.limit} 字符（组内逐段：${segQuota}）；输出这一组内容（保留段名行）；其他组不用输出；不要解释、前言、结语；不要代码块围栏；不要调用任何保存工具。
 
 【待压缩的原文】
 ${current}`
@@ -282,13 +305,14 @@ function buildRewriteMultiPrompt(
         .join(' / ')
       // 缺段 ≠ 超标：缺段要「补写」，只喊压缩它救不回来（实测 sb354 缺 subject_definitions 后仍缺）
       const verb = /缺少|没有内容/.test(it.problem) ? `🔴 **这一段是缺失的，请补写它**（段名 + 完整内容）` : '压缩'
-      return `- 【${it.stage.label}】${verb}｜目标 ≤ ${it.stage.limit} 字符（组内逐段：${quota}）—— 现状：${it.problem}`
+      const segNames = it.stage.segs.map(s => s.replace(':', '')).join(' / ')
+      return `- [${segNames}] ${verb}｜目标 ≤ ${it.stage.limit} 字符（组内逐段：${quota}）—— 现状：${it.problem}`
     })
     .join('\n')
   const zhTimeline = zhPrompt
     ? (zhPrompt.match(/^\s*\d+\s*-\s*\d+\s*秒[：:].*$/gm) || []).join('\n')
     : ''
-  const bodies = items.map(it => `【${it.stage.label} 原文】\n${it.current}`).join('\n\n')
+  const bodies = items.map(it => `=== ORIGINAL: ${it.stage.segs.map(s => s.replace(':', '')).join(' / ')} ===\n${it.current}`).join('\n\n')
   return `分镜 #${sb.storyboardNumber}(ID:${sb.id}) 的 video_prompt_en 有 ${items.length} 组超标，**一次全部压到位**（第 ${attempt} 次合并压缩）。
 
 超标组与目标：
@@ -444,10 +468,7 @@ async function generateEnByStages(
   // ③ 按文档顺序拼接 + 统一裁决
   // 2026-10-12：拼装时剥掉「【…】」分组标题行 —— 那些是后端重写指令里的分组标题
   //（EN_STAGES 的 label），模型会照抄进正文（实测 sb356/分镜9 混进 2 行），必须一律清掉。
-  const assemble = () => EN_SECTION_QUOTA.map(([s]) => parts.get(s) || '').filter(Boolean).join('\n')
-    .replace(/^[ \t]*【[^】]{2,60}】[ \t]*$/gm, '')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
+  const assemble = () => sanitizeEnPrompt(EN_SECTION_QUOTA.map(([s]) => parts.get(s) || '').filter(Boolean).join('\n'))
   let text = assemble()
   debugLog(episodeId, sb.id, 'assembled', text, {
     segments: EN_SECTION_QUOTA.filter(([s]) => parts.get(s)).length,
@@ -496,6 +517,35 @@ async function generateEnByStages(
       logTaskProgress('VideoPrompt', 'en-beat-count-unresolved', {
         episodeId, storyboardId: sb.id, expected: expBeats, got: finalBeats,
       })
+    }
+  }
+
+  // ③.4 英文版语言闸（2026-10-13 加：源头修，不靠体检）—— 英文版正文除 <d>…</d> 台词外不许有中文。
+  //      已由 assemble/sanitizeEnPrompt 清掉「照抄分组标题」那一类；这里兜住其它类（模型自己写的中文标注）：
+  //      带「只改这几处中文」的指令重写 1 轮，拿不全六段就保留原版（不越改越坏）。
+  {
+    let cn = findChineseOutsideDialogue(text)
+    if (cn.count) {
+      logTaskProgress('VideoPrompt', 'en-cn-detected', {
+        episodeId, storyboardId: sb.id, count: cn.count, sample: cn.sample,
+      })
+      const res = (await agent.generate(
+        [{ role: 'user', content: buildChineseFixPrompt(sb, text, cn.sample) }],
+        { maxSteps: 6, requestContext },
+      )) as { text?: string } | undefined
+      const raw = cleanSegText(res?.text || '')
+      debugLog(episodeId, sb.id, 'en-cn-fix-1', raw, { count: cn.count })
+      const got = splitEnSections(raw)
+      if (EN_SECTION_QUOTA.every(([k]) => got.get(k))) {
+        for (const [k, v] of got) parts.set(k, v)
+        text = assemble()
+      }
+      cn = findChineseOutsideDialogue(text)
+      if (cn.count) {
+        logTaskProgress('VideoPrompt', 'en-cn-unresolved', {
+          episodeId, storyboardId: sb.id, count: cn.count, sample: cn.sample,
+        })
+      }
     }
   }
 
@@ -570,7 +620,24 @@ async function generateEnByStages(
   return { text, ok: true }
 }
 
-/** 统计英文版的拍数（`[Shot N]` 个数） */
+/** 英文版混入中文时的重写指令（2026-10-13）：只改那几处中文，其余一字不许动，输出完整六段。 */
+function buildChineseFixPrompt(
+  sb: { id: number; storyboardNumber: number | null },
+  current: string,
+  sample: string,
+): string {
+  return `分镜 #${sb.storyboardNumber}(ID:${sb.id}) 的 video_prompt_en 里混进了**中文字符**（英文发送版必须全英文）。
+
+出问题的地方（例）：${sample}
+
+**怎么改**：把这些中文字符改成对应的英文说法（它们一般是「哪几拍出现」这类标注或分组标题，**不是台词**）；**其余内容一个字符都不许改** —— 台词原文、时间戳、\`<Subject N>\` / \`<Picture N>\` 编号全部保持原样。
+**输出要求**：输出**完整六段**（\`subject_definitions:\` / \`summary:\` / \`retention_analysis:\` / \`detailed_description:\` / \`overall_soundscape:\` / \`non_diegetic_music:\`，段名与顺序不变）；不要解释、前言、结语；不要代码块围栏；不要调用任何保存工具。
+
+=== CURRENT VERSION ===
+${current}`
+}
+
+/** 统计英文版的拍数（\`[Shot N]\` 个数） */
 function countEnBeats(en: string): number {
   return (en.match(/\[Shot \d+\]/g) || []).length
 }
@@ -607,7 +674,7 @@ function buildBeatFixPrompt(
 ${zhTimeline ? `\n🔴🔴 **时间轴基准（本次中文工作版已定，绝不许自己另算）**：合并后**每一拍的起始秒数都必须与中文工作版同一拍一致**（第 1 拍不带时间戳）。中文工作版每一拍如下：\n\n${zhTimeline}\n` : '\n时间戳按合并后的真实节奏重排（第 1 拍不带时间戳）。\n'}${extra ? `\n🔴 **补充说明必须继续满足（合并拍结构时一个字都不许丢）**：${extra}\n` : ''}
 **输出要求**：输出**完整六段**（\`subject_definitions:\` / \`summary:\` / \`retention_analysis:\` / \`detailed_description:\` / \`overall_soundscape:\` / \`non_diegetic_music:\`，段名与顺序不变），**除拍结构（含时间戳）外其余内容一字不改**；不要解释、前言、结语；不要代码块围栏；不要调用任何保存工具。
 
-【当前版本】
+=== CURRENT VERSION ===
 ${current}`
 }
 
@@ -742,7 +809,7 @@ export async function startVideoPromptBatch(
         }
         // 3) 后端落库（Agent 不落库，避免它顺手写别的字段）
         await db.update(schema.storyboards)
-          .set({ videoPrompt: zh, videoPromptEn: en.text })
+          .set({ videoPrompt: zh, videoPromptEn: sanitizeEnPrompt(en.text) })
           .where(eq(schema.storyboards.id, sb.id))
         const [fresh] = await db.select().from(schema.storyboards).where(eq(schema.storyboards.id, sb.id))
         const freshEn = (fresh?.videoPromptEn || '').trim()
