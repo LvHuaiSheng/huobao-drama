@@ -229,6 +229,27 @@ function zhEnConsistency(enText: string, zhPrompt?: string): string | null {
   if (/&lt;|&gt;|&amp;/.test(enText)) {
     return '英文版出现 HTML 实体（&lt; / &gt; / &amp;）：<Subject N>/<Picture N>/<Audio N>/<d> 必须用裸尖括号'
   }
+  // ①.5 旁白/画外音写法闸（2026-10-14 立，用户报「旁白还是被念出来」）：
+  //      H3 只认官方那两句 —— ① 锁嘴句必须是官方原句、② 旁白主语必须带说话人编号 (Sx)。
+  //      只依赖 enText，与中文工作版无关，所以放在 `if (!zhPrompt) return null` 之前。
+  //      命中 → 返回 problem → 走既有重写循环（落到 detail 组），最多 2 轮，仍不达标只留痕不硬拦。
+  const selfMade = enText.match(
+    /(?:while\s+no\s+on-?screen\s+mouth\s+moves|since\s+nobody\s+is\s+in\s+frame|while\s+(?:her|his|its)\s+mouth\s+stays\s+shut|(?:her|his|its)\s+lips\s+do\s+not\s+move|mouth\s+stays\s+still)/i,
+  )
+  if (selfMade) {
+    return `旁白锁嘴句用了自造写法「${selfMade[0]}」：锁嘴句只许逐字用官方原句「while her/his/its lips remain completely closed.」`
+  }
+  for (const m of enText.matchAll(/says\s+in\s+an\s+off-?screen\s+voiceover/gi)) {
+    const at = m.index ?? 0
+    const after = enText.slice(at, at + 400)
+    if (!/(?:her|his|its)\s+lips\s+remain\s+completely\s+closed/i.test(after)) {
+      return '画外音/旁白句后面 400 字符内没有官方锁嘴句：必须紧跟 <d> 块写「while her/his/its lips remain completely closed.」'
+    }
+    const before = enText.slice(Math.max(0, at - 100), at)
+    if (!/\(S\d+\)/.test(before)) {
+      return '画外音/旁白句的主语缺说话人编号：必须写成「<Subject N> (Sx) says in an off-screen voiceover:」（官方示例：The woman (S1) says in an off-screen voiceover:）'
+    }
+  }
   if (!zhPrompt) return null
   // ② 时间轴逐拍对齐：中文「X-Y秒」的起点序列 = 英文第 2 拍起的 At 00:XX.000 序列（第 1 拍无时间戳）
   const zhStarts = [...zhPrompt.matchAll(/^\s*(\d+)\s*-\s*\d+\s*秒\s*[：:]/gm)].map(m => Number(m[1]))
