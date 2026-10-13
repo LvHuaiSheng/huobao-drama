@@ -683,6 +683,16 @@
                         <Loader2 v-if="videoPromptGeneratingIds.includes(selectedSb?.id)" :size="11" class="animate-spin" />
                         {{ (selectedSb.video_prompt || selectedSb.videoPrompt) ? t('episode.sb.regenPrompt') : t('episode.sb.aiGenerate') }}
                       </button>
+                      <button
+                        type="button"
+                        class="btn btn-sm"
+                        :disabled="promptCheck.running || !selectedSb"
+                        @click="runPromptCheck(selectedSb)"
+                      >
+                        <Loader2 v-if="promptCheck.running" :size="11" class="animate-spin" />
+                        <svg v-else width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                        {{ t('episode.sb.promptCheck') }}
+                      </button>
                     </div>
                     <MentionTextarea
                       :model-value="selectedSb.video_prompt || selectedSb.videoPrompt || ''"
@@ -1465,6 +1475,26 @@
         @confirm="confirmBreakdown"
         @cancel="breakdownConfirm = false"
       />
+      <Teleport to="body">
+        <div v-if="promptCheck.open" class="check-overlay" @click.self="promptCheck.open = false">
+          <div class="check-dialog" role="dialog" aria-modal="true" :aria-label="t('episode.sb.promptCheck')">
+            <div class="check-head">
+              <h2 class="check-title">{{ t('episode.check.title', { n: promptCheck.storyboardNumber }) }}</h2>
+              <button type="button" class="btn btn-sm" @click="promptCheck.open = false">{{ t('common.close') }}</button>
+            </div>
+            <p class="check-summary">
+              <span v-if="!promptCheck.issues.length" class="check-ok">{{ t('episode.check.allOk') }}</span>
+              <span v-else>{{ t('episode.check.summary', { err: promptCheck.errorCount, warn: promptCheck.warnCount }) }}</span>
+            </p>
+            <div class="check-list">
+              <ul class="check-issues">
+                <li v-for="(iss, i) in promptCheck.issues" :key="i" :class="'is-' + iss.level">{{ iss.message }}</li>
+              </ul>
+              <div v-if="!promptCheck.issues.length" class="check-row-empty">{{ t('episode.check.empty') }}</div>
+            </div>
+          </div>
+        </div>
+      </Teleport>
     </main>
     </div>
   </div>
@@ -2917,6 +2947,26 @@ const breakdownConfirm = ref(false)
 function confirmBreakdown() {
   breakdownConfirm.value = false
   doBreakdown()
+}
+
+// 2026-10-13 用户需求：单条分镜的「体检」按钮 —— 放在这条分镜的「重新生成」旁边，只查这一条、只报不改。
+// 注意：本文件是 <script setup>（无 lang="ts"）= 纯 JS，不要写 TS 类型标注。
+const promptCheck = reactive({ running: false, open: false, issues: [], storyboardNumber: '', errorCount: 0, warnCount: 0 })
+async function runPromptCheck(sb) {
+  if (!sb || promptCheck.running) return
+  promptCheck.running = true
+  try {
+    const res = await storyboardAPI.promptCheck(sb.id)
+    promptCheck.issues = (res && res.issues) || []
+    promptCheck.storyboardNumber = (res && res.storyboard_number) || sb.storyboard_number || sb.storyboardNumber || ''
+    promptCheck.errorCount = (res && res.error_count) || 0
+    promptCheck.warnCount = (res && res.warn_count) || 0
+    promptCheck.open = true
+  } catch (e) {
+    toast.error(String((e && e.message) || e))
+  } finally {
+    promptCheck.running = false
+  }
 }
 
 function doBreakdown() {
@@ -6343,4 +6393,26 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); }
   }
 
 }
+/* 2026-10-13 视频提示词体检弹层（自带样式，不依赖全局 .overlay/.dialog） */
+.check-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, .55); display: flex; align-items: center; justify-content: center; z-index: 300; }
+.check-dialog { width: min(780px, 92vw); max-height: 84vh; display: flex; flex-direction: column; gap: 10px; padding: 18px 20px; border-radius: 12px; background: var(--surface-0, #16161a); color: var(--text-0, #ededed); border: 1px solid var(--border-1, rgba(255, 255, 255, .12)); box-shadow: 0 18px 50px rgba(0, 0, 0, .45); }
+.check-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.check-title { font-size: 15px; font-weight: 700; margin: 0; }
+.check-summary { margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--text-2, #a0a0a8); display: flex; flex-wrap: wrap; gap: 10px; }
+.check-ok { color: var(--action-ok, #3ecf8e); font-weight: 600; }
+.check-tip { opacity: .7; }
+.check-list { overflow: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 2px; }
+.check-row { border: 1px solid var(--border-1, rgba(255, 255, 255, .12)); border-radius: 8px; padding: 10px 12px; cursor: pointer; }
+.check-row:hover { border-color: var(--accent, #5b8def); }
+.check-row-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.check-row-no { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--text-3, #8a8a92); }
+.check-row-title { font-size: 13px; font-weight: 600; }
+.check-issues { margin: 0; padding-left: 4px; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.check-issues li { font-size: 12.5px; line-height: 1.55; text-indent: -14px; padding-left: 14px; }
+.check-issues li::before { font-weight: 700; }
+.check-issues li.is-error { color: var(--action-danger, #ff6b6b); }
+.check-issues li.is-error::before { content: '✕ '; }
+.check-issues li.is-warn { color: var(--action-warn, #e0b341); }
+.check-issues li.is-warn::before { content: '! '; }
+.check-row-empty { font-size: 12.5px; color: var(--text-2, #a0a0a8); }
 </style>

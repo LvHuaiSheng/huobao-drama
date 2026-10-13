@@ -705,6 +705,12 @@
       "message": "{type}「{name}」を削除しますか？この作品のすべての話から取り除かれます。",
       "deleted": "{type}を削除しました"
     },
+    "check": {
+      "title": "プロンプト診断（カット #{n}）",
+      "summary": "エラー {err} 件、警告 {warn} 件（読み取り専用）",
+      "allOk": "このカットは問題なし ✓",
+      "empty": "問題は見つかりません"
+    },
     "sb": {
       "title": "分镜分解",
       "segmentStat": "{n} セグメント · {dur}s",
@@ -713,6 +719,7 @@
       "promptProgress": "プロンプト {done}/{total}",
       "promptSelected": "選択分のプロンプト生成({n})",
       "batchPrompts": "一括でプロンプトを補完",
+      "promptCheck": "診断",
       "listTitle": "分镜一覧",
       "listSub": "分解の説明と紐付いたキャラクター・シーンを確認",
       "select": "選択",

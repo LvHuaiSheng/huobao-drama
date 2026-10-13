@@ -1,5 +1,7 @@
 import { Hono } from 'hono'
 import { eq } from 'drizzle-orm'
+import { PROMPT_EN_LIMIT, H3_PROMPT_HARD_LIMIT } from '../services/video-prompts.js'
+import { checkStoryboardPrompt } from '../services/prompt-check.js'
 import { db, getInsertId, schema } from '../db/index.js'
 import { success, created, now, badRequest } from '../utils/response.js'
 import { toSnakeCase } from '../utils/transform.js'
@@ -171,6 +173,24 @@ app.delete('/:id', async (c) => {
   await db.delete(schema.storyboards).where(eq(schema.storyboards.id, id))
   logTaskSuccess('StoryboardAPI', 'delete', { storyboardId: id })
   return success(c)
+})
+
+// GET /storyboards/:id/prompt-check — 单条分镜的「提示词体检」（2026-10-13 用户需求）
+// 机械比对（六段/配额/拍数/时间轴/台词/转义），只报不改、不写库、不调模型、不占 GPU
+app.get('/:id/prompt-check', async (c) => {
+  const id = Number(c.req.param('id'))
+  const [sb] = await db.select().from(schema.storyboards).where(eq(schema.storyboards.id, id))
+  if (!sb) return badRequest(c, '分镜不存在')
+  const issues = checkStoryboardPrompt(sb, { enLimit: PROMPT_EN_LIMIT, hardLimit: H3_PROMPT_HARD_LIMIT })
+  return success(c, {
+    storyboard_id: sb.id,
+    storyboard_number: sb.storyboardNumber,
+    title: sb.title,
+    has_prompt_en: !!(sb.videoPromptEn || '').trim(),
+    error_count: issues.filter(i => i.level === 'error').length,
+    warn_count: issues.filter(i => i.level === 'warn').length,
+    issues,
+  })
 })
 
 export default app

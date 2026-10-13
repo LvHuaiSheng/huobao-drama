@@ -705,6 +705,12 @@
       "message": "确定删除{type}「{name}」吗？将从本剧所有集中移除。",
       "deleted": "已删除{type}"
     },
+    "check": {
+      "title": "提示词体检（分镜 #{n}）",
+      "summary": "{err} 处问题、{warn} 处提醒（只报不改）",
+      "allOk": "这条没问题 ✓",
+      "empty": "没有发现问题"
+    },
     "sb": {
       "title": "分镜拆分",
       "segmentStat": "{n} 段落 · {dur}s",
@@ -713,6 +719,7 @@
       "promptProgress": "提示词 {done}/{total}",
       "promptSelected": "生成所选提示词({n})",
       "batchPrompts": "批量补齐提示词",
+      "promptCheck": "体检",
       "listTitle": "分镜列表",
       "listSub": "检查拆分描述和绑定的角色场景",
       "select": "选择",

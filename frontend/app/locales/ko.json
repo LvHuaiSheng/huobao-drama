@@ -705,6 +705,12 @@
       "message": "{type} 「{name}」을(를) 삭제하시겠습니까? 이 작품의 모든 화에서 제거됩니다.",
       "deleted": "{type}이(가) 삭제되었습니다"
     },
+    "check": {
+      "title": "프롬프트 점검 (컷 #{n})",
+      "summary": "오류 {err}건, 경고 {warn}건 (읽기 전용)",
+      "allOk": "이 컷은 문제 없음 ✓",
+      "empty": "발견된 문제 없음"
+    },
     "sb": {
       "title": "스토리보드 분해",
       "segmentStat": "세그먼트 {n}개 · {dur}초",
@@ -713,6 +719,7 @@
       "promptProgress": "프롬프트 {done}/{total}",
       "promptSelected": "선택분 프롬프트 생성({n})",
       "batchPrompts": "일괄 프롬프트 채우기",
+      "promptCheck": "점검",
       "listTitle": "스토리보드 목록",
       "listSub": "분해 설명과 연결된 캐릭터·장면 확인",
       "select": "선택",

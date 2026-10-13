@@ -58,6 +58,7 @@ export const episodeAPI = {
   extractStatus: (id: number) => api.get(`/episodes/${id}/extract-status`),
   generateVideoPrompts: (id: number, model?: string, configId?: number, storyboardIds?: number[], extra?: string) => api.post(`/episodes/${id}/generate-video-prompts`, { model: model || undefined, config_id: configId || undefined, storyboard_ids: storyboardIds?.length ? storyboardIds : undefined, extra: extra || undefined }),
   videoPromptsStatus: (id: number) => api.get(`/episodes/${id}/video-prompts-status`),
+
 }
 
 // 2026-10-10 存储维护：扫描 / 清理历史遗留的孤儿文件
@@ -70,6 +71,8 @@ export const storyboardAPI = {
   create: (data: any) => api.post('/storyboards', data),
   update: (id: number, data: any) => api.put(`/storyboards/${id}`, data),
   del: (id: number) => api.del(`/storyboards/${id}`),
+  // 2026-10-13：单条分镜的提示词「体检」（只读，不写库）
+  promptCheck: (id: number) => api.get<{ issues: any[]; error_count: number; warn_count: number }>(`/storyboards/${id}/prompt-check`),
 }
 
 export const characterAPI = {

@@ -705,6 +705,12 @@
       "message": "Delete {type} “{name}”? It will be removed from all episodes of this drama.",
       "deleted": "{type} deleted"
     },
+    "check": {
+      "title": "Prompt lint (shot #{n})",
+      "summary": "{err} error(s), {warn} warning(s) — read-only",
+      "allOk": "No issues on this shot ✓",
+      "empty": "No issues found"
+    },
     "sb": {
       "title": "Storyboard Breakdown",
       "segmentStat": "{n} segments · {dur}s",
@@ -713,6 +719,7 @@
       "promptProgress": "Prompts {done}/{total}",
       "promptSelected": "Generate selected prompts ({n})",
       "batchPrompts": "Batch Fill Prompts",
+      "promptCheck": "Lint",
       "listTitle": "Shot List",
       "listSub": "Check breakdown descriptions and bound characters/scenes",
       "select": "Select",
