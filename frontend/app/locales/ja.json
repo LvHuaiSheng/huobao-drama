@@ -29,6 +29,19 @@
       "text": "テキスト",
       "image": "画像",
       "video": "動画"
+    },
+    "edit": "編集",
+    "projectEdit": {
+      "title": "プロジェクトを編集",
+      "desc": "保存するとすぐに反映されます",
+      "name": "プロジェクト名",
+      "namePlaceholder": "例：都市ラブストーリー『タイムポスト』",
+      "description": "あらすじ",
+      "descriptionPlaceholder": "この作品の内容を一行で（空欄可）",
+      "genre": "ジャンル",
+      "genrePlaceholder": "例：都市 / ミステリー / 年代",
+      "style": "ビジュアルスタイル",
+      "stylePlaceholder": "スタイルを選択"
     }
   },
   "layout": {
@@ -139,7 +152,7 @@
       "stylePlaceholder": "スタイルを選択",
       "aspectRatio": "アスペクト比",
       "aspectRatioPlaceholder": "アスペクト比を選択",
-      "aspectRatioHint": "作成後に固定され、動画生成はこの比率で統一されます",
+      "aspectRatioHint": "プロジェクト内はこの比率で統一されます。変更は以後に生成する映像のみに反映されます（既存の素材画像・動画は変わりません）",
       "submit": "プロジェクトを作成"
     },
     "deleteDialog": {

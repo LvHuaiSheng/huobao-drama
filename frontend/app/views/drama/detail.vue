@@ -9,6 +9,9 @@
       </button>
       <div class="head-info">
         <h1 class="page-title">{{ drama.title }}</h1>
+        <button class="btn btn-icon btn-sm title-edit-btn" type="button" :title="t('common.edit')" @click="showEdit = true">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+        </button>
         <span v-if="drama.style" class="tag tag-accent">{{ drama.style }}</span>
         <div class="page-meta">
           <span class="meta-item">
@@ -679,6 +682,12 @@
       @confirm="confirmDelEpisode"
       @cancel="episodeToDelete = null"
     />
+    <ProjectEditDialog
+      :open="showEdit"
+      :drama="drama"
+      @saved="load"
+      @cancel="showEdit = false"
+    />
   </div>
 </template>
 
@@ -688,6 +697,7 @@ import { toastError } from '~/composables/useToast'
 import { useI18n } from 'vue-i18n'
 import { dramaAPI, episodeAPI, characterAPI, sceneAPI, propAPI, uploadAPI, refmodAPI, voiceAPI } from '~/composables/useApi'
 import BaseSelect from '~/components/BaseSelect.vue'
+import ProjectEditDialog from '~/components/ProjectEditDialog.vue'
 
 const { t, locale } = useI18n()
 
@@ -695,6 +705,7 @@ const route = useRoute()
 const drama = ref(null)
 const dramaId = Number(route.params.id)
 const addDialog = ref(false)
+const showEdit = ref(false)
 const creatingEpisode = ref(false)
 const newEpisodeTitle = ref('')
 const episodeToDelete = ref(null)
@@ -1262,6 +1273,9 @@ onMounted(async () => { await load(); await loadRefmodStatus(); await loadVoiceB
 }
 .head-info { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .head-action { flex-shrink: 0; }
+/* 标题旁的「编辑项目」铅笔按钮（2026-10-14 新增） */
+.title-edit-btn { flex: 0 0 auto; color: var(--text-3); }
+.title-edit-btn:hover { color: var(--accent); background: var(--accent-bg); }
 
 .back-btn {
   width: 30px; height: 30px; flex-shrink: 0;

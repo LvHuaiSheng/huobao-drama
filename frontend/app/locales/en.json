@@ -29,6 +29,19 @@
       "text": "Text",
       "image": "Image",
       "video": "Video"
+    },
+    "edit": "Edit",
+    "projectEdit": {
+      "title": "Edit project",
+      "desc": "Changes apply as soon as you save",
+      "name": "Project name",
+      "namePlaceholder": "e.g. Urban romance 《Time Post Office》",
+      "description": "Summary",
+      "descriptionPlaceholder": "One line about what this show is about (optional)",
+      "genre": "Genre",
+      "genrePlaceholder": "e.g. Urban / Mystery / Period",
+      "style": "Visual style",
+      "stylePlaceholder": "Choose a style"
     }
   },
   "layout": {
@@ -139,7 +152,7 @@
       "stylePlaceholder": "Select a style",
       "aspectRatio": "Aspect ratio",
       "aspectRatioPlaceholder": "Select aspect ratio",
-      "aspectRatioHint": "Fixed after creation; all videos will use this ratio",
+      "aspectRatioHint": "All generations in this project use this ratio; changes only affect newly generated shots (existing asset images and videos stay as they are)",
       "submit": "Create project"
     },
     "deleteDialog": {

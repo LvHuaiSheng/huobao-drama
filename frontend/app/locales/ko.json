@@ -29,6 +29,19 @@
       "text": "텍스트",
       "image": "이미지",
       "video": "영상"
+    },
+    "edit": "편집",
+    "projectEdit": {
+      "title": "프로젝트 편집",
+      "desc": "저장하면 바로 반영됩니다",
+      "name": "프로젝트 이름",
+      "namePlaceholder": "예: 도시 로맨스 《타임 포스트》",
+      "description": "줄거리",
+      "descriptionPlaceholder": "이 작품이 무엇인지 한 줄로 (비워 둘 수 있음)",
+      "genre": "장르",
+      "genrePlaceholder": "예: 도시 / 미스터리 / 시대물",
+      "style": "비주얼 스타일",
+      "stylePlaceholder": "스타일 선택"
     }
   },
   "layout": {
@@ -139,7 +152,7 @@
       "stylePlaceholder": "스타일 선택",
       "aspectRatio": "화면 비율",
       "aspectRatioPlaceholder": "화면 비율 선택",
-      "aspectRatioHint": "생성 후 고정되며, 영상 생성은 이 비율로 통일됩니다",
+      "aspectRatioHint": "프로젝트 내 모든 생성물은 이 비율을 사용합니다. 변경은 이후 생성분에만 적용됩니다(기존 소재 이미지·영상은 그대로 유지)",
       "submit": "프로젝트 생성"
     },
     "deleteDialog": {

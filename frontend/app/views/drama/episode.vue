@@ -2235,7 +2235,7 @@ async function changeEpisodeResolution(val) {
     toastError(e)
   }
 }
-// 画面比例在创建项目时固定，视频生成统一使用
+// 画面比例取自项目设置（可在「编辑项目」里改），视频生成统一使用该值；改比例只影响之后生成的画面
 const dramaAspectRatio = computed(() => drama.value?.aspect_ratio || drama.value?.aspectRatio || '16:9')
 
 // 生成可选模型列表：配置中的模型数组（首位为配置默认）；API 可能返回数组或 JSON 字符串

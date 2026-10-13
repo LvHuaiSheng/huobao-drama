@@ -114,6 +114,7 @@
                 </button>
               </template>
               <AppMenuItem @click="activeMenuId = null; openDrama(d)">{{ t('index.openProject') }}</AppMenuItem>
+              <AppMenuItem @click="openEdit(d)">{{ t('common.projectEdit.title') }}</AppMenuItem>
               <AppMenuItem danger @click="activeMenuId = null; dramaToDelete = d">{{ t('index.deleteProject') }}</AppMenuItem>
             </AppMenu>
           </div>
@@ -188,6 +189,12 @@
         </form>
       </div>
     </div>
+    <ProjectEditDialog
+      :open="!!dramaToEdit"
+      :drama="dramaToEdit"
+      @saved="onDramaEdited"
+      @cancel="dramaToEdit = null"
+    />
     <ConfirmDialog
       :open="!!dramaToDelete"
       :title="t('index.deleteDialog.title')"
@@ -207,6 +214,7 @@ import { useI18n } from 'vue-i18n'
 import { Clock, CircleHelp } from 'lucide-vue-next'
 import { dramaAPI, stylePresetAPI } from '~/composables/useApi'
 import BaseSelect from '~/components/BaseSelect.vue'
+import ProjectEditDialog from '~/components/ProjectEditDialog.vue'
 import { startTour, autoTour } from '~/composables/useTour'
 
 const { t, locale } = useI18n()
@@ -223,6 +231,7 @@ const sortOptions = computed(() => ([
 ]))
 const activeMenuId = ref(null)
 const dramaToDelete = ref(null)
+const dramaToEdit = ref(null)
 const deletingDrama = ref(false)
 const form = ref({ title: '', style: '', aspect_ratio: '16:9' })
 const stylePresets = ref([])
@@ -264,6 +273,16 @@ async function setDramaStatus(d, status) {
     d.status = prev
     toastError(e)
   }
+}
+
+/** 打开「编辑项目」弹窗（卡片 ⋯ 菜单入口）；保存后整表刷新 —— 改名要立刻反映到卡片标题、搜索与排序 */
+function openEdit(d) {
+  activeMenuId.value = null
+  dramaToEdit.value = d
+}
+
+function onDramaEdited() {
+  load()
 }
 
 function styleLabel(key) {

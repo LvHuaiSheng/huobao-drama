@@ -29,6 +29,19 @@
       "text": "文本",
       "image": "图片",
       "video": "视频"
+    },
+    "edit": "编辑",
+    "projectEdit": {
+      "title": "编辑项目",
+      "desc": "改完点保存，立即生效",
+      "name": "项目名称",
+      "namePlaceholder": "例如：都市情感短剧《时光邮局》",
+      "description": "项目简介",
+      "descriptionPlaceholder": "一句话说明这部剧讲什么（可留空）",
+      "genre": "类型",
+      "genrePlaceholder": "例如：都市 / 悬疑 / 年代",
+      "style": "视觉风格",
+      "stylePlaceholder": "选择风格"
     }
   },
   "layout": {
@@ -139,7 +152,7 @@
       "stylePlaceholder": "选择风格",
       "aspectRatio": "画面比例",
       "aspectRatioPlaceholder": "选择画面比例",
-      "aspectRatioHint": "创建后固定，视频生成将统一使用该比例",
+      "aspectRatioHint": "项目内统一使用此比例；改动只影响之后新生成的画面（已有资产图与视频不变）",
       "submit": "创建项目"
     },
     "deleteDialog": {
