@@ -243,6 +243,15 @@ const readStoryboardContext = createTool({
           prop_ids: sbPropIds,
           // 🔴 <Picture N> 的权威编号表 —— 写 video_prompt 时逐条照抄，禁止按出场顺序推断
           reference_order: refOrder,
+          // 🔴 白名单加固（2026-10-13 实测：40 条里 9 条给「没被提取成道具资产」的东西编了
+          //    <Subject N>，4 条还编了 <Picture N>）。把「只许用哪些编号 + 没参考图怎么办」
+          //    写进模型每次生成都会读到的权威上下文，比散在长文规则里更靠前、更硬。
+          reference_count: refOrder.length,
+          reference_rule:
+            `正文只许使用 <Picture 1>~<Picture ${refOrder.length}> 与对应的 <Subject 1>~<Subject ${refOrder.length}>；` +
+            `编号大于 ${refOrder.length} 即编造（会错配 mod_N 卡 / 指向不存在的参考图）。` +
+            '没有参考图的元素（抹布、餐具、手机架、食物等）一律用普通名词当画面元素描述，禁止编号、禁止写 <Subject N>/<Picture N>；' +
+            '这条对中英两版都适用。',
           shot_type: sb.shotType || '',
           duration: sb.duration || 0,
           description: sb.description || '',
