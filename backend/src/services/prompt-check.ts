@@ -264,6 +264,22 @@ export function checkStoryboardPrompt(sb: StoryboardCheckInput, opts: CheckOptio
     }
   }
 
+  // ⑨b 英文版混入中文字符（2026-10-13 实测：40 条里 13 条中招，全在 retention_analysis 标注里）
+  // 起因 = 中文侧规则写「标注用中文写」没限定版本 → 模型中英同产，把中文标注抄进了英文版。
+  // 已知危害：中文会被 H3 当台词念（shim 代码里有 2026-10-09 实测记录）。
+  const enNoDialogue = en.replace(/<d>[\s\S]*?<\/d>/g, '')
+  const cnChars = enNoDialogue.match(/[\u4e00-\u9fff]/g) || []
+  if (cnChars.length) {
+    const idx = enNoDialogue.search(/[\u4e00-\u9fff]/)
+    const heads = enNoDialogue.slice(0, idx).match(/^([a-z_]+):/gm)
+    const loc = heads && heads.length ? heads[heads.length - 1].replace(':', '') : '整条'
+    const sample = (enNoDialogue.slice(idx).match(/^[^\n]{0,24}/) || [''])[0]
+    out.push(mk({
+      level: 'error', code: 'en-has-chinese', location: loc,
+      message: `英文版里混入 ${cnChars.length} 个中文字符（除 <d> 台词与画面文字外不许有中文）→ 例：${sample} —— 中文会被 H3 当台词念，标注必须写英文`,
+    }))
+  }
+
   // ⑨ HTML 转义（H3 不认识 <Subject N>，身份绑定会直接失效）
   if (RE_HTML_ENTITY.test(en)) {
     out.push(mk({
@@ -384,6 +400,7 @@ const REPAIR_TEXT: Record<string, string> = {
   'dialogue-count': '台词句数与中文工作版完全一致、逐字取自 description，不许新增或删除台词。',
   'dialogue-over-budget': '每拍台词字数 ≤ 该拍秒数 × 4.5（2 秒拍 ≤ 9 字）；超了就把这句拆到相邻拍或挪到窗口更长的拍。',
   'zh-dialogue-punct': '中文台词句末必须收标点（。！？），不许光秃秃结束。',
+  'en-has-chinese': '英文版里除 `<d>[Chinese]…</d>` 台词与画面文字外，禁止出现任何中文字符；`retention_analysis` 的标注必须写成英文（(appears in every shot) / (appears in shots 2 and 3 only) / (off-screen only)）。',
   'html-entity': '禁止输出 &lt; / &gt; / &amp;：所有尖括号（<Subject N> / <Picture N> / <Audio N> / <d>）一律裸写。',
   'face-in-voiceover-shot': '画外音那拍不许出现下巴/嘴入画的机位（from the jaw down / chin+neck / over-the-shoulder near），只许手部特写、纯背影或空镜。',
   'media-picture-out-of-range': '「<Picture N>」的编号不得超过该分镜实际参考图的数量。',
