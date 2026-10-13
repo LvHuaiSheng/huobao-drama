@@ -424,20 +424,27 @@ function buildInstructions(type: string) {
     let styleSpecSection = ''
     if (type === 'prompt_generator') {
       const spec = await getDramaStyleSpec(getDramaId(requestContext))
-      if (spec.head || spec.bodyRules) {
+      if (spec.head || spec.bodyRules || spec.bodyRulesEn) {
         const target = task === 'video'
           ? '视频提示词 video_prompt_en（六段式）里凡描述材质、反光、光照、景深的地方'
           : '图片最终提示词的正文'
-        const langNote = task === 'video'
-          ? '（video_prompt_en 是英文，这些介质写法请用英文表达）'
-          : ''
+        // 2026-10-14：英文任务优先用预设里的**英文版**正文渲染语言。
+        // 原来只给中文规范 + 一句「请用英文表达」，模型得边译边写 —— 实测会把「明暗」这类
+        // 中文话题词漏在英文句子里（sb396/sb400 体检报「英文版混入 2 个中文字符」）。
+        const useEn = task === 'video' && !!spec.bodyRulesEn
+        const rules = useEn ? spec.bodyRulesEn : spec.bodyRules
+        const langNote = task !== 'video'
+          ? ''
+          : useEn
+            ? '（下面这段规范本身就是英文，**措辞逐字沿用**，正文里不得出现任何中文字符）'
+            : '（video_prompt_en 是英文，这些介质写法请用英文表达）'
         styleSpecSection = [
           '## 本项目画风规范（由项目设置决定；禁止改写、禁止在正文里复述风格词）',
           spec.head
             ? `- 风格头（工具已自动拼在最终提示词最前方，你**不要**再写任何风格词）：${spec.head}`
             : '',
-          spec.bodyRules
-            ? `- **正文渲染语言（硬性要求）**：${target}必须按下面的要求书写 —— 把写实材质/光照/反光/景深类词，**逐件陈设**替换成该画风的介质词${langNote}：\n${spec.bodyRules}`
+          rules
+            ? `- **正文渲染语言（硬性要求）**：${target}必须按下面的要求书写 —— 把写实材质/光照/反光/景深类词，**逐件陈设**替换成该画风的介质词${langNote}：\n${rules}`
             : '',
         ].filter(Boolean).join('\n')
       }

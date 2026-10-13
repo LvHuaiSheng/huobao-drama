@@ -13,12 +13,22 @@ import { db, schema } from '../db/index.js'
  * 旧预设没写这个标记 → bodyRules 为空 → 行为与改动前完全一致（向后兼容）。
  */
 export const STYLE_BODY_SEP = '---BODY-RENDER-LANGUAGE---'
+/**
+ * 第二个标记：正文渲染语言的**英文版**（独占一行）。
+ * 2026-10-14 加：英文任务（video_prompt_en）原来只拿到中文规范 + 一句「请用英文表达」，
+ * 模型得边译边写，实测会把「明暗」这类中文话题词漏在英文句子里（sb396/sb400 → 体检报
+ * 「英文版混入 2 个中文字符」）。现在预设可再带一段英文规范，英文任务直接吃英文段。
+ * 旧预设没有这个标记 → bodyRulesEn = '' → 调用方退回中文段，行为与改动前完全一致。
+ */
+export const STYLE_BODY_SEP_EN = '---BODY-RENDER-LANGUAGE-EN---'
 
 export interface DramaStyleSpec {
   /** 风格头：拼在最终提示词最前方的片段；无预设时为 '' */
   head: string
   /** 正文渲染语言规范：给提示词 Agent 读；旧预设无分隔标记时为 '' */
   bodyRules: string
+  /** 正文渲染语言规范（英文版）：英文任务优先用它；预设没写英文段时为 '' */
+  bodyRulesEn: string
 }
 
 /** 读项目绑定的启用中预设原文；查不到返回 '' */
@@ -40,14 +50,20 @@ export async function getDramaStylePrompt(dramaId: number | null | undefined): P
   return (await getDramaStyleSpec(dramaId)).head
 }
 
-/** 查询项目绑定的风格预设完整规范（风格头 + 正文渲染语言） */
+/** 查询项目绑定的风格预设完整规范（风格头 + 正文渲染语言，中英各一份） */
 export async function getDramaStyleSpec(dramaId: number | null | undefined): Promise<DramaStyleSpec> {
   const raw = await loadPresetPrompt(dramaId)
-  if (!raw) return { head: '', bodyRules: '' }
+  if (!raw) return { head: '', bodyRules: '', bodyRulesEn: '' }
   const idx = raw.indexOf(STYLE_BODY_SEP)
-  if (idx < 0) return { head: raw.trim(), bodyRules: '' }
-  return {
-    head: raw.slice(0, idx).trim(),
-    bodyRules: raw.slice(idx + STYLE_BODY_SEP.length).trim(),
+  if (idx < 0) return { head: raw.trim(), bodyRules: '', bodyRulesEn: '' }
+  const head = raw.slice(0, idx).trim()
+  let body = raw.slice(idx + STYLE_BODY_SEP.length).trim()
+  let bodyRulesEn = ''
+  // 英文段可选：有 EN 标记就切出来，中文段截止到 EN 标记之前
+  const enIdx = body.indexOf(STYLE_BODY_SEP_EN)
+  if (enIdx >= 0) {
+    bodyRulesEn = body.slice(enIdx + STYLE_BODY_SEP_EN.length).trim()
+    body = body.slice(0, enIdx).trim()
   }
+  return { head, bodyRules: body, bodyRulesEn }
 }

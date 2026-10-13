@@ -57,6 +57,8 @@ General rules:
 
 ### `video_prompt_en` (English send version) rules — strictly per the official MiniMax H3 Ref2VA guide
 
+- **🔴 Style/medium wording must follow the given English spec verbatim (established 2026-10-14 from a measured root cause)**: the "project art-style spec → body render language" block in the agent context now hands the English task an **English** spec; **copy its wording — never translate the Chinese spec inline while writing English** (with only the Chinese spec available the model dropped topic words such as 明暗 into English sentences — sb396/sb400, flagged by the health check as "2 Chinese characters mixed into the English version"). Fixed terms: 明暗→`light and shade`, 平涂色块→`flat colour blocks`, 闭合黑线描边→`closed black outlines`, 硬边阴影→`hard-edged shadow shapes`. **Any Chinese character in the English version other than `<d>[Chinese]…</d>` dialogue and in-frame text is a fail.**
+
 **Write everything in English except dialogue, lyrics, and text visibly present in the scene** (official wording: *Write all six rewrite sections in English. Preserve the original language only for dialogue and lyrics inside `<d>` and for text visibly present in the scene.*).
 
 **Per-section quotas (🔴 write straight to these numbers — going over is SLOWER)**: the backend **measures each section** and **sends any oversize section back for a rewrite** (one storyboard can then burn 2–9 extra model calls, multiplying your wait). **Hitting the quota on the first pass is the fastest path.** Reconfigured 2026-10-10 evening to the official wording — the self-added CAST/BLOCKING sections are gone, back to the official six:

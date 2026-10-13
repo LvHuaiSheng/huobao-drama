@@ -163,6 +163,8 @@ Call `update_storyboard` to update only this storyboard segment's `video_prompt`
 
 ## English send version (official H3 Ref2VA six sections) — established 2026-10-09 (the self-added leading CAST/BLOCKING was dropped 2026-10-10)
 
+**🔴 Style/medium wording must follow the given English spec verbatim (established 2026-10-14 from a measured root cause)**: the "project art-style spec → body render language" block in the agent context now hands the English task an **English** spec; **copy its wording — never translate the Chinese spec inline while writing English** (with only the Chinese spec plus "please express these in English", the model dropped topic words such as 明暗 into English sentences — sb396/sb400, flagged by the health check as "2 Chinese characters mixed into the English version"). Fixed terms: 明暗→`light and shade`, 平涂色块→`flat colour blocks`, 闭合黑线描边→`closed black outlines`, 硬边阴影→`hard-edged shadow shapes`. **Any Chinese character in the English version other than `<d>[Chinese]…</d>` dialogue and in-frame text is a fail.**
+
 `video_prompt_en` is **the version actually sent to the video model**. Its rules come from the official MiniMax H3 prompt-writing guide (Ref2VA full-reference rewrite output format). **Everything is English except dialogue, lyrics, and text visible in frame.**
 
 **🔴 Length budget (hard, established 2026-10-09): the whole `video_prompt_en` must be ≤ 6200 characters** (run `len()` over it before saving).

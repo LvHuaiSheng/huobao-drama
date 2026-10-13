@@ -55,6 +55,8 @@ model: ""
 
 ### `video_prompt_en`（英文发送版）规则 — 严格照 MiniMax H3 官方 Ref2VA 指南
 
+- **🔴 画风/介质措辞必须逐字沿用给定的英文规范（2026-10-14 立，实测根因）**：Agent 上下文里「本项目画风规范 → 正文渲染语言」段，英文任务现在直接给**英文版**；**照它的措辞写，不许自己边读中文规范边翻**（原来只给中文规范，模型边译边写，把「明暗」这类中文话题词漏在英文句子里 —— sb396/sb400 体检报"英文版混入 2 个中文字符"）。固定英文术语：明暗→`light and shade`、平涂色块→`flat colour blocks`、闭合黑线描边→`closed black outlines`、硬边阴影→`hard-edged shadow shapes`。**英文版里出现任何中文字符（除 `<d>[Chinese]…</d>` 台词与画面内文字）即为不合格。**
+
 > 📌 **英文发送版（六段）的全部细则见「video-prompt 技能」的「英文发送版」节 —— 本流程单不再重复，避免每次请求重复读同一段（2026-10-12 精简）。**
 
 **除对话、歌词与画面内可见文字外，全部写英文**（官方原文：*Write all six rewrite sections in English. Preserve the original language only for dialogue and lyrics inside `<d>` and for text visibly present in the scene.*）。
