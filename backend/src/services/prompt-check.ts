@@ -303,6 +303,23 @@ export function checkStoryboardPrompt(sb: StoryboardCheckInput, opts: CheckOptio
       }))
     }
 
+    // 2026-10-13 实测新增：正文给「没被提取成道具资产」的东西编了 <Subject N>（抹布/手机架/夹子/食物…）
+    // 诱因 = 规则「手持物必须有参考图」被误读成「那就自己造一个主体编号」；40 条真数据里 9 条中招
+    const subjNums = [...new Set([...en.matchAll(/<Subject (\d+)>/g)].map(m => Number(m[1])))]
+    const overSubj = subjNums.filter(n => n > refs.length).sort((a, b) => a - b)
+    if (overSubj.length) {
+      const detail = overSubj
+        .map(n => {
+          const m = en.match(new RegExp('<Subject ' + n + '> is ([^\\.]{0,36})'))
+          return '<Subject ' + n + '>' + (m ? ' = ' + m[1].trim() : '')
+        })
+        .join('；')
+      out.push(mk({
+        level: 'error', code: 'media-subject-out-of-range', location: 'subject_definitions',
+        message: `正文编了 ${overSubj.length} 个没有参考图的主体（本分镜只有 ${refs.length} 张参考图）→ ${detail} —— 这些东西没被提取成道具资产，必须当画面元素用普通名词写、不许编号`,
+      }))
+    }
+
     for (const r of refs) {
       const label = `${r.kind === 'scene' ? '场景' : r.kind === 'character' ? '角色' : '道具'}「${r.name}」`
       if (!r.hasImage) {
@@ -370,6 +387,7 @@ const REPAIR_TEXT: Record<string, string> = {
   'html-entity': '禁止输出 &lt; / &gt; / &amp;：所有尖括号（<Subject N> / <Picture N> / <Audio N> / <d>）一律裸写。',
   'face-in-voiceover-shot': '画外音那拍不许出现下巴/嘴入画的机位（from the jaw down / chin+neck / over-the-shoulder near），只许手部特写、纯背影或空镜。',
   'media-picture-out-of-range': '「<Picture N>」的编号不得超过该分镜实际参考图的数量。',
+  'media-subject-out-of-range': '`<Subject N>` 的编号不得超过该分镜实际参考图的数量；没被提取成道具资产的东西（抹布、餐具、手机架、食物等）只许当画面元素用普通名词写，禁止编号、禁止写 `<Subject N>` / `<Picture N>`。',
   'media-missing-subject': '每一张参考图都要在正文里有对应的 <Subject N> 声明（场景→角色→道具按编号顺序），不许漏。',
   'media-no-audio-decl': '已有声音卡的角色必须写 <Audio N> 声明（绑到对应的 <Subject N>）。',
 }
