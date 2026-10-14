@@ -223,6 +223,39 @@ function groupProblem(text: string, stage: { segs: string[]; limit: number }): s
  *  2026-10-10 立：英文版是 H3 唯一消费的版本，中文工作版只是给人看的 —— 两边必须逐拍对齐。
  *  否则中文版改对了时间轴、英文版还是旧的，成片照旧出问题（sb302 实测：中文 0/2/5/8 秒，
  *  英文 0/3/6/8 秒 → 第 3 拍只剩 2 秒窗口装 11 字 → 旁白拖尾原样复现）。 */
+/** 道具参考图引用闸（2026-10-14 加，实测事故 sb393/sb394）
+ *  提示词写了「照抄道具参考图」这类指令，但本集根本没有道具参考图 → 指向不存在的资源。
+ *  实测：第2集没提取「手机」道具（提取规则把手机这类日常物品排除在外）、也没有道具参考图，
+ *  提示词却写「具体文字内容与道具参考图完全一致」/ 英文版 `exactly as drawn in the storyboard artwork`
+ *  → 屏幕文字实际没有任何东西锁它。propRefCount = 本集绑定且已有图的道具数（>0 一律放行）。 */
+export function findDanglingPropRef(en: string, propRefCount: number): string | null {
+  if (propRefCount > 0) return null
+  const pats: Array<[RegExp, string]> = [
+    [/must match <Picture \d+> exactly/i, '「必须与 <Picture N> 完全一致」'],
+    [/exactly as drawn in the storyboard artwork/i, '「照分镜画面原样画」'],
+    [/must match the (?:prop )?reference image exactly/i, '「必须与参考图完全一致」'],
+    [/以道具参考图为准/, '「以道具参考图为准」'],
+    [/必须与参考图中的?完全一致/, '「必须与参考图完全一致」'],
+  ]
+  for (const [re, label] of pats) {
+    if (re.test(en)) {
+      return `本分镜没有道具参考图（本集绑定且有图的道具数 = 0），却写了照抄指令${label} → 指向不存在的资源。`
+        + '请删掉该句，改成「几行无法辨认的字符块、看不清内容」（英文 `a few illegible character blocks, no readable content`）；'
+        + '若该文字确实是剧情关键信息，应先在 App 里把它建成道具并生成参考图，再重新生成本分镜提示词。'
+    }
+  }
+  return null
+}
+
+/** 本集「绑定 + 已有图」的道具数（道具参考图引用闸的输入） */
+async function countEpisodePropRefs(episodeId: number): Promise<number> {
+  const links = await db.select().from(schema.episodeProps).where(eq(schema.episodeProps.episodeId, episodeId))
+  if (!links.length) return 0
+  const ids = new Set(links.map(l => l.propId))
+  const rows = await db.select().from(schema.props)
+  return rows.filter(p => ids.has(p.id) && !p.deletedAt && !!(p.imageUrl || p.localPath)).length
+}
+
 function zhEnConsistency(enText: string, zhPrompt?: string): string | null {
   if (!enText) return '英文版为空'
   // ① HTML 实体：模型偶发把 <Subject 1> 写成 &lt;Subject 1&gt;，H3 会完全不认识 → 身份绑定失效
@@ -664,6 +697,39 @@ async function generateEnByStages(
       logTaskProgress('VideoPrompt', 'en-beat-count-after-zhen', {
         episodeId, storyboardId: sb.id, expected: expBeats, got: beatsAfterFix,
       })
+    }
+  }
+
+  // ③.6 道具参考图引用闸（2026-10-14 加，实测 sb393/sb394）
+  //      提示词写了「照抄道具参考图」但本集根本没有道具参考图 → 指向不存在的资源
+  //      （中文工作版那句会误导审片；英文版那句会让屏幕文字没有锁 → H3 自己编字）。
+  //      不合格 → 重写 detail 组，最多 2 轮；仍不达标留痕放行（不硬拦）。
+  {
+    const propRefCount = await countEpisodePropRefs(episodeId)
+    let dangling = findDanglingPropRef(text, propRefCount)
+    for (let attempt = 0; dangling && attempt < 2; attempt++) {
+      logTaskProgress('VideoPrompt', 'prop-ref-dangling', {
+        episodeId, storyboardId: sb.id, attempt: attempt + 1, propRefCount, problem: dangling,
+      })
+      const st = EN_STAGES[EN_STAGES.length - 1]
+      const cur = extractSections(text, st.segs) || ''
+      const res3 = (await agent.generate(
+        [{ role: 'user', content: buildRewritePrompt(sb, st, cur, dangling, attempt + 1, extra, zhPrompt) }],
+        { maxSteps: 6, requestContext },
+      )) as { text?: string } | undefined
+      const raw = cleanSegText(res3?.text || '')
+      debugLog(episodeId, sb.id, `fix-propref-${attempt + 1}`, raw, { problem: dangling })
+      const got = extractSections(raw, st.segs)
+      if (!got) continue
+      for (const s of st.segs) {
+        const one = extractSections(got, [s])
+        if (one) parts.set(s, one)
+      }
+      text = assemble()
+      dangling = findDanglingPropRef(text, propRefCount)
+    }
+    if (dangling) {
+      logTaskProgress('VideoPrompt', 'prop-ref-unresolved', { episodeId, storyboardId: sb.id, problem: dangling })
     }
   }
 
