@@ -104,6 +104,9 @@ description: 视频提示词规范 — 根据分镜段落内容生成按时间�
 
 - **🔴 纸面文字内容一律不写**：道具上具体印了什么字，**完全由参考图决定**——道具的 `final_prompt` 是生图定稿，参考图上的字已经是定的；提示词再写一遍必然与参考图打架，而且实测必错：2026-10-09 报到单，`final_prompt` 写「单位：红星机械厂二车间」「1979年3月17日」且只有 2 行正文，提示词却写成「第二车间」「三月十七日」、还凭空多出一行「钳工学徒」（写成 3 行）。
 - **🔴 「照抄参考图」是条件句，不是无条件句（2026-10-14 加，实测事故）**：只有**本分镜真的有道具参考图**（该道具已提取成资产、本集已绑定、`<Picture N>` 有图）时才写「必须与参考图完全一致」这类照抄指令。**没有道具参考图时不许写**——实测 sb393/sb394（第2集分镜2/3）：该集没提取「手机」道具、没有道具参考图，提示词却写「具体文字内容与道具参考图完全一致」→ 指向不存在的资源。没有参考图但画面里确实有文字时：**只写「几行无法辨认的字符块、看不清内容」**（英文 `illegible character blocks, no readable text`），**不写具体内容、也不引用参考图**（手机/杯子这类日常物品按提取规则本来就不会建道具，见 `extractor.md` 第 11 条）。
+- **🔴 两个方向都要写对（2026-10-14 加，实测 sb432「DNA血缘鉴定报告」没锁住）**：判据只有一条 —— **本分镜有没有道具参考图**：
+  - **有**参考图 → 必须写「纸面内容以参考图为准 / 必须与参考图完全一致」，**禁止**写「看不清 / 无法辨认的字符块 / `illegible` / `no readable text`」这类「糊掉」措辞。实测事故：模型两条分支**同时**写（一边「必须与参考图完全一致」、一边「the paper shows only … illegible character blocks, no readable text」），参考图本身字迹清清楚楚，模型照后一句把纸面糊掉 → 用户看到的就是「道具没挂上 / 没锁住」。后端另有机器闸 `illegible-with-propref`（命中重写 1 轮、顶破硬上限则回滚）。
+  - **没有**参考图 → 只能写「几行无法辨认的字符块、看不清内容」，**禁止**引用任何参考图（见上一条）。
 - **正确写法**：只写载体与动作、**不写内容**——`her gaze down on the form`、`the printed side turned toward her and away from the lens`、`the printed side of the single form`（只提"印刷面"，**绝不提印了什么字**）。旧例 `纸面竖排写着"报到证"三个大字；正文三行分别写着"林巧""红星机械厂""二车间钳工"` **已作废，禁止再写**。
 - **背面必须是空白纸背**（这条保留——它不是文字内容，是防穿帮）：写明「纸张不透光，背面是空白纸背，不透出正面任何字迹、表格线与印章」；纸张翻面、转动、背面朝镜头或被举向光时尤其要写——否则模型会把正面字迹透到背面（实测穿帮：报到单从背面也能看到内容）
 - 禁写「纸张很薄／半透明／能透出」
@@ -273,6 +276,7 @@ non_diegetic_music:
      - **在场对白**（该拍人物真在说话）：`<Subject 2> (S1) says, <d>[Chinese] 台词</d>`
      - **🔴 旁白/画外音 —— 官方原文写法**：H3 只认一句固定短语，写法 = **`<Subject N> (Sx)` + `says in an off-screen voiceover` + `<d>` 台词块 + 紧跟其后的锁嘴句**：
        `<Subject 2> (S1) says in an off-screen voiceover: <d>[Chinese] 台词原文</d> while her lips remain completely closed.`
+       - **🔴🔴 画外音那一拍：画面里的其他角色一个嘴部动作都不许有（2026-10-14 加，实测 sb437「顾明轩念出苏清禾的台词」）**：给台词主语写锁嘴句是**不够的** —— 同一拍里若给画面内的角色写了嘴部动作（`His lips part to a narrow gap and close again` / `opens her mouth` / `mouth opens` / `mutters`），H3 会把这句画外音台词安到**那个张嘴的人**身上。三条硬规则：① 画面内的角色只许写**不含嘴部**的动作（喉结滚动、汗滴坠落、手臂抬起僵在半空、眼神、呼吸）；② 该角色**必须显式锁嘴**（`his mouth stays shut` / `his lips stay closed and still`，主语按性别改）—— 本拍唯一允许的嘴部描写；③ description 里若写了对方的「张嘴 / 想解释 / 说话」，**不许照抄**，改写成不含嘴部的动作。后端机器闸 `voiceover-mouth`（命中重写 1 轮、超长回滚）。
        - 🔴 固定短语 `says in an off-screen voiceover` **必须逐字照抄**（官方原文：*For voiceover, use the exact phrase `says in an off-screen voiceover`. Immediately after every voiceover `<d>` block, state that the corresponding on-screen character's lips remain closed.*）
        - 🔴 锁嘴句**紧跟在 `<d>` 块之后**（`while her lips remain completely closed.`），不是放在台词前面
        - 🔴🔴 **锁嘴句只许用官方原句、逐字照抄**：`while her lips remain completely closed.`（主语是男性写 his、是物件写 its）。**任何自造句都不算锁嘴**，一律改回官方句 —— 已点名禁用：`while no on-screen mouth moves` / `since nobody is in frame` / `while her mouth stays shut` / `her lips do not move` / `mouth stays still`。示例：❌ `<Subject 2> says in an off-screen voiceover: <d>…</d> while no on-screen mouth moves, since nobody is in frame.` → ✅ `<Subject 2> (S1) says in an off-screen voiceover: <d>…</d> while her lips remain completely closed.`（2026-10-14 实测：同批两条稿子 sb376 用了官方原句、sb386 自造成 `while no on-screen mouth moves, since nobody is in frame.` —— **两条写法不一致本身就是不合格**）
