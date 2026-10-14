@@ -628,11 +628,11 @@
                     <span class="video-inspector-label">{{ t('episode.sb.descSection') }}</span>
                     <label class="field">
                       <span class="field-label">{{ t('episode.sb.descLabel') }} <span class="dim">({{ t('episode.sb.descHint') }})</span></span>
-                      <textarea :value="selectedSb.description || ''" class="textarea" rows="7" @blur="updateField(selectedSb, 'description', $event.target.value)" :placeholder="t('episode.sb.descPlaceholder')" />
+                      <textarea v-model="sbDraft.description" class="textarea" rows="7" @focus="onSbDraftFocus" @blur="onSbDraftBlur('description')" :placeholder="t('episode.sb.descPlaceholder')" />
                     </label>
                     <label class="field">
                       <span class="field-label">{{ t('episode.sb.atmosphere') }}</span>
-                      <textarea :value="selectedSb.atmosphere || ''" class="textarea" rows="2" @blur="updateField(selectedSb, 'atmosphere', $event.target.value)" :placeholder="t('episode.sb.atmospherePlaceholder')" />
+                      <textarea v-model="sbDraft.atmosphere" class="textarea" rows="2" @focus="onSbDraftFocus" @blur="onSbDraftBlur('atmosphere')" :placeholder="t('episode.sb.atmospherePlaceholder')" />
                     </label>
                   </section>
 
@@ -842,11 +842,12 @@
                       <span class="video-param-name">{{ t('episode.inspector.duration') }}</span>
                       <span class="video-param-control">
                         <input
-                          :value="selectedSb.duration || 10"
+                          v-model.number="sbDraft.duration"
                           type="number"
                           min="2"
                           max="30"
                           class="input video-duration-input"
+                          @focus="onSbDraftFocus"
                           @change="onVideoDurationChange"
                         />
                         <span class="video-param-unit">{{ t('episode.inspector.durationUnit') }}</span>
@@ -2829,6 +2830,41 @@ const selectedVideoTaskNumber = computed(() => {
   return index >= 0 ? index + 1 : 0
 })
 
+// ── 侧栏可编辑字段的本地草稿（2026-10-14 修「画面描述改完又变回去」）────────────────
+// 侧栏字段原本是单向 :value + @blur 保存，而**生成视频期间** pollVideoGeneration 每 4 秒
+// await refresh() → selectedSb 被换成新对象（DB 值）。只要 DB 值在编辑期间被别的流程改过
+//（典型：提示词 Agent 把生成开始时的旧快照整行回传），正在输入的内容就会被直接冲掉。
+// 用本地草稿把「输入」与「轮询回来的对象」解耦：编辑中一律不动草稿。
+const sbDraft = ref({ id: null, description: '', atmosphere: '', duration: 10, editing: false })
+
+watch(
+  () => [selectedSb.value?.id, selectedSb.value?.description, selectedSb.value?.atmosphere, selectedSb.value?.duration],
+  () => {
+    const sb = selectedSb.value
+    if (!sb) {
+      sbDraft.value = { id: null, description: '', atmosphere: '', duration: 10, editing: false }
+      return
+    }
+    // 正在编辑同一个分镜时不覆盖草稿（否则外部更新会冲掉用户正在输入的内容）
+    if (sbDraft.value.editing && sbDraft.value.id === sb.id) return
+    sbDraft.value = {
+      id: sb.id,
+      description: sb.description || '',
+      atmosphere: sb.atmosphere || '',
+      duration: Number(sb.duration || 10),
+      editing: false,
+    }
+  },
+  { immediate: true },
+)
+function onSbDraftFocus() { sbDraft.value.editing = true }
+function onSbDraftBlur(field) {
+  const sb = selectedSb.value
+  sbDraft.value.editing = false
+  if (!sb) return
+  updateField(sb, field, sbDraft.value[field] ?? '')
+}
+
 function updateField(sb, field, value) {
   const current = sb[field] ?? sb[toCamel(field)]
   if (current === value) return
@@ -3751,15 +3787,15 @@ function resolveVideoPromptRefs(sb) {
 
 // 分镜时长（视频生成参数区直接编辑并保存到分镜）：
 // 统一限制 2-30s，列表/批量/单次生成统一读取该值；超出厂商支持范围由后端适配器收敛
-function onVideoDurationChange(e) {
+function onVideoDurationChange() {
   const sb = selectedSb.value
   if (!sb) return
   const min = 2
   const max = 30
-  let v = Math.round(Number(e.target.value))
+  let v = Math.round(Number(sbDraft.value.duration))
   if (!Number.isFinite(v)) v = Number(sb.duration || 10)
   v = Math.min(max, Math.max(min, v))
-  e.target.value = v
+  sbDraft.value.duration = v // 回写规范值，输入框立刻显示钳位后的数
   updateField(sb, 'duration', v)
 }
 

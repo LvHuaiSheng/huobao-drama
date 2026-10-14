@@ -63,6 +63,8 @@ model: ""
   - **例外（这些否定必须保留，不算违规）**：数量锁 `only one … never duplicated` / `never a second`；画面与音频属性 `no gradients` / `no gloss` / `no depth-of-field blur` / `no new light source` / `no repeated identical outfits` / `no human voice …` / `no readable text`；**音频声明 `No one speaks in this shot`**（本规则要求写的，不是动作约束）；群演防重复 `never a repeated face` / `never detailed faces`；画风头里的 `avoid painterly soft blending` 等风格否定；官方锁嘴原句 `while her lips remain completely closed`；音色参考的 `without copying the original signal`。
   - **细则与判据见「video-prompt 技能」的「英文发送版」节；后端另有机器闸 `negated-action`（命中重写 1 轮、超长则回滚）。**
 
+- **🔴🔴 换装造型变体（2026-10-14 加，换装集成）**：名字形如 `苏清禾·正装`、带 `costume_label` 的角色，是基准角色 `苏清禾` 的**造型变体** —— **脸（`appearance`）由代码强制照抄基准角色，只有妆造（`styling`）是新的**。写提示词时：**按本分镜实际绑定的那个造型角色**写服装；**同一段里同一个人不许同时出现两个造型**；脸的文字描述一律用该角色的 `appearance` 原文（`verbatim_lock` 自动带），**绝不许自己另写一套脸**。细则见 video-prompt 技能的「引用规则」节。
+
 > 📌 **英文发送版（六段）的全部细则见「video-prompt 技能」的「英文发送版」节 —— 本流程单不再重复，避免每次请求重复读同一段（2026-10-12 精简）。**
 
 **除对话、歌词与画面内可见文字外，全部写英文**（官方原文：*Write all six rewrite sections in English. Preserve the original language only for dialogue and lyrics inside `<d>` and for text visibly present in the scene.*）。

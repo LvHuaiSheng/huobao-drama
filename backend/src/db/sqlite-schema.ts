@@ -120,6 +120,12 @@ export const sqliteSchemaStatements = [
   // video_prompt 仍是中文工作版（界面显示/编辑/补充说明）。老库幂等补列，老数据为 NULL。
   `ALTER TABLE storyboards ADD COLUMN video_prompt_en TEXT`,
 
+  // 2026-10-14 换装造型变体：variant_of 指回「基准角色」id、costume_label 记造型名（如「正装」）。
+  // 变体是**独立角色行**（自带 RefMod 卡 / 分镜绑定 / 参考图槽位），基准角色与它的卡全程不动；
+  // 变体的 appearance 由代码强制逐字复制基准角色 → 脸的文字描述不可能被改坏。
+  `ALTER TABLE characters ADD COLUMN variant_of INTEGER`,
+  `ALTER TABLE characters ADD COLUMN costume_label TEXT`,
+
   `CREATE TABLE IF NOT EXISTS episode_characters (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     episode_id INTEGER NOT NULL,

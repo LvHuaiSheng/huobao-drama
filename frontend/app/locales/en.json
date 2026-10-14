@@ -281,6 +281,28 @@
       "fieldHint": "Only timbre / emotion / speed / volume / dialect. Age and timbre come from the base sample.",
       "aiGen": "AI write",
       "aiGenDone": "Voice description regenerated"
+    },
+    "costume": {
+      "title": "Costume variant",
+      "make": "Costume variant",
+      "makeTitle": "Create another costume for this character (a new character; the original stays untouched)",
+      "faceNote": "The face is copied from the original character — only the clothes change. A separate new character is created; the original character, its image and its card stay untouched.",
+      "label": "Costume name",
+      "labelHint": "e.g. Formal wear / Evening gown / Overalls",
+      "desc": "Full description of this outfit",
+      "descHint": "Colour, cut, fabric, accessories (e.g. black single-breasted suit, white shirt, black trousers, black shoes)",
+      "ref": "Reference image",
+      "refDefault": "Defaults to the original character's sheet",
+      "refUpload": "Upload reference",
+      "refDone": "Reference image uploaded",
+      "generate": "Generate costume sheet",
+      "generating": "Generating (about 1 minute)…",
+      "done": "Costume character created: {name}",
+      "badge": "Costume · {label}",
+      "existing": "Existing costumes: {list}",
+      "regenTitle": "Re-generate this costume from the original character's sheet (clothes only — the face is never redrawn)",
+      "regenDone": "Costume sheet re-generated: {name}",
+      "noBase": "The base character of this costume was not found"
     }
   },
   "settings": {

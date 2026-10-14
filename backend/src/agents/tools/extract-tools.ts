@@ -132,6 +132,9 @@ const readExistingCharacters = createTool({
       appearance: c.appearance || '',
       styling: c.styling || '',
       normalized_name: normalizeName(c.name), // 用于判断近名复用：括号定位/别名视为同名
+      // 换装造型变体：costume_label 有值 = 这是某个基准角色的一个造型（variant_of = 基准角色 id）
+      costume_label: c.costumeLabel || '',
+      variant_of: c.variantOf ?? null,
     }))
     const payload = {
       count: visibleChars.length,
@@ -197,6 +200,10 @@ const saveDedupCharacters = createTool({
       description: z.string().optional(),
       appearance: z.string().optional(),
       styling: z.string().optional(),
+      /** 换装造型变体：填「基准角色的名字」→ 本次按变体保存（appearance 强制照抄基准角色，脸不变） */
+      costume_variant_of: z.string().optional(),
+      /** 造型名（如「正装」「晚礼服」「工装」），与 costume_variant_of 同时给 */
+      costume_label: z.string().optional(),
     })),
   }),
   execute: async ({ characters }, context) => {
@@ -204,7 +211,7 @@ const saveDedupCharacters = createTool({
     if ('error' in ids) return ids
     const { episodeId, dramaId } = ids
     const ts = now()
-    const results = { created: 0, merged: 0 }
+    const results = { created: 0, merged: 0, variants: 0 }
     logTaskProgress('ExtractTool', 'save-characters-begin', {
       episodeId,
       dramaId,
@@ -219,6 +226,21 @@ const saveDedupCharacters = createTool({
       const normName = normalizeName(char.name)
       const existing = exact || (normName ? charsInProject.find(c => c.name && normalizeName(c.name) === normName) : undefined)
       const matchedViaNorm = !!existing && existing !== exact
+
+      // 换装造型变体（2026-10-14）：找到「基准角色」→ 脸的文字描述（appearance）一律照抄它，
+      // 只让 styling 用新造型 → 从数据层保证同一人的多个造型不会各写一套脸。
+      const variantOfName = String(char.costume_variant_of || '').trim()
+      let baseChar: typeof charsInProject[number] | undefined
+      if (variantOfName) {
+        const baseNorm = normalizeName(variantOfName)
+        baseChar = charsInProject.find(c => c.name === variantOfName)
+          || charsInProject.find(c => c.name && normalizeName(c.name) === baseNorm)
+        if (!baseChar) {
+          logTaskProgress('ExtractTool', 'costume-base-missing', { episodeId, dramaId, variant: char.name, base: variantOfName })
+        }
+      }
+      const costumeLabel = String(char.costume_label || '').trim() || (variantOfName ? char.name.split('·').pop() || '' : '')
+      const isVariant = !!baseChar
 
       if (existing) {
         // 归一化命中：括号定位/别名等近名视作同一角色复用，避免重复创建
@@ -236,32 +258,37 @@ const saveDedupCharacters = createTool({
         await db.update(schema.characters).set({
           role: char.role || existing.role,
           description: description.value,
-          appearance: appearance.value,
+          // 🔴 变体的 appearance 一律照抄基准角色（覆盖上面的合并结果）
+          appearance: isVariant ? (baseChar!.appearance || '') : appearance.value,
           styling: styling.value,
+          ...(isVariant ? { variantOf: baseChar!.id, costumeLabel } : {}),
           updatedAt: ts,
         }).where(eq(schema.characters.id, existing.id))
         await linkCharToEpisode(episodeId, existing.id)
+        if (isVariant) results.variants++
         results.merged++
       } else {
         // 新增角色
         const res = await db.insert(schema.characters).values({
           name: char.name,
           role: char.role || '',
-          description: char.description || '',
-          appearance: char.appearance || '',
+          description: char.description || baseChar?.description || '',
+          appearance: isVariant ? (baseChar!.appearance || '') : (char.appearance || ''),
           styling: char.styling || char.description || '',
           dramaId,
+          ...(isVariant ? { variantOf: baseChar!.id, costumeLabel } : {}),
           createdAt: ts,
           updatedAt: ts,
         })
         const charId = getInsertId(res)
         await linkCharToEpisode(episodeId, charId)
+        if (isVariant) results.variants++
         results.created++
       }
     }
 
     const payload = {
-      message: `角色保存完成：新增 ${results.created}，合并更新 ${results.merged}`,
+      message: `角色保存完成：新增 ${results.created}，合并更新 ${results.merged}（其中换装造型变体 ${results.variants}）`,
       ...results,
     }
     logTaskSuccess('ExtractTool', 'save-characters-complete', { episodeId, ...results })

@@ -15,6 +15,7 @@ import { getDramaId, getEpisodeId } from '../context.js'
 import fs from 'node:fs'
 import { voiceCardName, voiceMetaPath } from '../../services/voice.js'
 import { refmodCardPath } from '../../services/refmod.js'
+import { filterPromptAgentFields } from './prompt-agent-fields.js'
 
 /**
  * 角色是否已抽好「声音卡」——决定 video_prompt 要不要写 <Audio 1>（2026-10-10 修）
@@ -179,6 +180,9 @@ const readStoryboardContext = createTool({
         styling: c.styling || '',
         image_url: c.imageUrl || '',
         reference_images: c.referenceImages || '',
+        // 换装造型变体（2026-10-14）：costume_label 有值 = 该角色是 variant_of 指向的基准角色的一个造型
+        costume_label: c.costumeLabel || '',
+        variant_of: c.variantOf ?? null,
         // 🔴 有声音卡的角色 → video_prompt 必须写 <Audio 1> 绑定它（规则见 prompt_generator.md）
         ...readVoiceCardInfo(c.id),
       }))
@@ -537,4 +541,29 @@ const updateStoryboard = createTool({
   },
 })
 
-export const storyboardTools = { readStoryboardContext, saveStoryboards, updateStoryboard }
+/**
+ * 视频提示词 Agent 专用版 update_storyboard（2026-10-14 修「分镜画面描述改完又变回去」）
+ *
+ * 为什么必须机械拦：prompt_generator 的指令（prompts/prompt_generator.md 第 3 条 + video-prompt 技能）
+ * 明写「只传 storyboard_id + video_prompt + video_prompt_en，其他字段一律不传」，
+ * 但实测模型照旧整行回传 —— 2026-10-14 18:58:06 日志实锤：
+ *   [StoryboardTool] update-begin ... fields=["title","shot_type",...,"description",...]
+ * 而 Agent 读到的上下文是**生成开始时**的快照（一次生成要跑 50 秒以上），
+ * 用户在生成过程中手改的「画面描述」就被这份旧快照覆盖回去 —— 用户看到的症状正是「改完又变回去」。
+ * 同族问题（模型不自律）已多次出现，所以在工具层做白名单：白名单外的键直接丢弃并留痕。
+ */
+const updateStoryboardPromptOnly = {
+  ...updateStoryboard,
+  execute: async (input: any, context: any) => {
+    const { filtered, dropped } = filterPromptAgentFields(input)
+    if (dropped.length) {
+      logTaskProgress('StoryboardTool', 'prompt-agent-fields-dropped', {
+        storyboardId: input?.storyboard_id,
+        dropped: dropped.join(','),
+      })
+    }
+    return (updateStoryboard.execute as any)(filtered, context)
+  },
+}
+
+export const storyboardTools = { readStoryboardContext, saveStoryboards, updateStoryboard, updateStoryboardPromptOnly }

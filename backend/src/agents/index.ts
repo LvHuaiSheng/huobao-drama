@@ -126,6 +126,7 @@ export const DEFAULT_PROMPTS: Record<string, { name: string; instructions: strin
 额外要求：
 - 优先复用 read_storyboard_context 返回的 scene_id，不要凭空创造新场景
 - 段落角色绑定必须来自 read_storyboard_context 返回的角色列表；无角色的空镜段落可传空数组
+- **同一人有多个造型时按造型词选角色**：角色列表里带 costume_label 的是「某个基准角色的一个造型变体」（variant_of = 基准角色 id，名字形如 苏清禾·正装）。本段 description 里出现造型词（正装/晚礼服/工装/制服…）→ 绑对应的**造型变体角色**；没写造型词 → 绑**基准角色**；**同一个人一段只绑一个造型**，不同段落可以绑不同造型
 - 段落道具绑定必须来自 read_storyboard_context 返回的道具列表；道具被使用、特写、交接或在画面中明显可见时绑定，与剧情无关的背景物品不要绑定；没有道具出现可传空数组
 - 段落描述必须能支撑后续视频生成和导出流程
 - 若一个段落没有台词，description 中不写台词即可，但画面描述与 atmosphere 仍必须完整
@@ -386,7 +387,10 @@ const AGENT_TOOLS: Record<string, Record<string, any>> = {
   prompt_generator: {
     ...imagePromptTools,
     readStoryboardContext: storyboardTools.readStoryboardContext,
-    updateStoryboard: storyboardTools.updateStoryboard,
+    // 🔴 视频提示词 Agent 用**白名单版**（只允许写 video_prompt / video_prompt_en）：
+    // 模型会把整行字段回传，其中 description 是生成开始时的旧快照 → 覆盖用户手改的画面描述
+    //（2026-10-14 实测症状「改完又变回去」）。规则写在指令里拦不住，机械拦在工具层。
+    updateStoryboard: storyboardTools.updateStoryboardPromptOnly,
   },
 }
 

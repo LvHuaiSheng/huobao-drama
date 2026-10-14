@@ -254,6 +254,7 @@
                         <div class="character-name-row">
                           <strong class="character-name">{{ m.name }}</strong>
                           <span class="tag">{{ m.role || t('common.role') }}</span>
+                          <span v-if="m.costume_label" class="tag">{{ t('detail.costume.badge', { label: m.costume_label }) }}</span>
                         </div>
                         <div class="character-visual-summary" :title="matDesc(m)">
                           <span>{{ t('episode.asset.appearance') }}{{ m.appearance || t('detail.assets.todoShort') }}</span>
@@ -262,7 +263,7 @@
                         </div>
                       </div>
                       <div class="character-btn-row">
-                      <button class="btn btn-sm character-gen-btn" type="button" :disabled="isPending(m)" @click.stop="generateMaterial(m)">
+                      <button class="btn btn-sm character-gen-btn" type="button" :disabled="isPending(m)" :title="m.costume_label ? t('detail.costume.regenTitle') : ''" @click.stop="m.costume_label ? regenerateCostumeBoard(m) : generateMaterial(m)">
                         <span v-if="isPending(m)" class="ring-spinner sm"></span>
                         {{ matHasImage(m) ? t('episode.asset.regen') : (isPending(m) ? t('episode.asset.generating') : t('episode.asset.generate')) }}
                       </button>
@@ -270,6 +271,15 @@
                         <span v-if="isUploading(m)" class="ring-spinner sm"></span>
                         <svg v-else width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                         {{ t('episode.asset.upload') }}
+                      </button>
+                      <button
+                        v-if="!m.costume_label"
+                        class="btn btn-sm"
+                        type="button"
+                        :title="t('detail.costume.makeTitle')"
+                        @click.stop="openCostumeDialog(m)"
+                      >
+                        {{ t('detail.costume.make') }}
                       </button>
                       <button
                         class="btn btn-sm"
@@ -635,6 +645,37 @@
         </section>
       </div>
     </Teleport>
+    <!-- 换装造型变体（2026-10-14）：新建独立角色 + 图像编辑出图，基准角色不动 -->
+    <div v-if="costumeDialog.open" class="overlay" @click.self="closeCostumeDialog">
+      <section class="dialog voice-dialog">
+        <header class="dialog-head">
+          <div class="dialog-title">{{ t('detail.costume.title') }}{{ costumeDialog.base ? ' · ' + costumeDialog.base.name : '' }}</div>
+          <button class="btn btn-icon btn-sm btn-ghost" type="button" @click="closeCostumeDialog">✕</button>
+        </header>
+        <div class="dialog-body">
+          <p class="voice-msg">{{ t('detail.costume.faceNote') }}</p>
+          <p v-if="costumeDialog.existingText" class="voice-msg">{{ t('detail.costume.existing', { list: costumeDialog.existingText }) }}</p>
+          <label class="voice-label">{{ t('detail.costume.label') }}</label>
+          <input v-model="costumeDialog.label" class="voice-input" :placeholder="t('detail.costume.labelHint')" maxlength="12" />
+          <label class="voice-label">{{ t('detail.costume.desc') }}</label>
+          <textarea v-model="costumeDialog.desc" class="voice-input" rows="3" :placeholder="t('detail.costume.descHint')"></textarea>
+          <label class="voice-label">{{ t('detail.costume.ref') }}</label>
+          <div class="voice-row">
+            <span class="voice-msg">{{ costumeDialog.refImage || t('detail.costume.refDefault') }}</span>
+            <button class="btn btn-sm" type="button" @click="pickCostumeRef">{{ t('detail.costume.refUpload') }}</button>
+          </div>
+          <p v-if="costumeDialog.msg" class="voice-msg">{{ costumeDialog.msg }}</p>
+        </div>
+        <footer class="dialog-foot">
+          <button class="btn btn-sm" type="button" @click="closeCostumeDialog">{{ t('common.cancel') }}</button>
+          <button class="btn btn-sm btn-primary" type="button" :disabled="costumeDialog.busy || !costumeDialog.label" @click="doCostumeGenerate">
+            <span v-if="costumeDialog.busy" class="ring-spinner sm"></span>
+            {{ costumeDialog.busy ? t('detail.costume.generating') : t('detail.costume.generate') }}
+          </button>
+        </footer>
+      </section>
+    </div>
+
     <div v-if="addDialog" class="overlay" @click.self="addDialog = false">
       <div class="dialog ep-dialog">
         <div class="dialog-head">
@@ -1039,6 +1080,86 @@ async function generateMaterial(m) {
   } catch (e) {
     pendingMaterials.value = new Set([...pendingMaterials.value].filter(k => k !== key))
     toastError(e)
+  }
+}
+
+// ── 换装造型变体（2026-10-14）：新建独立角色 + 图像编辑出图（只换衣服不动脸），基准角色全程不动 ──
+// ⚠️ 本文件是 `<script setup>`（无 lang="ts"）→ **不许写 TS 语法**（类型标注/泛型都会让 nuxt build 报
+//    "Unexpected token"，2026-10-14 踩过）
+const costumeDialog = ref({ open: false, base: null, label: '', desc: '', refImage: '', busy: false, msg: '', existingText: '' })
+
+async function openCostumeDialog(m) {
+  costumeDialog.value = { open: true, base: m, label: '', desc: '', refImage: '', busy: false, msg: '', existingText: '' }
+  // 列出该角色已有的造型（同名会复用，不重复建角色）
+  try {
+    const res = await characterAPI.variants(m.id)
+    const list = (res && res.variants) || []
+    costumeDialog.value.existingText = list.map(v => v.costume_label || v.name).join('、')
+  } catch (e) { /* 拉不到不影响建造型 */ }
+}
+function closeCostumeDialog() {
+  costumeDialog.value = { ...costumeDialog.value, open: false, busy: false, msg: '' }
+}
+function pickCostumeRef() {
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = 'image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp'
+  input.onchange = async () => {
+    const file = input.files && input.files[0]
+    if (!file) return
+    try {
+      const res = await uploadAPI.image(file)
+      costumeDialog.value.refImage = res.path
+      toast.success(t('detail.costume.refDone'))
+    } catch (e) { toastError(e) }
+  }
+  input.click()
+}
+// 变体卡上的「出图」按钮 = 从**基准角色的定妆板**重走一遍图像编辑（只换衣服、脸不动）。
+// 🔴 绝不做文生图 —— 文生图会重画脸，用户 2026-10-14 明确要求换装必须保脸。
+async function regenerateCostumeBoard(m) {
+  const epId = drama.value && drama.value.episodes && drama.value.episodes[0] ? drama.value.episodes[0].id : null
+  if (!epId) { toast.error(t('detail.mat.needEpisodeForImage')); return }
+  if (!m.variant_of) { toast.error(t('detail.costume.noBase')); return }
+  const key = pendingKey(m)
+  if (pendingMaterials.value.has(key)) return
+  pendingMaterials.value = new Set(pendingMaterials.value).add(key)
+  try {
+    await characterAPI.costumeVariant(m.variant_of, {
+      episode_id: epId,
+      costume_label: m.costume_label,
+      costume_desc: m.styling || undefined,
+    })
+    toast.success(t('detail.costume.regenDone', { name: m.name }))
+    pollMaterial(m)
+  } catch (e) {
+    pendingMaterials.value = new Set([...pendingMaterials.value].filter(k => k !== key))
+    toastError(e)
+  }
+}
+
+async function doCostumeGenerate() {
+  const d = costumeDialog.value
+  if (!d.base || !d.label) return
+  const epId = drama.value && drama.value.episodes && drama.value.episodes[0] ? drama.value.episodes[0].id : null
+  if (!epId) { toast.error(t('detail.mat.needEpisodeForImage')); return }
+  d.busy = true
+  d.msg = t('detail.costume.generating')
+  try {
+    const res = await characterAPI.costumeVariant(d.base.id, {
+      episode_id: epId,
+      costume_label: String(d.label).trim(),
+      costume_desc: String(d.desc || '').trim() || undefined,
+      reference_image_url: d.refImage || undefined,
+    })
+    toast.success(t('detail.costume.done', { name: (res && res.name) || d.label }))
+    closeCostumeDialog()
+    await load()
+  } catch (e) {
+    d.msg = (e && (e.message || e.error)) || String(e)
+    toastError(e)
+  } finally {
+    d.busy = false
   }
 }
 

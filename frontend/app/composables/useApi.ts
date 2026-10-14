@@ -84,6 +84,9 @@ export const characterAPI = {
   generatePrompt: (id: number, episodeId: number, force = false, textModel?: string, textConfigId?: number) => api.post(`/characters/${id}/generate-prompt`, { episode_id: episodeId, force, text_model: textModel || undefined, text_config_id: textConfigId || undefined }),
   generateImage: (id: number, episodeId: number, model?: string, configId?: number, textModel?: string, textConfigId?: number) => api.post(`/characters/${id}/generate-image`, { episode_id: episodeId, model: model || undefined, config_id: configId || undefined, text_model: textModel || undefined, text_config_id: textConfigId || undefined }),
   batchImages: (ids: number[], episodeId: number, model?: string, configId?: number, textModel?: string, textConfigId?: number) => api.post('/characters/batch-generate-images', { character_ids: ids, episode_id: episodeId, model: model || undefined, config_id: configId || undefined, text_model: textModel || undefined, text_config_id: textConfigId || undefined }),
+  /** 新建换装造型变体角色并生成它的定妆板（走图像编辑，只换衣服不动脸） */
+  costumeVariant: (id: number, data: { episode_id: number; costume_label: string; costume_desc?: string; reference_image_url?: string; model?: string; auto_card?: boolean }) => api.post(`/characters/${id}/costume-variant`, data),
+  variants: (id: number) => api.get(`/characters/${id}/variants`),
 }
 
 export const sceneAPI = {

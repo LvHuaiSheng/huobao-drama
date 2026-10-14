@@ -58,6 +58,10 @@ export const characters = sqliteTable('characters', {
   seedValue: text('seed_value'),
   sortOrder: integer('sort_order'),
   localPath: text('local_path'),
+  /** 换装造型变体：指回基准角色 id（null = 基准角色本身） */
+  variantOf: integer('variant_of'),
+  /** 造型名（如「正装」「晚礼服」「工装」），仅变体角色有值 */
+  costumeLabel: text('costume_label'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
   deletedAt: text('deleted_at'),
