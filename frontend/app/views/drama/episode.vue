@@ -1105,7 +1105,14 @@
                 </div>
                 <div class="video-task-meta-line">
                   <span class="video-task-loc truncate">{{ row.provider }}{{ row.model ? ' · ' + row.model : '' }}</span>
-                  <template v-if="genTaskDuration(row)">
+                  <!-- 2026-10-14：只有「真正在渲染」的那条走秒表；排队中的任务不显示计时 -->
+                  <template v-if="genTaskRunningDuration(row)">
+                    <span class="video-task-sep">·</span>
+                    <span class="video-task-live">
+                      <span class="video-task-live-dot"></span>{{ t('episode.tasks.running', { dur: genTaskRunningDuration(row) }) }}
+                    </span>
+                  </template>
+                  <template v-else-if="genTaskDuration(row)">
                     <span class="video-task-sep">·</span>
                     <span>{{ t('episode.tasks.duration', { dur: genTaskDuration(row) }) }}</span>
                   </template>
@@ -2131,6 +2138,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleImageViewerKeydown)
   stopGenTasksPolling()
+  if (clockTimer) { clearInterval(clockTimer); clockTimer = null }
 })
 
 function isPendingSceneImage(id) {
@@ -2553,6 +2561,7 @@ const genTaskRows = computed(() => {
     createdAt: t.created_at || '',
     completedAt: t.completed_at || '',
     timing: parseTaskTiming(t.params),
+    progress: parseTaskProgress(t.params),
   }))
   const mergeRows = genMerges.value.map(m => ({
     key: `merge-${m.id}`,
@@ -2634,6 +2643,42 @@ function genTaskQueueDuration(row) {
   const q = row?.timing?.queueSeconds
   return q != null ? fmtDurationSec(q) : ''
 }
+
+// 2026-10-14（任务栏计时）：sys_task.params.progress —— 上游（本地中转）回报「这条是不是真在渲染」。
+// 本地单卡串行：批量提交时除拿到显卡锁的那条外都在排队，而两边的 status 都是 processing，
+// 所以「真正在跑」只能靠这个字段区分（waiting / 字段缺失 = 排队中，不给秒表）。
+function parseTaskProgress(raw) {
+  if (!raw) return null
+  try {
+    const p = typeof raw === 'string' ? JSON.parse(raw) : raw
+    const g = p?.progress
+    if (!g || typeof g !== 'object' || g.state !== 'running') return null
+    const startedAt = Number(g.startedAt)
+    return { state: 'running', startedAt: Number.isFinite(startedAt) ? startedAt : null }
+  } catch {
+    return null
+  }
+}
+
+// 秒表：只在抽屉打开、且确实有任务在渲染时每秒走一格（排队中的行不起表）
+const clockTick = ref(Date.now())
+let clockTimer = null
+const genTaskRunningCount = computed(() => genTaskRows.value.filter(r => !!r.progress).length)
+
+// 正在渲染那一条的「已运行」时长。拿不到就不显示；完成后 status 不再是 processing，秒表自动停。
+function genTaskRunningDuration(row) {
+  if (!row || row.status !== 'processing') return ''
+  const startedAt = row.progress?.startedAt
+  if (startedAt == null) return ''
+  const sec = (clockTick.value - startedAt) / 1000
+  if (!Number.isFinite(sec) || sec < 0) return ''
+  return fmtDurationSec(sec)
+}
+
+watch([taskDrawer, genTaskRunningCount], ([open, running]) => {
+  if (clockTimer) { clearInterval(clockTimer); clockTimer = null }
+  if (open && running > 0) clockTimer = setInterval(() => { clockTick.value = Date.now() }, 1000)
+})
 
 // 抽屉打开且有进行中任务时,4s 轮询;关闭或全部结束时停止
 watch([taskDrawer, genTaskActiveCount], ([open, active]) => {
@@ -5649,6 +5694,25 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); }
   color: var(--text-2);
 }
 .video-task-sep { color: var(--text-3); opacity: 0.5; }
+/* 2026-10-14（任务栏计时）：只有真正在渲染的那条显示 —— 「已运行 1m20s」逐秒走 */
+.video-task-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--accent-text, var(--accent));
+  font-variant-numeric: tabular-nums;
+}
+.video-task-live-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: video-task-live-pulse 1.4s ease-in-out infinite;
+}
+@keyframes video-task-live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
 .video-task-error {
   margin-top: 5px;
   font-size: 11px;

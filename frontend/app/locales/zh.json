@@ -937,6 +937,7 @@
       "emptyTitle": "暂无生成任务",
       "emptyDesc": "在资产、分镜或视频步骤中触发图片 / 视频生成后,任务会自动出现在这里。",
       "duration": "耗时 {dur}",
+      "running": "已运行 {dur}",
       "queue": "排队 {dur}",
       "sbN": "分镜 #{n}",
       "generic": "通用",

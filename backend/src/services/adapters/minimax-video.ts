@@ -177,7 +177,17 @@ export class MiniMaxVideoAdapter implements VideoProviderAdapter {
       const code = err && typeof err === 'object' && err.code ? `[${err.code}] ` : ''
       return { status: 'failed', error: `${code}${msg}` }
     }
-    return { status: status || 'processing' }
+    // 2026-10-14 任务栏计时：processing 时上游带回 progress（是否真在渲染 + 已跑秒数）。
+    // 批量提交时只有拿到本地串行锁的那条是 running，其余 waiting（都在排队等显卡）。
+    const p = task.progress && typeof task.progress === 'object' ? task.progress : null
+    const elapsed = Number(p?.elapsed_seconds)
+    const progress = p?.state === 'running' && Number.isFinite(elapsed)
+      // startedAt 一律用**本机**时钟反推（现在 − 上游已跑秒数），不依赖两端时钟一致
+      ? { state: 'running' as const, startedAt: Date.now() - Math.max(0, elapsed) * 1000 }
+      : p
+        ? { state: 'waiting' as const }
+        : undefined
+    return { status: status || 'processing', ...(progress ? { progress } : {}) }
   }
 
   extractVideoUrl(result: any): string | null {

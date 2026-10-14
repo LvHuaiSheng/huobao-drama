@@ -937,6 +937,7 @@
       "emptyTitle": "No generation tasks",
       "emptyDesc": "Tasks will appear here automatically after you trigger image/video generation in the assets, storyboard or video steps.",
       "duration": "took {dur}",
+      "running": "running {dur}",
       "queue": "queued {dur}",
       "sbN": "Shot #{n}",
       "generic": "General",

@@ -151,4 +151,9 @@ export interface VideoPollResponse {
    *  2026-10-14 加：本地单卡串行排队时，「提交→完成」会把排队时间算进生成时间（实测同批
    *  显示 4m/7m/10m/14m，而每条真实生成都是 3.2~3.9 分钟）→ 有这个字段就用它显示。 */
   timing?: { genSeconds?: number; queueSeconds?: number }
+  /** 2026-10-14（任务栏计时）：上游回报这条任务**是不是真在渲染**。
+   *  本地单卡串行 —— 批量提交时除拿到锁的那条外都在排队，而任务表里它们同样显示「生成中」，
+   *  光看 status 分不出来。state='running' 带 startedAt（**本机** epoch 毫秒，由上游 elapsed
+   *  反推，避免 4080 与本机时钟偏差），前端据此给那一条走秒表；'waiting' = 排队中，不显示计时。 */
+  progress?: { state: 'running' | 'waiting'; startedAt?: number }
 }

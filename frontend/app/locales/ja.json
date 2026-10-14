@@ -929,6 +929,7 @@
       "emptyTitle": "生成タスクがありません",
       "emptyDesc": "資産、分镜、動画の各ステップで画像/動画生成を実行すると、タスクが自動でここに表示されます。",
       "duration": "所要 {dur}",
+      "running": "実行中 {dur}",
       "queue": "待ち {dur}",
       "sbN": "分镜 #{n}",
       "generic": "汎用",

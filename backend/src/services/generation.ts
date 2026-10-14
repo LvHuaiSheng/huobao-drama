@@ -454,6 +454,8 @@ function withTiming(
   const merged = parseTaskParams(rawParams)
   if (timing && (timing.genSeconds != null || timing.queueSeconds != null)) {
     merged.timing = timing
+    // 完成/失败后清掉进行中的 progress：前端秒表随之停，改显示真实耗时（2026-10-14 任务栏计时）
+    delete merged.progress
   }
   return JSON.stringify(merged)
 }
@@ -608,6 +610,29 @@ async function markPolling(id: number, taskId: string | undefined) {
   logTaskProgress('SysTask', 'poll-start', { id, taskId })
 }
 
+/** 2026-10-14（任务栏计时）：把「真在渲染 / 排队中」写进 params.progress（不改表结构）。
+ *  上游每轮只回报「现在有没有在跑、已经跑了多少秒、本机起始时刻」，这里**只在值变了**才落库
+ *  ——否则每个在跑任务每 10 秒写一次库。完成后 withTiming 会清掉它。
+ *  纯显示用途：任何异常都吞掉打日志，绝不能让写库把生成流程搞挂。 */
+async function markTaskProgress(
+  id: number,
+  progress: { state: 'running' | 'waiting'; startedAt?: number },
+) {
+  try {
+    const [rec] = await db.select().from(schema.sysTask).where(eq(schema.sysTask.id, id))
+    if (!rec || rec.status !== 'processing') return
+    const params = parseTaskParams(rec.params)
+    const prev = params.progress && typeof params.progress === 'object' ? params.progress : null
+    if (prev && prev.state === progress.state && prev.startedAt === progress.startedAt) return
+    params.progress = progress
+    await db.update(schema.sysTask)
+      .set({ params: JSON.stringify(params) })
+      .where(eq(schema.sysTask.id, id))
+  } catch (err: any) {
+    logTaskWarn('SysTask', 'progress-write-failed', { id, error: err?.message })
+  }
+}
+
 async function failTask(id: number, message: string) {
   logTaskError('SysTask', 'failed', { id, error: message })
   await db.update(schema.sysTask)
@@ -681,6 +706,9 @@ async function pollTask(record: SysTaskRecord, config: AIConfig, taskId: string)
         await failTask(record.id, pollResp.error || 'Generation failed')
         return
       }
+      // 2026-10-14 任务栏计时：还在跑 → 落「真在渲染 / 排队中」，
+      // 前端据此只给真正在渲染的那条走秒表（批量排队中的那些不显示计时）
+      if (pollResp.progress) await markTaskProgress(record.id, pollResp.progress)
     } catch (err: any) {
       const exhausted = i === profile.attempts - 1
         || (profile.maxDurationMs != null && Date.now() - startedAt >= profile.maxDurationMs)
