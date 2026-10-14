@@ -1,0 +1,63 @@
+/**
+ * 画外音「锁嘴锁错人」闸（2026-10-14 立，实测 sb437：本该是画外音，画面里的顾明轩却张嘴把台词念了出来）
+ *
+ * 官方基础指南原文（MiniMax H3 skills/h3-prompt-writing/references/base-en.txt）：
+ *   *For voiceover, use the exact phrase `says in an off-screen voiceover`.
+ *    Immediately after every voiceover `<d>` block, state that the corresponding
+ *    **on-screen character's** lips remain closed.*
+ * 例：`The man (S1) says in an off-screen voiceover: <d>[English] I still remember that road.</d>
+ *      while his lips remain completely closed.`
+ *
+ * 关键点：**锁嘴锁的是"这一拍画面里在的那个角色"，不是画外的旁白者**。
+ * 实测事故 sb437 [Shot 2]：画面里是顾明轩 `<Subject 3>`，旁白是画外的苏清禾 `<Subject 2>`，
+ * 稿子却写成 `while her lips remain completely closed` —— "her" 指向画外的旁白者，
+ * 画面里的顾明轩**没有被锁嘴**，于是 H3 让他张嘴把苏清禾的旁白念了出来（用户报的正是这个）。
+ *
+ * 判据：逐 `[Shot N]` 扫描；该拍有画外音 `<d>` 时，若拍内出现了**除旁白者以外的角色主体**
+ * （charSubjects 由调用方按参考图顺序给出），则该拍必须有一句
+ * `<Subject K>'s lips remain completely closed`（K = 画面里的那个角色）。缺 → 命中。
+ * 拍内只有旁白者自己、或拍内没有角色 → 不判（官方原句的代词写法即可）。
+ *
+ * 纯函数，单独成文件以便脱离 DB/Agent 模块图单测。
+ */
+
+export interface VoiceoverLockGap {
+  /** 拍号标记，如 `[Shot 2]` */
+  shot: string
+  /** 旁白者主体号（画外） */
+  narrator: number
+  /** 这一拍画面里出现、但不是旁白者的角色主体号 */
+  onscreen: number[]
+}
+
+const VOICEOVER = /says\s+in\s+an\s+off-?screen\s+voiceover/i
+const subjectsOf = (s: string): number[] =>
+  Array.from(new Set((s.match(/<Subject (\d+)>/g) || []).map(x => parseInt(x.replace(/\D+/g, ''), 10))))
+
+/** 拍内是否已按官方口径锁了某个画面角色的嘴：`<Subject K>'s lips remain completely closed` */
+const locksSubject = (shot: string, k: number): boolean =>
+  new RegExp(`<Subject ${k}>'s lips? remain completely closed`, 'i').test(shot)
+
+/**
+ * @param en 英文版提示词全文
+ * @param charSubjects 本分镜里「角色」主体的编号（按参考图顺序，由调用方给出）
+ * @returns 命中列表（空 = 通过）
+ */
+export function findVoiceoverOnscreenLock(en: string, charSubjects: number[]): VoiceoverLockGap[] {
+  const src = String(en || '')
+  const chars = new Set((charSubjects || []).filter(n => Number.isFinite(n)))
+  if (!src || !chars.size || !VOICEOVER.test(src)) return []
+  const hits: VoiceoverLockGap[] = []
+  for (const block of src.split(/(?=\[Shot \d+\])/)) {
+    if (!/^\s*\[Shot \d+\]/.test(block)) continue
+    if (!VOICEOVER.test(block) || !/<d>/.test(block)) continue
+    const head = block.slice(0, block.search(VOICEOVER))
+    const mentioned = subjectsOf(head)          // 旁白句之前提到的 = 这一拍画面里的
+    const narrator = mentioned.length ? mentioned[mentioned.length - 1] : 0
+    const onscreen = mentioned.filter(n => n !== narrator && chars.has(n))
+    if (!onscreen.length) continue              // 画面里没有别的角色 → 不判
+    if (onscreen.some(k => locksSubject(block, k))) continue
+    hits.push({ shot: block.slice(0, block.indexOf(']') + 1), narrator, onscreen })
+  }
+  return hits
+}

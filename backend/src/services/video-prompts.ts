@@ -289,8 +289,10 @@ function groupProblem(text: string, stage: { segs: string[]; limit: number }): s
 import { findDanglingPropRef } from './prop-text-gates.js'
 import { findVoiceoverMouthAction, type VoiceoverMouthHit } from './voiceover-gates.js'
 import { findRetentionMismatch, type RetentionMismatch } from './retention-gate.js'
+import { findVoiceoverOnscreenLock, type VoiceoverLockGap } from './voiceover-onscreen-gate.js'
 export { findDanglingPropRef } from './prop-text-gates.js'
 export { findRetentionMismatch } from './retention-gate.js'
+export { findVoiceoverOnscreenLock } from './voiceover-onscreen-gate.js'
 
 /** 本集「绑定 + 已有图」的道具数（道具参考图引用闸的输入） */
 async function countEpisodePropRefs(episodeId: number): Promise<number> {
@@ -752,6 +754,10 @@ async function generateEnByStages(
   // 本集「绑定 + 已有图」的道具数：③.6（没图却写照抄）/ ③.7（否定句重写）共用
   const propRefCount = await countEpisodePropRefs(episodeId)
 
+  // 本分镜「角色」主体的编号（按参考图顺序，供 ③.11 画外音锁嘴闸用）
+  const charSubjects = (await buildMediaRefs(sb.id)).refs
+    .filter(r => r.kind === 'character').map(r => r.picture)
+
   // ③.6 道具参考图引用闸（2026-10-14 加，实测 sb393/sb394）
   //      提示词写了「照抄道具参考图」但本集根本没有道具参考图 → 指向不存在的资源
   //      （中文工作版那句会误导审片；英文版那句会让屏幕文字没有锁 → H3 自己编字）。
@@ -911,6 +917,48 @@ async function generateEnByStages(
     }
   }
 
+  // ③.11 画外音「锁嘴锁错人」闸（2026-10-14 加，实测 sb437：本该画外音，画面里的顾明轩张嘴念了出来）
+  //      官方基础指南：画外音 `<d>` 块之后要锁的是「**这一拍画面里在的那个角色**」的嘴唇，
+  //      不是画外的旁白者。稿子写成 `while her lips remain completely closed`（her=画外旁白者）时，
+  //      画面里的角色没被锁嘴 → H3 让他张嘴把旁白念出来。
+  //      命中 → 带指令重写 1 轮；仍不达标只留痕放行；重写后顶破硬上限 → 回滚。
+  {
+    let vg: VoiceoverLockGap[] = findVoiceoverOnscreenLock(text, charSubjects)
+    if (vg.length) {
+      logTaskProgress('VideoPrompt', 'voiceover-onscreen-lock-detected', {
+        episodeId, storyboardId: sb.id, charSubjects: charSubjects.join(','),
+        shots: vg.map(h => `${h.shot} onscreen=${h.onscreen.join('/')}`).join(' | '),
+      })
+      const snapshot = new Map(parts)
+      const res = (await agent.generate(
+        [{ role: 'user', content: buildVoiceoverOnscreenFixPrompt(sb, text, vg) }],
+        { maxSteps: 6, requestContext },
+      )) as { text?: string } | undefined
+      const raw = cleanSegText(res?.text || '')
+      debugLog(episodeId, sb.id, 'voiceover-onscreen-lock-fix-1', raw, { gaps: vg.length })
+      const got = splitEnSections(raw)
+      if (EN_SECTION_QUOTA.every(([k]) => got.get(k))) {
+        for (const [k, v] of got) parts.set(k, v)
+        text = assemble()
+        if (text.length > budget.limit) {
+          for (const k of parts.keys()) parts.delete(k)
+          for (const [k, v] of snapshot) parts.set(k, v)
+          text = assemble()
+          logTaskProgress('VideoPrompt', 'voiceover-onscreen-lock-rollback-over-limit', {
+            episodeId, storyboardId: sb.id, limit: budget.limit,
+          })
+        }
+      }
+      vg = findVoiceoverOnscreenLock(text, charSubjects)
+      if (vg.length) {
+        logTaskProgress('VideoPrompt', 'voiceover-onscreen-lock-unresolved', {
+          episodeId, storyboardId: sb.id,
+          shots: vg.map(h => `${h.shot} onscreen=${h.onscreen.join('/')}`).join(' | '),
+        })
+      }
+    }
+  }
+
   const under = text.length > 0 && text.length <= budget.limit
   if (!text) {
     logTaskError('VideoPrompt', 'segment-give-up', { episodeId, storyboardId: sb.id, stage: 'all', error: '拼接结果为空' })
@@ -971,6 +1019,36 @@ function buildVoiceoverMouthFixPrompt(
 - **改成不含嘴部的动作**：汗珠从额角渗到下颌线、一滴一滴坠落、手臂抬起僵在半空、指节发僵、眼神定在某点、呼吸变浅、肩背绷紧 —— 用这些承载情绪。（**喉结/颈部动作也一并去掉**，它紧邻下颌，同样会把注意力引到嘴。）
 - **画面取景**：**不要**给这个角色脸部特写（实测 sb302：画外音拍给了脸部特写 → 旁白被读出来、嘴照动）。改成手部、肩背、侧后方中景，或让他的脸不入画。
 - **台词那一句照原样保留**：\`<Subject N> (Sx) says in an off-screen voiceover: <d>…</d> while her/his lips remain completely closed.\` 逐字不动（主语、编号、**官方锁嘴句**都不许改 —— 这句是唯一允许出现的嘴部描写）。
+**输出要求**：输出**完整六段**（subject_definitions: / summary: / retention_analysis: / detailed_description: / overall_soundscape: / non_diegetic_music:，段名与顺序不变）；不要解释、前言、结语；不要代码块围栏；不要调用任何保存工具。
+
+=== CURRENT VERSION ===
+${current}`
+}
+
+/** 画外音「锁嘴锁错人」的重写指令（2026-10-14 加，实测 sb437）：
+ *  官方口径：画外音 `<d>` 块之后锁的是**这一拍画面里在的那个角色**的嘴唇，不是画外的旁白者。 */
+function buildVoiceoverOnscreenFixPrompt(
+  sb: { id: number; storyboardNumber: number | null },
+  current: string,
+  gaps: VoiceoverLockGap[],
+): string {
+  const detail = gaps.map(g =>
+    `- ${g.shot}：旁白者是画外的 <Subject ${g.narrator}>，这一拍画面里在的角色是 <Subject ${g.onscreen.join('> / <Subject ')}>`).join('\n')
+  return `分镜 #${sb.storyboardNumber}(ID:${sb.id}) 的 video_prompt_en 里，**画外音那一拍的锁嘴句锁错了人**：
+
+${detail}
+
+官方基础指南原文（MiniMax H3 提示词指南）：
+> For voiceover, use the exact phrase \`says in an off-screen voiceover\`. Immediately after every voiceover \`<d>\` block, state that the corresponding **on-screen character's** lips remain closed.
+> 例：\`The man (S1) says in an off-screen voiceover: <d>[English] I still remember that road.</d> while his lips remain completely closed.\`
+
+**问题**：稿子写成 \`while her lips remain completely closed\` —— 那个 "her" 指的是**画外的旁白者**，画面里在的那个角色**没有被锁嘴** → H3 会让他张嘴，把旁白台词念出来（实测事故：本该是画外音，画面里的顾明轩张嘴念了苏清禾的旁白）。
+
+**怎么改（只改这些句子，其余一字不动）**：
+- 把上述每一拍的锁嘴句改成**画面里那个角色**的：\`while <Subject K>'s lips remain completely closed.\`（K 换成上面列出的画面角色编号），位置仍然**紧跟在 \`<d>\` 块之后**。
+- **删掉**原来指向画外旁白者的那句（\`while her lips remain completely closed\` / \`while his lips remain completely closed\`，若它指的是画外的人）。
+- 这一拍里**除这句锁嘴句外**，不要再写任何嘴部/下颌/喉结动作（\`lips part\` / \`mouth opens\` / \`jaw\` / \`Adam's apple\` 之类）。
+- 台词那一句本身（主语 \`<Subject N> (Sx) says in an off-screen voiceover: <d>…</d>\`）逐字保留，不许改台词、不许改编号。
 **输出要求**：输出**完整六段**（subject_definitions: / summary: / retention_analysis: / detailed_description: / overall_soundscape: / non_diegetic_music:，段名与顺序不变）；不要解释、前言、结语；不要代码块围栏；不要调用任何保存工具。
 
 === CURRENT VERSION ===
