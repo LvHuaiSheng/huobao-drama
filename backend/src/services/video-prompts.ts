@@ -84,8 +84,18 @@ export const PROMPT_HEAD_RESERVE = 32
 export function promptEnLimit(headLen: number): number {
   return Math.min(PROMPT_EN_LIMIT, H3_PROMPT_HARD_LIMIT - Math.max(0, headLen) - PROMPT_HEAD_RESERVE)
 }
-/** 重写轮数上限（2026-10-12 提速 A：合并重写后一轮 = 1 次请求，2 轮足够） */
-const MAX_SEG_RETRY = 2
+/** 重写轮数上限（2026-10-12 提速 A：合并重写后一轮 = 1 次请求；2026-10-15 B 方案：2 → 3 轮。
+ *  理由：一条分镜常常只差几十字符（实测 sb450 只超 5 字符、sb460 超 51、sb426 超 81），
+ *  多跑一轮的代价（约 45 秒）远小于整条作废、用户还得手动重来的代价。 */
+const MAX_SEG_RETRY = 3
+/** 「空转」重发上限（2026-10-15 A 方案加）：模型只回一句前言（`I'll read the storyboard context…`）
+ *  或空文本、一个段名都没带回来时，**不消耗重写轮次**、原样重发，最多连续重发这么多次。
+ *  实测（2026-10-10~15 的 debug 日志）：压缩轮空转率 9%（rewrite-multi-1）/ 21%（rewrite-multi-2），
+ *  sb450 第一轮 0 字符、sb423 补写两轮都是 0 字符；原来空转照样吃满 2 轮配额
+ *  → 两轮烧完文本一字未改 → 整条判失败（用户看到的就是「生成失败、重试还失败」）。 */
+const MAX_EMPTY_RETRY = 2
+/** 「缺段补写」轮数上限（原来写死在循环里的 2） */
+const MAX_SEG_FILL_RETRY = 2
 /** 「整体生成」的重试次数上限（2026-10-11 加）：模型偶尔只回一句开场白、不输出任何段名 */
 const MAX_FULL_RETRY = 3
 
@@ -280,7 +290,9 @@ function splitEnSections(t: string): Map<string, string> {
   return m
 }
 
-/** 从任意输出里抽出指定几段（Agent 不听话又输出全文也能救回来；缺任一指定段返回 null） */
+/** 从任意输出里抽出指定几段（Agent 不听话又输出全文也能救回来；缺任一指定段返回 null）
+ *  ⚠️ 2026-10-15 起**只用于「从已定稿文本里取某组当重写输入」**（`cur`），不再用于写回判定 ——
+ *  写回一律走 `writeBackSections`（逐段写回，缺段不再整轮丢弃）。 */
 function extractSections(raw: string, segs: string[]): string | null {
   const m = splitEnSections(raw)
   const picked: string[] = []
@@ -290,6 +302,45 @@ function extractSections(raw: string, segs: string[]): string | null {
     picked.push(v)
   }
   return picked.join('\n')
+}
+
+/** 逐段写回：把重建输出里**实际带回的段**写进 parts，返回写回了哪几段（纯函数，可离线干跑）。
+ *
+ *  2026-10-15 修（A 方案）：原来要求「请求的段全都带回来」才写 —— extractSections 缺任一段就返回 null、
+ *  writeBack 直接 return，**整轮输出被丢弃**；而模型经常只回其中两段 → 它已经压好的那部分也被扔掉，
+ *  下一轮报的问题一字不差（实测 sb421/sb450/sb432：连续两轮「实测 1716/1298/3347」完全相同 = 整轮白跑，
+ *  占全部连续重写轮对的 26%）。现在有一段就写一段，缺的段留给后续轮次/补写。
+ */
+export function writeBackSections(parts: Map<string, string>, raw: string, segs: string[]): string[] {
+  const got = splitEnSections(raw)
+  const written: string[] = []
+  for (const s of segs) {
+    const v = got.get(s)
+    // 只认「段名后面真有内容」的段：实测模型会只回一行光秃秃的段名（`subject_definitions:`），
+    // 写进去会把该段清空、而 groupProblem 只查段名在不在 → 空壳会被当成合格段落落库。
+    const body = v ? (v.startsWith(s) ? v.slice(s.length) : v).trim() : ''
+    if (v && body) {
+      parts.set(s, v)
+      written.push(s)
+    }
+  }
+  return written
+}
+
+/** 重写/补写轮次的计数推进（纯函数，可离线干跑）：
+ *  - 带回内容（`wroteAny`）→ 消耗一轮；
+ *  - 空转（模型只回前言/空文本）→ **不消耗轮次**，只累加 emptyStreak，最多连续 maxEmpty 次；
+ *    连续空转超过上限才消耗一轮往前走（否则会死循环）。
+ *  返回的 `consumed=false` 表示调用方应当原样重发、不要推进轮次计数。 */
+export function advanceRewriteState(
+  state: { round: number; emptyStreak: number },
+  wroteAny: boolean,
+  maxEmpty: number = MAX_EMPTY_RETRY,
+): { round: number; emptyStreak: number; consumed: boolean } {
+  if (wroteAny) return { round: state.round + 1, emptyStreak: 0, consumed: true }
+  const streak = state.emptyStreak + 1
+  if (streak <= maxEmpty) return { round: state.round, emptyStreak: streak, consumed: false }
+  return { round: state.round + 1, emptyStreak: 0, consumed: true }
 }
 
 /** 某组内容是否合格：非空、段名齐全、且不超该组配额 */
@@ -460,7 +511,7 @@ function buildRewritePrompt(
 - <Picture N> 编号（参考图绑定）
 - 主体编号与名称的对应关系
 ${zhTimeline ? `\n**🔴 时间轴必须与中文工作版逐拍一致（压缩时不许改动任何秒数）**：\n${zhTimeline}\n` : ''}
-${extra ? `\n**压缩时仍必须继续满足补充说明**：${extra}\n` : ''}输出要求：**只压缩上面列出的这一组（${segNames}）**并压到 ≤ ${stage.limit} 字符（组内逐段：${segQuota}）；输出这一组内容（保留段名行）；其他组不用输出；不要解释、前言、结语；不要代码块围栏；不要调用任何保存工具。
+${extra ? `\n**压缩时仍必须继续满足补充说明**：${extra}\n` : ''}输出要求：**只压缩上面列出的这一组（${segNames}）**并压到 ≤ ${stage.limit} 字符（组内逐段：${segQuota}）；输出这一组内容（保留段名行）；其他组不用输出；不要解释、前言、结语；不要代码块围栏；**不要调用任何工具（包括 read_storyboard_context —— 原文已附在下面，直接输出结果，不要去查库里的旧稿）**。
 
 【待压缩的原文】
 ${current}`
@@ -511,7 +562,7 @@ ${quotaLines}
 - <Picture N> 编号（参考图绑定）
 - 主体编号与名称的对应关系
 ${zhTimeline ? `\n**🔴 时间轴必须与中文工作版逐拍一致（压缩时不许改动任何秒数）**：\n${zhTimeline}\n` : ''}
-${extra ? `\n**压缩时仍必须继续满足补充说明**：${extra}\n` : ''}输出要求：**上面列出的每一组都要处理到位**（标了「补写」的写全，其余压到配额内），按组输出、每组保留自己的段名行；**不要输出未列出的组**；不要解释、前言、结语；不要代码块围栏；不要调用任何保存工具。
+${extra ? `\n**压缩时仍必须继续满足补充说明**：${extra}\n` : ''}输出要求：**上面列出的每一组都要处理到位**（标了「补写」的写全，其余压到配额内），按组输出、每组保留自己的段名行；**不要输出未列出的组**；不要解释、前言、结语；不要代码块围栏；**不要调用任何工具（包括 read_storyboard_context —— 原文已附在下面，直接输出结果，不要去查库里的旧稿）**。
 
 ${bodies}`
 }
@@ -582,33 +633,38 @@ async function generateEnByStages(
     return { text: '', ok: false }
   }
 
-  /** 容错写回：Agent 若又输出全文，只取需要的段 */
-  const writeBack = (raw: string, segs: string[]) => {
-    const got = extractSections(raw, segs)
-    if (!got) return
-    for (const s of segs) {
-      const one = extractSections(got, [s])
-      if (one) parts.set(s, one)
-    }
-  }
+  /** 容错写回：Agent 若又输出全文，只取需要的段 —— 逐段写回（见 writeBackSections 的注释）。 */
+  const writeBack = (raw: string, segs: string[]): string[] => writeBackSections(parts, raw, segs)
 
   // ①.5 缺段补写（2026-10-12 加）：首轮可能整段漏掉（模型直接从 summary: 开始写）。
   //      缺段不是"超标"，压缩指令救不回来 → 单独一次「补写」请求；最多 2 轮。
   const missingSegs = () => EN_SECTION_QUOTA.map(([s]) => s).filter(s => !parts.get(s))
-  for (let round = 0; missingSegs().length && round < 2; round++) {
-    onNote?.('en_fill', round + 1, 2)
+  const fillState = { round: 0, emptyStreak: 0 }
+  while (missingSegs().length && fillState.round < MAX_SEG_FILL_RETRY) {
+    onNote?.('en_fill', fillState.round + 1, MAX_SEG_FILL_RETRY)
     const miss = missingSegs()
-    logTaskProgress('VideoPrompt', 'segment-missing', { episodeId, storyboardId: sb.id, round: round + 1, missing: miss })
+    logTaskProgress('VideoPrompt', 'segment-missing', { episodeId, storyboardId: sb.id, round: fillState.round + 1, missing: miss })
     const res = (await agent.generate(
       [{ role: 'user', content: buildRewriteMultiPrompt(sb, miss.map(s => {
         const stage = EN_STAGES.find(st => st.segs.includes(s)) || EN_STAGES[0]
         return { stage, current: '', problem: `缺少这一段：${s}` }
-      }), round + 1, extra, zhPrompt) }],
+      }), fillState.round + 1, extra, zhPrompt) }],
       { maxSteps: 6, requestContext },
     )) as { text?: string } | undefined
     const raw = cleanSegText(res?.text || '')
-    debugLog(episodeId, sb.id, `write-missing-${round + 1}`, raw, { missing: miss })
-    writeBack(raw, miss)
+    debugLog(episodeId, sb.id, `write-missing-${fillState.round + 1}-${fillState.emptyStreak + 1}`, raw, { missing: miss })
+    const written = writeBack(raw, miss)
+    // 2026-10-15（A 方案）：补写空转（模型只回前言/空文本，实测 sb423 两轮都是 0 字符）不消耗补写轮次
+    const next = advanceRewriteState(fillState, written.length > 0)
+    if (!next.consumed) {
+      logTaskProgress('VideoPrompt', 'segment-fill-empty', {
+        episodeId, storyboardId: sb.id, round: fillState.round + 1, streak: next.emptyStreak, len: raw.length,
+      })
+      fillState.emptyStreak = next.emptyStreak
+      continue
+    }
+    fillState.round = next.round
+    fillState.emptyStreak = next.emptyStreak
   }
 
   // ② 逐组核定 → 超标组**一次性合并重写**（2026-10-12 提速 A）。
@@ -623,19 +679,35 @@ async function generateEnByStages(
     .filter(x => x.problem)
 
   let bad = checkStages()
-  for (let round = 0; bad.length && round < MAX_SEG_RETRY; round++) {
-    onNote?.('en_rewrite', round + 1, MAX_SEG_RETRY)
+  const rewriteState = { round: 0, emptyStreak: 0 }
+  while (bad.length && rewriteState.round < MAX_SEG_RETRY) {
+    onNote?.('en_rewrite', rewriteState.round + 1, MAX_SEG_RETRY)
     logTaskProgress('VideoPrompt', 'segment-retry', {
-      episodeId, storyboardId: sb.id, attempt: round + 1,
+      episodeId, storyboardId: sb.id, attempt: rewriteState.round + 1,
       stages: bad.map(b => b.stage.key), problem: bad.map(b => b.problem).join(' | '),
     })
     const res = (await agent.generate(
-      [{ role: 'user', content: buildRewriteMultiPrompt(sb, bad, round + 1, extra, zhPrompt) }],
+      [{ role: 'user', content: buildRewriteMultiPrompt(sb, bad, rewriteState.round + 1, extra, zhPrompt) }],
       { maxSteps: 6, requestContext },
     )) as { text?: string } | undefined
     const raw = cleanSegText(res?.text || '')
-    debugLog(episodeId, sb.id, `rewrite-multi-${round + 1}`, raw, { groups: bad.map(b => b.stage.key) })
-    writeBack(raw, bad.flatMap(b => b.stage.segs))
+    debugLog(episodeId, sb.id, `rewrite-multi-${rewriteState.round + 1}-${rewriteState.emptyStreak + 1}`, raw, {
+      groups: bad.map(b => b.stage.key),
+    })
+    const written = writeBack(raw, bad.flatMap(b => b.stage.segs))
+    // 2026-10-15（A 方案）：空转不消耗轮次 —— 模型只回一句前言/空文本时原样重发，
+    // 连续 MAX_EMPTY_RETRY 次仍空转才记账往前走（见 advanceRewriteState）。
+    const next = advanceRewriteState(rewriteState, written.length > 0)
+    if (!next.consumed) {
+      logTaskProgress('VideoPrompt', 'segment-rewrite-empty', {
+        episodeId, storyboardId: sb.id, attempt: rewriteState.round + 1,
+        streak: next.emptyStreak, len: raw.length, head: raw.slice(0, 60),
+      })
+      rewriteState.emptyStreak = next.emptyStreak
+      continue
+    }
+    rewriteState.round = next.round
+    rewriteState.emptyStreak = next.emptyStreak
     bad = checkStages()
   }
   // 不立刻放弃：没压到位的组记下来，最后按「全文是否 ≤ 硬上限」统一裁决
@@ -673,7 +745,7 @@ async function generateEnByStages(
   // ③.3 英文版拍数硬校验（2026-10-12 加）：中文工作版早就有这道闸，英文版一直没有 →
   //      实测 sb356(分镜9) description 只有 2 个【镜头】，英文版却写了 3 拍（0-3/3-6/6-9），
   //      成片会多切一刀（假切点复发）。不符就带「必须 N 拍、上一版 M 拍」重写，最多 2 轮；
-  //      只有拿到完整六段才整份替换（拿不全就保留原版，避免越改越坏）。
+  //      2026-10-15：改成**逐段写回**（拿回几段用几段），并在改写后顶破硬上限时回滚。
   const expBeats = ((sb.description || '').match(/【镜头/g) || []).length
   if (expBeats) {
     for (let round = 0; round < 2; round++) {
@@ -689,10 +761,20 @@ async function generateEnByStages(
       )) as { text?: string } | undefined
       const raw = cleanSegText(res?.text || '')
       debugLog(episodeId, sb.id, `beat-fix-${round + 1}`, raw, { expected: expBeats, got: gotBeats })
-      const got = splitEnSections(raw)
-      if (EN_SECTION_QUOTA.every(([k]) => got.get(k))) {
-        for (const [k, v] of got) parts.set(k, v)
+      const snapshot = new Map(parts)
+      if (writeBack(raw, EN_SECTION_QUOTA.map(([k]) => k)).length) {
         text = assemble()
+        if (text.length > budget.limit) {
+          // 2026-10-15（B 方案）：后置校验轮把文本改长、顶破硬上限时回滚 ——
+          // 否则整条分镜会因为「结构改对了但变长了」而判失败（实测 sb432：7208 被语言闸改成 7315 后 give-up）。
+          for (const k of [...parts.keys()]) parts.delete(k)
+          for (const [k, v] of snapshot) parts.set(k, v)
+          text = assemble()
+          logTaskProgress('VideoPrompt', 'beat-fix-rollback-over-limit', {
+            episodeId, storyboardId: sb.id, limit: budget.limit,
+          })
+          break
+        }
       }
     }
     const finalBeats = countEnBeats(text)
@@ -705,7 +787,7 @@ async function generateEnByStages(
 
   // ③.4 英文版语言闸（2026-10-13 加：源头修，不靠体检）—— 英文版正文除 <d>…</d> 台词外不许有中文。
   //      已由 assemble/sanitizeEnPrompt 清掉「照抄分组标题」那一类；这里兜住其它类（模型自己写的中文标注）：
-  //      带「只改这几处中文」的指令重写 1 轮，拿不全六段就保留原版（不越改越坏）。
+  //      带「只改这几处中文」的指令重写 1 轮；2026-10-15 起逐段写回，顶破硬上限时回滚。
   {
     let cn = findChineseOutsideDialogue(text)
     if (cn.count) {
@@ -718,10 +800,19 @@ async function generateEnByStages(
       )) as { text?: string } | undefined
       const raw = cleanSegText(res?.text || '')
       debugLog(episodeId, sb.id, 'en-cn-fix-1', raw, { count: cn.count })
-      const got = splitEnSections(raw)
-      if (EN_SECTION_QUOTA.every(([k]) => got.get(k))) {
-        for (const [k, v] of got) parts.set(k, v)
+      const snapshot = new Map(parts)
+      if (writeBack(raw, EN_SECTION_QUOTA.map(([k]) => k)).length) {
         text = assemble()
+        if (text.length > budget.limit) {
+          // 2026-10-15（B 方案）：语言修复轮把文本改长、顶破硬上限 → 回滚（宁留少量中文也不整条作废；
+          // 紧贴英文词的游离中文在 assemble 前已被 stripStrayChinese 机械清掉）。
+          for (const k of [...parts.keys()]) parts.delete(k)
+          for (const [k, v] of snapshot) parts.set(k, v)
+          text = assemble()
+          logTaskProgress('VideoPrompt', 'en-cn-fix-rollback-over-limit', {
+            episodeId, storyboardId: sb.id, limit: budget.limit,
+          })
+        }
       }
       cn = findChineseOutsideDialogue(text)
       if (cn.count) {
@@ -745,6 +836,7 @@ async function generateEnByStages(
       logTaskProgress('VideoPrompt', 'zh-en-fix', {
         episodeId, storyboardId: sb.id, attempt: attempt + 1, problem,
       })
+      const snapshot = new Map(parts)
       // 选要重写的组：HTML 实体散落在哪段就重写哪段（实体常见于 subject_definitions）；
       // 时间轴 / 台词条数的问题都在 detailed_description 所在的 detail 组。
       const targets = /HTML 实体/.test(problem)
@@ -759,14 +851,20 @@ async function generateEnByStages(
         )) as { text?: string } | undefined
         const raw = cleanSegText(res2?.text || '')
         debugLog(episodeId, sb.id, `fix-zhen-${attempt + 1}-${st.key}`, raw, { problem })
-        const got = extractSections(raw, st.segs)
-        if (!got) continue
-        for (const s of st.segs) {
-          const one = extractSections(got, [s])
-          if (one) parts.set(s, one)
-        }
+        writeBack(raw, st.segs)
       }
       text = assemble()
+      if (text.length > budget.limit) {
+        // 2026-10-15（B 方案）：中英一致性修复把文本改长、顶破硬上限 → 回滚并收工
+        //（继续用同一版重跑只会再改长一次）
+        for (const k of [...parts.keys()]) parts.delete(k)
+        for (const [k, v] of snapshot) parts.set(k, v)
+        text = assemble()
+        logTaskProgress('VideoPrompt', 'zh-en-fix-rollback-over-limit', {
+          episodeId, storyboardId: sb.id, limit: budget.limit,
+        })
+        break
+      }
       problem = zhEnConsistency(text, zhPrompt)
     }
     if (problem) {
@@ -798,6 +896,7 @@ async function generateEnByStages(
       logTaskProgress('VideoPrompt', 'prop-ref-dangling', {
         episodeId, storyboardId: sb.id, attempt: attempt + 1, propRefCount, problem: dangling,
       })
+      const snapshot = new Map(parts)
       const st = EN_STAGES[EN_STAGES.length - 1]
       const cur = extractSections(text, st.segs) || ''
       const res3 = (await agent.generate(
@@ -806,13 +905,18 @@ async function generateEnByStages(
       )) as { text?: string } | undefined
       const raw = cleanSegText(res3?.text || '')
       debugLog(episodeId, sb.id, `fix-propref-${attempt + 1}`, raw, { problem: dangling })
-      const got = extractSections(raw, st.segs)
-      if (!got) continue
-      for (const s of st.segs) {
-        const one = extractSections(got, [s])
-        if (one) parts.set(s, one)
-      }
+      writeBack(raw, st.segs)
       text = assemble()
+      if (text.length > budget.limit) {
+        // 2026-10-15（B 方案）：后置校验轮把文本改长、顶破硬上限 → 回滚（保命优先：这条分镜还能落库）
+        for (const k of [...parts.keys()]) parts.delete(k)
+        for (const [k, v] of snapshot) parts.set(k, v)
+        text = assemble()
+        logTaskProgress('VideoPrompt', 'prop-ref-rollback-over-limit', {
+          episodeId, storyboardId: sb.id, limit: budget.limit,
+        })
+        break
+      }
       dangling = findDanglingPropRef(text, propRefCount)
     }
     if (dangling) {
@@ -838,9 +942,7 @@ async function generateEnByStages(
       )) as { text?: string } | undefined
       const raw = cleanSegText(res?.text || '')
       debugLog(episodeId, sb.id, 'negated-action-fix-1', raw, { count: na.count })
-      const got = splitEnSections(raw)
-      if (EN_SECTION_QUOTA.every(([k]) => got.get(k))) {
-        for (const [k, v] of got) parts.set(k, v)
+      if (writeBack(raw, EN_SECTION_QUOTA.map(([k]) => k)).length) {
         text = assemble()
         if (text.length > budget.limit) {
           // 正面描述通常更长 → 顶破硬上限就回滚（宁可留着否定句，也不能让整条分镜落库失败）
@@ -880,9 +982,7 @@ async function generateEnByStages(
       )) as { text?: string } | undefined
       const raw = cleanSegText(res?.text || '')
       debugLog(episodeId, sb.id, 'voiceover-mouth-fix-1', raw, { count: vm.length })
-      const got = splitEnSections(raw)
-      if (EN_SECTION_QUOTA.every(([k]) => got.get(k))) {
-        for (const [k, v] of got) parts.set(k, v)
+      if (writeBack(raw, EN_SECTION_QUOTA.map(([k]) => k)).length) {
         text = assemble()
         if (text.length > budget.limit) {
           for (const k of parts.keys()) parts.delete(k)
@@ -923,9 +1023,7 @@ async function generateEnByStages(
       )) as { text?: string } | undefined
       const raw = cleanSegText(res?.text || '')
       debugLog(episodeId, sb.id, 'retention-fix-1', raw, { defined: rm.defined, listed: rm.listed })
-      const got = splitEnSections(raw)
-      if (EN_SECTION_QUOTA.every(([k]) => got.get(k))) {
-        for (const [k, v] of got) parts.set(k, v)
+      if (writeBack(raw, EN_SECTION_QUOTA.map(([k]) => k)).length) {
         text = assemble()
         if (text.length > budget.limit) {
           for (const k of parts.keys()) parts.delete(k)
@@ -966,9 +1064,7 @@ async function generateEnByStages(
       )) as { text?: string } | undefined
       const raw = cleanSegText(res?.text || '')
       debugLog(episodeId, sb.id, 'voiceover-onscreen-lock-fix-1', raw, { gaps: vg.length })
-      const got = splitEnSections(raw)
-      if (EN_SECTION_QUOTA.every(([k]) => got.get(k))) {
-        for (const [k, v] of got) parts.set(k, v)
+      if (writeBack(raw, EN_SECTION_QUOTA.map(([k]) => k)).length) {
         text = assemble()
         if (text.length > budget.limit) {
           for (const k of parts.keys()) parts.delete(k)
@@ -1026,7 +1122,7 @@ function buildChineseFixPrompt(
 - **① 紧贴在英文词后面的中文残留**（如 \`mirrored倒影\` / \`thin碎碎 whisper\` / \`whispered议论\`）：**直接删掉那几个中文字，英文词保留**，其余不动。
 - **② 「哪几拍出现」这类中文标注 / 分组标题**（如 \`（每个镜头都出现）\` / \`…三段】\`）：改成对应的英文说法（\`(appears in every shot)\` 等）。
 - 判据：**中文字符一个都不许留**；台词、时间戳、\`<Subject N>\` / \`<Picture N>\` 编号**一个字符都不许改**。
-**输出要求**：输出**完整六段**（\`subject_definitions:\` / \`summary:\` / \`retention_analysis:\` / \`detailed_description:\` / \`overall_soundscape:\` / \`non_diegetic_music:\`，段名与顺序不变）；不要解释、前言、结语；不要代码块围栏；不要调用任何保存工具。
+**输出要求**：输出**完整六段**（\`subject_definitions:\` / \`summary:\` / \`retention_analysis:\` / \`detailed_description:\` / \`overall_soundscape:\` / \`non_diegetic_music:\`，段名与顺序不变）；不要解释、前言、结语；不要代码块围栏；**不要调用任何工具（包括 read_storyboard_context —— 原文已附在下面，直接输出结果，不要去查库里的旧稿）**。
 
 === CURRENT VERSION ===
 ${current}`
@@ -1049,7 +1145,7 @@ function buildVoiceoverMouthFixPrompt(
 - **改成不含嘴部的动作**：汗珠从额角渗到下颌线、一滴一滴坠落、手臂抬起僵在半空、指节发僵、眼神定在某点、呼吸变浅、肩背绷紧 —— 用这些承载情绪。（**喉结/颈部动作也一并去掉**，它紧邻下颌，同样会把注意力引到嘴。）
 - **画面取景**：**不要**给这个角色脸部特写（实测 sb302：画外音拍给了脸部特写 → 旁白被读出来、嘴照动）。改成手部、肩背、侧后方中景，或让他的脸不入画。
 - **台词那一句照原样保留**：\`<Subject N> (Sx) says in an off-screen voiceover: <d>…</d> while her/his lips remain completely closed.\` 逐字不动（主语、编号、**官方锁嘴句**都不许改 —— 这句是唯一允许出现的嘴部描写）。
-**输出要求**：输出**完整六段**（subject_definitions: / summary: / retention_analysis: / detailed_description: / overall_soundscape: / non_diegetic_music:，段名与顺序不变）；不要解释、前言、结语；不要代码块围栏；不要调用任何保存工具。
+**输出要求**：输出**完整六段**（subject_definitions: / summary: / retention_analysis: / detailed_description: / overall_soundscape: / non_diegetic_music:，段名与顺序不变）；不要解释、前言、结语；不要代码块围栏；**不要调用任何工具（包括 read_storyboard_context —— 原文已附在下面，直接输出结果，不要去查库里的旧稿）**。
 
 === CURRENT VERSION ===
 ${current}`
@@ -1079,7 +1175,7 @@ ${detail}
 - **删掉**原来指向画外旁白者的那句（\`while her lips remain completely closed\` / \`while his lips remain completely closed\`，若它指的是画外的人）。
 - 这一拍里**除这句锁嘴句外**，不要再写任何嘴部/下颌/喉结动作（\`lips part\` / \`mouth opens\` / \`jaw\` / \`Adam's apple\` 之类）。
 - 台词那一句本身（主语 \`<Subject N> (Sx) says in an off-screen voiceover: <d>…</d>\`）逐字保留，不许改台词、不许改编号。
-**输出要求**：输出**完整六段**（subject_definitions: / summary: / retention_analysis: / detailed_description: / overall_soundscape: / non_diegetic_music:，段名与顺序不变）；不要解释、前言、结语；不要代码块围栏；不要调用任何保存工具。
+**输出要求**：输出**完整六段**（subject_definitions: / summary: / retention_analysis: / detailed_description: / overall_soundscape: / non_diegetic_music:，段名与顺序不变）；不要解释、前言、结语；不要代码块围栏；**不要调用任何工具（包括 read_storyboard_context —— 原文已附在下面，直接输出结果，不要去查库里的旧稿）**。
 
 === CURRENT VERSION ===
 ${current}`
@@ -1109,7 +1205,7 @@ function buildRetentionFixPrompt(
 - **每条写什么**：\`<Subject N>: fully_preserved - <该主体在画面里必须保持不变的具体特征>\`；主体是人物时写它的脸/发型/服装基准，是场景时写空间与光线，是道具时写它的**结构特征**（纸张颜色与边缘、表格线位置、印章位置与油墨边缘、单张不重复）。
 - **不许**在 retention 里写它"出现于哪一拍"以外的剧情动作，也不许写文字内容本身。
 - 若定义里出现了 <Audio J>，保留原有的音频条目（\`<Audio J>: reference - ...\`）不动。
-**输出要求**：输出**完整六段**（subject_definitions: / summary: / retention_analysis: / detailed_description: / overall_soundscape: / non_diegetic_music:，段名与顺序不变）；不要解释、前言、结语；不要代码块围栏；不要调用任何保存工具。
+**输出要求**：输出**完整六段**（subject_definitions: / summary: / retention_analysis: / detailed_description: / overall_soundscape: / non_diegetic_music:，段名与顺序不变）；不要解释、前言、结语；不要代码块围栏；**不要调用任何工具（包括 read_storyboard_context —— 原文已附在下面，直接输出结果，不要去查库里的旧稿）**。
 
 === CURRENT VERSION ===
 ${current}`
@@ -1133,7 +1229,7 @@ function buildNegatedActionFixPrompt(
   - \`never turning back\` / \`never facing the lens\` → \`his back stays to the lens\`
   - 「没人接她的手」→ 写成结果本身：\`her outstretched hands stay unanswered in mid-air\`
 - **必须保留、不算违规（一个字都不许改）**：数量锁 \`only one … never duplicated\` / \`never a second\`；画面与音频属性 \`no gradients\` / \`no gloss\` / \`no depth-of-field blur\` / \`no new light source\` / \`no repeated identical outfits\` / \`no human voice …\` / \`no readable text\`；官方锁嘴原句 \`while her lips remain completely closed\`；音色参考 \`without copying the original signal\`；以及全部台词、时间戳、\`<Subject N>\` / \`<Picture N>\` 编号。
-**输出要求**：输出**完整六段**（\`subject_definitions:\` / \`summary:\` / \`retention_analysis:\` / \`detailed_description:\` / \`overall_soundscape:\` / \`non_diegetic_music:\`，段名与顺序不变）；不要解释、前言、结语；不要代码块围栏；不要调用任何保存工具。
+**输出要求**：输出**完整六段**（\`subject_definitions:\` / \`summary:\` / \`retention_analysis:\` / \`detailed_description:\` / \`overall_soundscape:\` / \`non_diegetic_music:\`，段名与顺序不变）；不要解释、前言、结语；不要代码块围栏；**不要调用任何工具（包括 read_storyboard_context —— 原文已附在下面，直接输出结果，不要去查库里的旧稿）**。
 
 === CURRENT VERSION ===
 ${current}`
@@ -1174,7 +1270,7 @@ function buildBeatFixPrompt(
 
 **怎么改**：把这种相邻两拍**合并成一拍** —— 切镜与随后的运镜写在**同一个** \`[Shot N]\` 里（例：\`[Shot 2] At ${secondStart}, the camera cuts to a close-up and then pushes in slowly to chest-up\`）。**不要用删台词、删镜头内容、或把两拍挤成一句的方式凑数**。
 ${zhTimeline ? `\n🔴🔴 **时间轴基准（本次中文工作版已定，绝不许自己另算）**：合并后**每一拍的起始秒数都必须与中文工作版同一拍一致**（第 1 拍不带时间戳）。中文工作版每一拍如下：\n\n${zhTimeline}\n` : '\n时间戳按合并后的真实节奏重排（第 1 拍不带时间戳）。\n'}${extra ? `\n🔴 **补充说明必须继续满足（合并拍结构时一个字都不许丢）**：${extra}\n` : ''}
-**输出要求**：输出**完整六段**（\`subject_definitions:\` / \`summary:\` / \`retention_analysis:\` / \`detailed_description:\` / \`overall_soundscape:\` / \`non_diegetic_music:\`，段名与顺序不变），**除拍结构（含时间戳）外其余内容一字不改**；不要解释、前言、结语；不要代码块围栏；不要调用任何保存工具。
+**输出要求**：输出**完整六段**（\`subject_definitions:\` / \`summary:\` / \`retention_analysis:\` / \`detailed_description:\` / \`overall_soundscape:\` / \`non_diegetic_music:\`，段名与顺序不变），**除拍结构（含时间戳）外其余内容一字不改**；不要解释、前言、结语；不要代码块围栏；**不要调用任何工具（包括 read_storyboard_context —— 原文已附在下面，直接输出结果，不要去查库里的旧稿）**。
 
 === CURRENT VERSION ===
 ${current}`
