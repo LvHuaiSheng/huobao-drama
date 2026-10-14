@@ -523,6 +523,26 @@
                 </label>
               </div>
             </div>
+            <!-- 2026-10-14：批量提示词进度面板 —— 第 1 行总进度（条数+时间），第 2 行本条进度（走到哪一步） -->
+            <div v-if="videoPromptBatch.running" class="pb-panel">
+              <div class="pb-line">
+                <span class="pb-kicker">{{ t('episode.sb.pbOverall') }}</span>
+                <div class="pb-bar"><div class="pb-bar-fill" :style="{ width: vpbOverallPct + '%' }"></div></div>
+                <span class="pb-count">{{ videoPromptBatch.completed + videoPromptBatch.failed }}/{{ videoPromptBatch.total }}</span>
+                <span class="pb-dim">{{ t('episode.sb.pbElapsed', { dur: vpbElapsed }) }}</span>
+                <span class="pb-dim">{{ vpbEta ? t('episode.sb.pbEta', { dur: vpbEta }) : t('episode.sb.pbEtaUnknown') }}</span>
+                <span v-if="videoPromptBatch.failed" class="pb-fail">{{ t('episode.sb.pbFailed', { n: videoPromptBatch.failed }) }}</span>
+              </div>
+              <div class="pb-line">
+                <span class="pb-kicker">{{ t('episode.sb.pbCurrent') }}</span>
+                <span class="pb-steps">
+                  <span v-for="s in vpbStageDots" :key="s.key" :class="['pb-dot', s.state]" :title="s.label"></span>
+                </span>
+                <span v-if="vpbCurrentLabel" class="pb-count">{{ vpbCurrentLabel }}</span>
+                <span class="pb-dim">{{ vpbStageText }}</span>
+                <span class="pb-dim">{{ t('episode.sb.pbItemElapsed', { dur: vpbItemElapsed }) }}</span>
+              </div>
+            </div>
             <div v-if="!sbs.length" class="step-empty video-task-empty-state">
               <div class="empty-visual">
                 <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><rect x="2" y="2" width="20" height="20" rx="2.5"/><line x1="7" y1="8" x2="7" y2="16"/><line x1="10" y1="8" x2="10" y2="16"/><line x1="13" y1="8" x2="13" y2="16"/></svg>
@@ -2139,6 +2159,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleImageViewerKeydown)
   stopGenTasksPolling()
   if (clockTimer) { clearInterval(clockTimer); clockTimer = null }
+  if (vpbTimer) { clearInterval(vpbTimer); vpbTimer = null }
 })
 
 function isPendingSceneImage(id) {
@@ -3103,14 +3124,109 @@ async function syncExtractStatus() {
   try {
     const vp = await episodeAPI.videoPromptsStatus(epId.value)
     if (vp?.status === 'running' && !videoPromptBatch.value.running) {
-      videoPromptBatch.value = { running: true, total: vp.total || 0, completed: vp.completed || 0 }
+      applyVideoPromptStatus(vp)
       pollVideoPromptBatch()
     }
   } catch {}
 }
 
 // ─── 批量视频提示词：后端异步逐分镜生成，前端轮询进度 ──────────
-const videoPromptBatch = ref({ running: false, total: 0, completed: 0 })
+// 2026-10-14：状态里带「本条走到哪一步」（stage/stage_note/stage_step）+ 每条实际耗时，
+// 用来画「总进度条 + 本条进度」两行；后端字段见 services/video-prompts.ts 的 VideoPromptBatchStatus。
+function emptyVideoPromptBatch() {
+  return {
+    running: false, total: 0, completed: 0, failed: 0,
+    stage: '', stageNote: '', stageStep: 0, stageSteps: 0,
+    itemStartedAt: '', itemTimes: [], startedAt: '', currentSbId: 0,
+  }
+}
+function applyVideoPromptStatus(st) {
+  videoPromptBatch.value = {
+    running: st?.status === 'running',
+    total: st?.total || 0,
+    completed: st?.completed || 0,
+    failed: st?.failed || 0,
+    stage: st?.stage || '',
+    stageNote: st?.stage_note || '',
+    stageStep: st?.stage_step || 0,
+    stageSteps: st?.stage_steps || 0,
+    itemStartedAt: st?.item_started_at || '',
+    itemTimes: Array.isArray(st?.item_times) ? st.item_times : [],
+    startedAt: st?.started_at || '',
+    currentSbId: st?.current_storyboard_id || 0,
+  }
+}
+const videoPromptBatch = ref(emptyVideoPromptBatch())
+
+// 进度面板的秒表（只在批量提示词任务在跑时每秒走一格；和后端 2.5s 轮询互补）
+const vpbTick = ref(Date.now())
+let vpbTimer = null
+watch(() => videoPromptBatch.value.running, (on) => {
+  if (vpbTimer) { clearInterval(vpbTimer); vpbTimer = null }
+  if (on) vpbTimer = setInterval(() => { vpbTick.value = Date.now() }, 1000)
+})
+
+// 点位顺序 = 一条分镜内部的三步（后端 stage 字段同名）
+const VPB_STAGES = ['zh', 'en', 'save']
+const PB_STAGE_KEYS = { zh: 'episode.sb.pbStageZh', en: 'episode.sb.pbStageEn', save: 'episode.sb.pbStageSave' }
+const PB_NOTE_KEYS = {
+  en_draft: 'episode.sb.pbNoteDraft',
+  en_fill: 'episode.sb.pbNoteFill',
+  en_rewrite: 'episode.sb.pbNoteRewrite',
+  en_beats: 'episode.sb.pbNoteBeats',
+  en_check: 'episode.sb.pbNoteCheck',
+}
+
+// 总进度：已完成 + 失败 都算走完（失败的不该让进度条停住）
+const vpbOverallPct = computed(() => {
+  const b = videoPromptBatch.value
+  if (!b.total) return 0
+  return Math.min(100, Math.round(((b.completed + b.failed) / b.total) * 100))
+})
+const vpbCurrentLabel = computed(() => {
+  const id = videoPromptBatch.value.currentSbId
+  if (!id) return ''
+  const sb = sbs.value.find(x => x.id === id)
+  return t('episode.tasks.sbN', { n: sb?.storyboard_number ?? sb?.storyboardNumber ?? id })
+})
+const vpbStageDots = computed(() => {
+  const cur = VPB_STAGES.indexOf(videoPromptBatch.value.stage || 'zh')
+  return VPB_STAGES.map((k, i) => ({
+    key: k,
+    label: t(PB_STAGE_KEYS[k]),
+    state: i < cur ? 'done' : (i === cur ? 'active' : 'todo'),
+  }))
+})
+const vpbStageText = computed(() => {
+  const b = videoPromptBatch.value
+  if (!b.stage) return ''
+  const label = t(PB_STAGE_KEYS[b.stage] || PB_STAGE_KEYS.zh)
+  const noteKey = PB_NOTE_KEYS[b.stageNote]
+  const note = noteKey ? t(noteKey) : ''
+  const step = (b.stageStep && b.stageSteps) ? ` ${b.stageStep}/${b.stageSteps}` : ''
+  return `${label}${note ? ' · ' + note : ''}${step}`
+})
+const vpbElapsed = computed(() => {
+  const s = videoPromptBatch.value.startedAt
+  if (!s) return ''
+  const ms = vpbTick.value - new Date(s).getTime()
+  return Number.isFinite(ms) && ms > 0 ? fmtDurationSec(ms / 1000) : ''
+})
+const vpbItemElapsed = computed(() => {
+  const s = videoPromptBatch.value.itemStartedAt
+  if (!s) return ''
+  const ms = vpbTick.value - new Date(s).getTime()
+  return Number.isFinite(ms) && ms > 0 ? fmtDurationSec(ms / 1000) : ''
+})
+// 预计还需 = 最近 5 条的平均耗时 × 还没跑完的条数（第一条跑完前没有样本 → 前端显示「估算中」）
+const vpbEta = computed(() => {
+  const b = videoPromptBatch.value
+  const times = (b.itemTimes || []).slice(-5).filter(n => Number.isFinite(n) && n > 0)
+  const remain = Math.max(0, b.total - b.completed - b.failed)
+  if (!times.length || !remain) return ''
+  const avg = times.reduce((a, c) => a + c, 0) / times.length
+  return fmtDurationSec(avg * remain)
+})
 // 单个视频提示词生成：按分镜 ID 跟踪，允许不同分镜并行生成（不走全局 rn 锁）
 const videoPromptGeneratingIds = ref([])
 // 2026-10-09：视频提示词「补充说明」（可留空）；英文发送版折叠开关（默认收起）
@@ -3133,12 +3249,15 @@ async function batchVideoPrompts() {
     const res = await episodeAPI.generateVideoPrompts(epId.value, chatModelOverride(), chatConfigId(), ids)
     if (!res?.total) {
       if (res?.already_running) {
-        videoPromptBatch.value = { running: true, total: 0, completed: 0 }
+        videoPromptBatch.value = { ...emptyVideoPromptBatch(), running: true }
         pollVideoPromptBatch()
       } else toast.info(ids ? t('episode.sb.selectedMissing') : t('episode.sb.allHavePrompts'))
       return
     }
-    videoPromptBatch.value = { running: true, total: res.total, completed: 0 }
+    // 本地先摆出「刚开始」的样子（后端还没报第一条进度时也有东西看），随后由轮询接管
+    videoPromptBatch.value = {
+      ...emptyVideoPromptBatch(), running: true, total: res.total, startedAt: new Date().toISOString(),
+    }
     toast.info(t('episode.sb.batchStarted', { n: res.total }))
     pollVideoPromptBatch()
   } catch (e) {
@@ -3151,7 +3270,7 @@ function pollVideoPromptBatch(attempts = 240) {
     try {
       const st = await episodeAPI.videoPromptsStatus(epId.value)
       if (st && st.status !== 'running') {
-        videoPromptBatch.value = { running: false, total: 0, completed: 0 }
+        videoPromptBatch.value = emptyVideoPromptBatch()
         await refresh()
         if (st.status === 'done') {
           toast.success(st.failed ? t('episode.sb.batchDoneFailed', { n: st.failed }) : t('episode.sb.batchDone'))
@@ -3162,12 +3281,12 @@ function pollVideoPromptBatch(attempts = 240) {
       }
       if (st) {
         const prev = videoPromptBatch.value.completed
-        videoPromptBatch.value = { running: true, total: st.total || 0, completed: st.completed || 0 }
+        applyVideoPromptStatus(st)
         if ((st.completed || 0) !== prev) await refresh() // 每完成一条刷新，提示词逐步出现
       }
     } catch {}
     if (left > 0) setTimeout(() => tick(left - 1), 2500)
-    else videoPromptBatch.value = { running: false, total: 0, completed: 0 }
+    else videoPromptBatch.value = emptyVideoPromptBatch()
   }
   setTimeout(() => tick(attempts), 2500)
 }
@@ -5712,6 +5831,44 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); }
 @keyframes video-task-live-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.25; }
+}
+/* 2026-10-14：批量提示词进度面板 —— 第 1 行总进度条，第 2 行本条走到哪一步 */
+.pb-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 7px 10px;
+  margin: 6px 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-raised);
+}
+.pb-line { display: flex; align-items: center; gap: 8px; font-size: 11px; min-width: 0; }
+.pb-kicker { color: var(--text-3); flex: none; }
+.pb-bar {
+  flex: 1 1 140px;
+  min-width: 80px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--overlay-track);
+  overflow: hidden;
+}
+.pb-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+.pb-count { color: var(--text-0); font-variant-numeric: tabular-nums; flex: none; }
+.pb-dim { color: var(--text-3); font-variant-numeric: tabular-nums; flex: none; }
+.pb-fail { color: var(--error); flex: none; }
+.pb-steps { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.pb-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--overlay-track); }
+.pb-dot.done { background: var(--accent); opacity: 0.5; }
+.pb-dot.active { background: var(--accent); animation: pb-dot-pulse 1.2s ease-in-out infinite; }
+@keyframes pb-dot-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.28; }
 }
 .video-task-error {
   margin-top: 5px;

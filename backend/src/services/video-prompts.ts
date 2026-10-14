@@ -35,6 +35,19 @@ export interface VideoPromptBatchStatus {
   started_at: string
   finished_at?: string
   error?: string
+  /** ── 2026-10-14 进度显示（前端画「总进度条 + 本条进度」）──
+   *  stage      = 当前这条走到哪一步：中文工作版 / 英文发送版 / 落库
+   *  stage_note = 步骤细类（zh 生成中文版 / en_draft 初稿 / en_fill 补缺段 /
+   *               en_rewrite 压缩重写 / en_beats 拍数校正 / en_check 中英校验）
+   *  stage_step/stage_steps = 该步骤内第几轮 / 最多几轮（同一步会重试好几轮） */
+  stage?: 'zh' | 'en' | 'save'
+  stage_note?: string
+  stage_step?: number
+  stage_steps?: number
+  /** 当前这条的开始时刻（前端算「本条已用」） */
+  item_started_at?: string
+  /** 已跑完条目的实际耗时（秒，只留最近 12 条）—— 前端用它算「预计还需」 */
+  item_times: number[]
 }
 
 const tasks = new Map<number, VideoPromptBatchStatus>()
@@ -517,6 +530,7 @@ async function generateEnByStages(
   extra?: string,
   zhPrompt?: string,
   budget: { limit: number; headLen: number } = { limit: PROMPT_EN_LIMIT, headLen: 0 },
+  onNote?: (note: string, step?: number, steps?: number) => void,
 ): Promise<{ text: string; ok: boolean }> {
   // 2026-10-12：本函数全程走英文发送版 —— 标记阶段，让技能注入保留共享段 + 英文专用段
   requestContext?.set?.('promptStage' as never, 'en' as never)
@@ -531,6 +545,7 @@ async function generateEnByStages(
   let full = ''
   let parts = new Map<string, string>()
   for (let attempt = 1; attempt <= MAX_FULL_RETRY; attempt++) {
+    onNote?.('en_draft', attempt, MAX_FULL_RETRY)
     const res = (await agent.generate(
       [{ role: 'user', content: buildFullPrompt(sb, videoLabel, extra, zhPrompt, budget.limit, budget.headLen) }],
       { maxSteps: 6, requestContext },
@@ -570,6 +585,7 @@ async function generateEnByStages(
   //      缺段不是"超标"，压缩指令救不回来 → 单独一次「补写」请求；最多 2 轮。
   const missingSegs = () => EN_SECTION_QUOTA.map(([s]) => s).filter(s => !parts.get(s))
   for (let round = 0; missingSegs().length && round < 2; round++) {
+    onNote?.('en_fill', round + 1, 2)
     const miss = missingSegs()
     logTaskProgress('VideoPrompt', 'segment-missing', { episodeId, storyboardId: sb.id, round: round + 1, missing: miss })
     const res = (await agent.generate(
@@ -597,6 +613,7 @@ async function generateEnByStages(
 
   let bad = checkStages()
   for (let round = 0; bad.length && round < MAX_SEG_RETRY; round++) {
+    onNote?.('en_rewrite', round + 1, MAX_SEG_RETRY)
     logTaskProgress('VideoPrompt', 'segment-retry', {
       episodeId, storyboardId: sb.id, attempt: round + 1,
       stages: bad.map(b => b.stage.key), problem: bad.map(b => b.problem).join(' | '),
@@ -649,6 +666,7 @@ async function generateEnByStages(
   const expBeats = ((sb.description || '').match(/【镜头/g) || []).length
   if (expBeats) {
     for (let round = 0; round < 2; round++) {
+      onNote?.('en_beats', round + 1, 2)
       const gotBeats = countEnBeats(text)
       if (gotBeats === expBeats) break
       logTaskProgress('VideoPrompt', 'en-beat-count-retry', {
@@ -712,6 +730,7 @@ async function generateEnByStages(
   {
     let problem = zhEnConsistency(text, zhPrompt)
     for (let attempt = 0; problem && attempt < 2; attempt++) {
+      onNote?.('en_check', attempt + 1, 2)
       logTaskProgress('VideoPrompt', 'zh-en-fix', {
         episodeId, storyboardId: sb.id, attempt: attempt + 1, problem,
       })
@@ -1165,10 +1184,14 @@ async function generateZhPrompt(
   videoLabel: string,
   requestContext: unknown,
   extra?: string,
+  onNote?: (note: string, step: number, steps: number) => void,
 ): Promise<string> {
   const expected = ((sb.description || '').match(/【镜头/g) || []).length
   let last = ''
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  const ZH_MAX_TRY = 3
+  for (let attempt = 1; attempt <= ZH_MAX_TRY; attempt++) {
+    // 2026-10-14：上报「本条进度」用（拍数不符会重试，最多 3 次）
+    onNote?.('zh', attempt, ZH_MAX_TRY)
     const rule = expected
       ? `\n🔴🔴 **本分镜的 description 里有 ${expected} 个【镜头N】—— 必须正好写 ${expected} 拍（一个不多、一个不少）**：` +
         '每个【镜头N】对应一拍；镜头内部的运镜变化（继续推近／继续横移）、台词窗口、安静拍都不算新拍。' +
@@ -1232,6 +1255,7 @@ export async function startVideoPromptBatch(
     completed: 0,
     failed: 0,
     started_at: new Date().toISOString(),
+    item_times: [],
   }
   tasks.set(episodeId, task)
 
@@ -1253,21 +1277,35 @@ export async function startVideoPromptBatch(
       textConfigId: opts.configId || undefined,
       promptTask: 'video',   // 只注入 video-prompt 技能（按需注入，2026-10-10）
     })
+    /** 2026-10-14：把「本条走到哪一步」写进内存态任务，前端据此画单条进度。
+     *  纯显示用，写内存 Map、无 IO，不进每秒/每轮的日志。 */
+    const mark = (stage: 'zh' | 'en' | 'save', note?: string, step?: number, steps?: number) => {
+      task.stage = stage
+      task.stage_note = note
+      task.stage_step = step
+      task.stage_steps = steps
+    }
     for (const sb of pending) {
       task.current_storyboard_id = sb.id
+      task.item_started_at = new Date().toISOString()
+      mark('zh')
+      const itemT0 = Date.now()
       logTaskProgress('VideoPrompt', 'batch-shot', { episodeId, storyboardId: sb.id, index: task.completed + task.failed + 1, total: task.total })
       try {
         // 1) 中文工作版（**先生成** —— 它是本次时间轴的基准，英文版必须逐拍对齐它）
         // 2026-10-12：标记阶段 —— 中文工作版不需要技能里「英文发送版」那 16.8K 细则，注入时裁掉
   requestContext?.set?.('promptStage' as never, 'zh' as never)
-  const zh = await generateZhPrompt(agent, sb, videoLabel, requestContext, opts.extra)
+  const zh = await generateZhPrompt(agent, sb, videoLabel, requestContext, opts.extra,
+    (note, step, steps) => mark('zh', note, step, steps))
         if (!zh) {
           task.failed++
           logTaskError('VideoPrompt', 'batch-shot', { storyboardId: sb.id, error: '中文工作版生成为空' })
           continue
         }
         // 2) 英文版：以中文版时间轴为基准整体生成 → 逐组核定 → 中英一致性程序校验（不合格自动重写）
-        const en = await generateEnByStages(agent, sb, videoLabel, requestContext, episodeId, opts.extra, zh, budget)
+        mark('en', 'en_draft', 1, MAX_FULL_RETRY)
+        const en = await generateEnByStages(agent, sb, videoLabel, requestContext, episodeId, opts.extra, zh, budget,
+          (note, step, steps) => mark('en', note, step, steps))
         if (!en.ok) {
           task.failed++
           continue
@@ -1279,6 +1317,7 @@ export async function startVideoPromptBatch(
             error: `各组达标但拼接后仍超 ${en.text.length} > ${budget.limit}（请核对 EN_SECTION_QUOTA 与技能配额）`,
           })
         }
+        mark('save')
         // 3) 后端落库（Agent 不落库，避免它顺手写别的字段）
         //    2026-10-13 源头兜底：落库前机械清掉越界的主体/参考图编号。
         //    规则层（技能/流程单）已要求「没被提取成道具资产的东西不许编号」，但模型实测仍会编；
@@ -1307,6 +1346,11 @@ export async function startVideoPromptBatch(
       } catch (err: any) {
         task.failed++
         logTaskError('VideoPrompt', 'batch-shot', { storyboardId: sb.id, error: err?.message })
+      } finally {
+        // 2026-10-14：记「本条实际耗时（含重试）」—— 前端用它算「预计还需」。
+        // finally 连 continue / 失败路径都会走到；只留最近 12 条，够估算也不涨内存。
+        task.item_times.push(Math.max(1, Math.round((Date.now() - itemT0) / 1000)))
+        if (task.item_times.length > 12) task.item_times.shift()
       }
     }
   })()
