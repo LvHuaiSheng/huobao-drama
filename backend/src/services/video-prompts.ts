@@ -46,8 +46,19 @@ export interface VideoPromptBatchStatus {
   stage_steps?: number
   /** 当前这条的开始时刻（前端算「本条已用」） */
   item_started_at?: string
-  /** 已跑完条目的实际耗时（秒，只留最近 12 条）—— 前端用它算「预计还需」 */
-  item_times: number[]
+  /** 每条的结果（成功/失败 + 耗时 + 失败原因）。前端用它画
+   *  ① 绿/红分段进度条 ② 逐条流水 ③ 结束后的结果汇总（哪几条失败、为什么）。
+   *  条数上界 = 本次要跑的分镜数（一次批量最多几十条），不额外限长。 */
+  items: VideoPromptBatchItem[]
+}
+
+export interface VideoPromptBatchItem {
+  storyboard_id: number
+  storyboard_number: number | null
+  ok: boolean
+  /** 这一条实际耗时（秒，含内部重试） */
+  seconds: number
+  error?: string
 }
 
 const tasks = new Map<number, VideoPromptBatchStatus>()
@@ -1255,7 +1266,7 @@ export async function startVideoPromptBatch(
     completed: 0,
     failed: 0,
     started_at: new Date().toISOString(),
-    item_times: [],
+    items: [],
   }
   tasks.set(episodeId, task)
 
@@ -1290,6 +1301,8 @@ export async function startVideoPromptBatch(
       task.item_started_at = new Date().toISOString()
       mark('zh')
       const itemT0 = Date.now()
+      let itemOk = false
+      let itemErr = ''
       logTaskProgress('VideoPrompt', 'batch-shot', { episodeId, storyboardId: sb.id, index: task.completed + task.failed + 1, total: task.total })
       try {
         // 1) 中文工作版（**先生成** —— 它是本次时间轴的基准，英文版必须逐拍对齐它）
@@ -1299,7 +1312,8 @@ export async function startVideoPromptBatch(
     (note, step, steps) => mark('zh', note, step, steps))
         if (!zh) {
           task.failed++
-          logTaskError('VideoPrompt', 'batch-shot', { storyboardId: sb.id, error: '中文工作版生成为空' })
+          itemErr = '中文工作版生成为空'
+          logTaskError('VideoPrompt', 'batch-shot', { storyboardId: sb.id, error: itemErr })
           continue
         }
         // 2) 英文版：以中文版时间轴为基准整体生成 → 逐组核定 → 中英一致性程序校验（不合格自动重写）
@@ -1308,6 +1322,7 @@ export async function startVideoPromptBatch(
           (note, step, steps) => mark('en', note, step, steps))
         if (!en.ok) {
           task.failed++
+          itemErr = '英文版未达标（六段不全或超配额）'
           continue
         }
         if (en.text.length > budget.limit) {
@@ -1336,21 +1351,29 @@ export async function startVideoPromptBatch(
         const freshEn = (fresh?.videoPromptEn || '').trim()
         if ((fresh?.videoPrompt || '').trim() && freshEn) {
           task.completed++
+          itemOk = true
           logTaskProgress('VideoPrompt', 'batch-shot-saved', {
             episodeId, storyboardId: sb.id, en_len: freshEn.length, zh_len: (fresh?.videoPrompt || '').length,
           })
         } else {
           task.failed++
-          logTaskError('VideoPrompt', 'batch-shot', { storyboardId: sb.id, error: '落库后读回为空' })
+          itemErr = '落库后读回为空'
+          logTaskError('VideoPrompt', 'batch-shot', { storyboardId: sb.id, error: itemErr })
         }
       } catch (err: any) {
         task.failed++
-        logTaskError('VideoPrompt', 'batch-shot', { storyboardId: sb.id, error: err?.message })
+        itemErr = err?.message || '未知错误'
+        logTaskError('VideoPrompt', 'batch-shot', { storyboardId: sb.id, error: itemErr })
       } finally {
-        // 2026-10-14：记「本条实际耗时（含重试）」—— 前端用它算「预计还需」。
-        // finally 连 continue / 失败路径都会走到；只留最近 12 条，够估算也不涨内存。
-        task.item_times.push(Math.max(1, Math.round((Date.now() - itemT0) / 1000)))
-        if (task.item_times.length > 12) task.item_times.shift()
+        // 2026-10-14：记「本条结果 + 耗时（含重试）」—— 前端据此画绿/红分段进度条、逐条流水
+        // 与结束后的结果汇总。finally 连 continue / 失败路径都会走到，别只在成功分支记。
+        task.items.push({
+          storyboard_id: sb.id,
+          storyboard_number: sb.storyboardNumber ?? null,
+          ok: itemOk,
+          seconds: Math.max(1, Math.round((Date.now() - itemT0) / 1000)),
+          ...(itemOk ? {} : { error: itemErr || '未知失败' }),
+        })
       }
     }
   })()

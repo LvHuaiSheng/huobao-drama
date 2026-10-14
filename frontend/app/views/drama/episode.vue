@@ -523,17 +523,21 @@
                 </label>
               </div>
             </div>
-            <!-- 2026-10-14：批量提示词进度面板 —— 第 1 行总进度（条数+时间），第 2 行本条进度（走到哪一步） -->
-            <div v-if="videoPromptBatch.running" class="pb-panel">
+            <!-- 2026-10-14：批量提示词进度面板 —— 总进度（绿=成功/红=失败）、本条进度、逐条流水与结果汇总 -->
+            <div v-if="videoPromptBatch.running || videoPromptBatch.finished" class="pb-panel">
               <div class="pb-line">
-                <span class="pb-kicker">{{ t('episode.sb.pbOverall') }}</span>
-                <div class="pb-bar"><div class="pb-bar-fill" :style="{ width: vpbOverallPct + '%' }"></div></div>
-                <span class="pb-count">{{ videoPromptBatch.completed + videoPromptBatch.failed }}/{{ videoPromptBatch.total }}</span>
-                <span class="pb-dim">{{ t('episode.sb.pbElapsed', { dur: vpbElapsed }) }}</span>
-                <span class="pb-dim">{{ vpbEta ? t('episode.sb.pbEta', { dur: vpbEta }) : t('episode.sb.pbEtaUnknown') }}</span>
+                <span class="pb-kicker">{{ videoPromptBatch.finished ? t('episode.sb.pbResult') : t('episode.sb.pbOverall') }}</span>
+                <div class="pb-bar">
+                  <div class="pb-bar-ok" :style="{ width: vpbOkPct + '%' }"></div>
+                  <div class="pb-bar-fail" :style="{ width: vpbFailPct + '%' }"></div>
+                </div>
+                <span class="pb-count is-ok">{{ t('episode.sb.pbOk', { n: videoPromptBatch.completed }) }}</span>
                 <span v-if="videoPromptBatch.failed" class="pb-fail">{{ t('episode.sb.pbFailed', { n: videoPromptBatch.failed }) }}</span>
+                <span class="pb-dim">{{ t('episode.sb.pbElapsed', { dur: vpbElapsed }) }}</span>
+                <span v-if="videoPromptBatch.running" class="pb-dim">{{ vpbEta ? t('episode.sb.pbEta', { dur: vpbEta }) : t('episode.sb.pbEtaUnknown') }}</span>
+                <button v-else class="pb-close" :title="t('common.close')" @click="dismissVideoPromptResult">✕</button>
               </div>
-              <div class="pb-line">
+              <div v-if="videoPromptBatch.running" class="pb-line">
                 <span class="pb-kicker">{{ t('episode.sb.pbCurrent') }}</span>
                 <span class="pb-steps">
                   <span v-for="s in vpbStageDots" :key="s.key" :class="['pb-dot', s.state]" :title="s.label"></span>
@@ -541,6 +545,19 @@
                 <span v-if="vpbCurrentLabel" class="pb-count">{{ vpbCurrentLabel }}</span>
                 <span class="pb-dim">{{ vpbStageText }}</span>
                 <span class="pb-dim">{{ t('episode.sb.pbItemElapsed', { dur: vpbItemElapsed }) }}</span>
+              </div>
+              <div v-else-if="vpbFailSummary" class="pb-line pb-line-wrap">
+                <span class="pb-kicker">{{ t('episode.sb.pbFailedItems') }}</span>
+                <span class="pb-fail">{{ vpbFailSummary }}</span>
+              </div>
+              <div v-if="vpbRecentItems.length" class="pb-line pb-line-wrap pb-recent">
+                <span class="pb-kicker">{{ t('episode.sb.pbRecent') }}</span>
+                <span
+                  v-for="it in vpbRecentItems"
+                  :key="it.key"
+                  :class="['pb-item', it.ok ? 'is-ok' : 'is-bad']"
+                  :title="it.error"
+                >{{ it.ok ? '✓' : '✗' }} {{ it.label }} · {{ it.dur }}<template v-if="it.error"> · {{ it.error }}</template></span>
               </div>
             </div>
             <div v-if="!sbs.length" class="step-empty video-task-empty-state">
@@ -3126,6 +3143,10 @@ async function syncExtractStatus() {
     if (vp?.status === 'running' && !videoPromptBatch.value.running) {
       applyVideoPromptStatus(vp)
       pollVideoPromptBatch()
+    } else if (vp && !vpbDismissed.value) {
+      // 本集最近一次「已结束」的批量：刷新/切回来后仍然能看到结果（成没成、哪几条失败、耗时）。
+      // 用户明确要求「跑完别让结果消失」；看过点 ✕ 隐藏后本次会话内不再自动弹回。
+      applyVideoPromptStatus(vp)
     }
   } catch {}
 }
@@ -3135,14 +3156,16 @@ async function syncExtractStatus() {
 // 用来画「总进度条 + 本条进度」两行；后端字段见 services/video-prompts.ts 的 VideoPromptBatchStatus。
 function emptyVideoPromptBatch() {
   return {
-    running: false, total: 0, completed: 0, failed: 0,
+    running: false, finished: false, total: 0, completed: 0, failed: 0,
     stage: '', stageNote: '', stageStep: 0, stageSteps: 0,
-    itemStartedAt: '', itemTimes: [], startedAt: '', currentSbId: 0,
+    itemStartedAt: '', items: [], startedAt: '', currentSbId: 0,
   }
 }
 function applyVideoPromptStatus(st) {
   videoPromptBatch.value = {
     running: st?.status === 'running',
+    // done / error 都算结束 —— 面板换成结果汇总（成功数 / 失败数 / 失败的是哪几条）
+    finished: st?.status === 'done' || st?.status === 'error',
     total: st?.total || 0,
     completed: st?.completed || 0,
     failed: st?.failed || 0,
@@ -3151,12 +3174,18 @@ function applyVideoPromptStatus(st) {
     stageStep: st?.stage_step || 0,
     stageSteps: st?.stage_steps || 0,
     itemStartedAt: st?.item_started_at || '',
-    itemTimes: Array.isArray(st?.item_times) ? st.item_times : [],
+    items: Array.isArray(st?.items) ? st.items : [],
     startedAt: st?.started_at || '',
     currentSbId: st?.current_storyboard_id || 0,
   }
 }
 const videoPromptBatch = ref(emptyVideoPromptBatch())
+// 结束时留下的结果面板，用户点 ✕ 后本次会话不再自动弹回（页面刷新会重置）
+const vpbDismissed = ref(false)
+function dismissVideoPromptResult() {
+  vpbDismissed.value = true
+  videoPromptBatch.value = emptyVideoPromptBatch()
+}
 
 // 进度面板的秒表（只在批量提示词任务在跑时每秒走一格；和后端 2.5s 轮询互补）
 const vpbTick = ref(Date.now())
@@ -3177,11 +3206,28 @@ const PB_NOTE_KEYS = {
   en_check: 'episode.sb.pbNoteCheck',
 }
 
-// 总进度：已完成 + 失败 都算走完（失败的不该让进度条停住）
-const vpbOverallPct = computed(() => {
+// 总进度：绿=成功、红=失败（失败也算走完，进度条不会卡住）
+const vpbOkPct = computed(() => {
   const b = videoPromptBatch.value
-  if (!b.total) return 0
-  return Math.min(100, Math.round(((b.completed + b.failed) / b.total) * 100))
+  return b.total ? Math.min(100, Math.round((b.completed / b.total) * 100)) : 0
+})
+const vpbFailPct = computed(() => {
+  const b = videoPromptBatch.value
+  return b.total ? Math.min(100, Math.round((b.failed / b.total) * 100)) : 0
+})
+// 逐条流水：最近 4 条（成功/失败 + 耗时 + 失败原因）
+const vpbRecentItems = computed(() => (videoPromptBatch.value.items || []).slice(-4).reverse().map(it => ({
+  key: `it-${it.storyboard_id}`,
+  ok: !!it.ok,
+  label: t('episode.tasks.sbN', { n: it.storyboard_number ?? it.storyboard_id }),
+  dur: fmtDurationSec(it.seconds),
+  error: it.error || '',
+})))
+// 结束后：失败的是哪几条、为什么（用户最想知道的就这一条）
+const vpbFailSummary = computed(() => {
+  const bad = (videoPromptBatch.value.items || []).filter(it => !it.ok)
+  if (!bad.length) return ''
+  return bad.map(it => `${t('episode.tasks.sbN', { n: it.storyboard_number ?? it.storyboard_id })}（${it.error || '—'}）`).join(' · ')
 })
 const vpbCurrentLabel = computed(() => {
   const id = videoPromptBatch.value.currentSbId
@@ -3221,7 +3267,7 @@ const vpbItemElapsed = computed(() => {
 // 预计还需 = 最近 5 条的平均耗时 × 还没跑完的条数（第一条跑完前没有样本 → 前端显示「估算中」）
 const vpbEta = computed(() => {
   const b = videoPromptBatch.value
-  const times = (b.itemTimes || []).slice(-5).filter(n => Number.isFinite(n) && n > 0)
+  const times = (b.items || []).slice(-5).map(i => Number(i?.seconds)).filter(n => Number.isFinite(n) && n > 0)
   const remain = Math.max(0, b.total - b.completed - b.failed)
   if (!times.length || !remain) return ''
   const avg = times.reduce((a, c) => a + c, 0) / times.length
@@ -3242,6 +3288,7 @@ function selectMissingVideos() {
 
 async function batchVideoPrompts() {
   if (videoPromptBatch.value.running || !epId.value) return
+  vpbDismissed.value = false
   if (!sbs.value.length) { toast.warning(t('episode.sb.breakFirst')); return }
   // 选择模式下有勾选 → 仅补齐所选；否则全量补齐缺失
   const ids = (videoSelectMode.value && selectedVideoSbIds.value.length) ? [...selectedVideoSbIds.value] : undefined
@@ -3270,7 +3317,9 @@ function pollVideoPromptBatch(attempts = 240) {
     try {
       const st = await episodeAPI.videoPromptsStatus(epId.value)
       if (st && st.status !== 'running') {
-        videoPromptBatch.value = emptyVideoPromptBatch()
+        // 结束后保留最终快照（finished=true）—— 面板改成结果汇总（成功/失败/失败清单），
+        // 直到用户下次点生成或刷新页面才清掉。
+        applyVideoPromptStatus(st)
         await refresh()
         if (st.status === 'done') {
           toast.success(st.failed ? t('episode.sb.batchDoneFailed', { n: st.failed }) : t('episode.sb.batchDone'))
@@ -5844,8 +5893,10 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); }
   background: var(--surface-raised);
 }
 .pb-line { display: flex; align-items: center; gap: 8px; font-size: 11px; min-width: 0; }
+.pb-line-wrap { flex-wrap: wrap; row-gap: 3px; }
 .pb-kicker { color: var(--text-3); flex: none; }
 .pb-bar {
+  display: flex;
   flex: 1 1 140px;
   min-width: 80px;
   height: 6px;
@@ -5853,15 +5904,28 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); }
   background: var(--overlay-track);
   overflow: hidden;
 }
-.pb-bar-fill {
-  height: 100%;
-  border-radius: 3px;
-  background: var(--accent);
-  transition: width 0.3s ease;
-}
+/* 绿=成功、红=失败（分段进度条） */
+.pb-bar-ok { height: 100%; background: var(--success); transition: width 0.3s ease; }
+.pb-bar-fail { height: 100%; background: var(--error); transition: width 0.3s ease; }
 .pb-count { color: var(--text-0); font-variant-numeric: tabular-nums; flex: none; }
+.pb-count.is-ok { color: var(--success); }
 .pb-dim { color: var(--text-3); font-variant-numeric: tabular-nums; flex: none; }
 .pb-fail { color: var(--error); flex: none; }
+.pb-item { font-variant-numeric: tabular-nums; flex: none; }
+.pb-item.is-ok { color: var(--text-2); }
+.pb-item.is-bad { color: var(--error); }
+.pb-close {
+  margin-left: auto;
+  flex: none;
+  background: none;
+  border: none;
+  padding: 0 2px;
+  color: var(--text-3);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+}
+.pb-close:hover { color: var(--text-0); }
 .pb-steps { display: inline-flex; align-items: center; gap: 4px; flex: none; }
 .pb-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--overlay-track); }
 .pb-dot.done { background: var(--accent); opacity: 0.5; }
