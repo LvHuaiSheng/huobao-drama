@@ -12,6 +12,24 @@ import type { ToolExecutionContext } from '@mastra/core/tools'
 import { z } from 'zod'
 import { db, getInsertId, schema } from '../../db/index.js'
 import { eq, and } from 'drizzle-orm'
+
+/**
+ * 合并策略（2026-10-14 用户拍板 A）：**用户维护过的非空文本不被提取结果覆盖**，
+ * 提取只在字段为空时补。
+ *
+ * 实测事故：用户改完妆造（换了衣服颜色）→ 跑了「角色提取」→ 提取按剧本推断的外观把妆造顶回去
+ * → 随后「重新拆分」出来的 8 条分镜描述逐字抄资产妆造，颜色还是旧的（分镜描述抄的是资产，不是剧本）。
+ *
+ * 返回 { value, kept }：kept=true 表示本次「保留了已有值、丢弃了提取结果」，用于留痕。
+ */
+export function mergeCuratedField(
+  existing?: string | null,
+  extracted?: string | null,
+): { value: string; kept: boolean } {
+  const cur = (existing || '').trim()
+  if (cur) return { value: existing as string, kept: !!(extracted || '').trim() }
+  return { value: (extracted || '').trim(), kept: false }
+}
 import { now } from '../../utils/response.js'
 import { logTaskProgress, logTaskSuccess } from '../../utils/task-logger.js'
 import { getDramaId, getEpisodeId } from '../context.js'
@@ -205,12 +223,21 @@ const saveDedupCharacters = createTool({
       if (existing) {
         // 归一化命中：括号定位/别名等近名视作同一角色复用，避免重复创建
         if (matchedViaNorm) logTaskProgress('ExtractTool', 'save-characters-reuse', { episodeId, dramaId, extracted: char.name, reused: existing.name })
-        // 已存在：合并信息，保留 ID
+        // 已存在：合并信息，保留 ID；**用户维护过的非空文本不覆盖**（见 mergeCuratedField）
+        const appearance = mergeCuratedField(existing.appearance, char.appearance)
+        const styling = mergeCuratedField(existing.styling, char.styling || char.description)
+        const description = mergeCuratedField(existing.description, char.description)
+        const keptFields = [appearance.kept && 'appearance', styling.kept && 'styling', description.kept && 'description'].filter(Boolean)
+        if (keptFields.length) {
+          logTaskProgress('ExtractTool', 'save-characters-keep-curated', {
+            episodeId, dramaId, name: existing.name, kept: keptFields.join(','),
+          })
+        }
         await db.update(schema.characters).set({
           role: char.role || existing.role,
-          description: char.description || existing.description,
-          appearance: char.appearance || existing.appearance,
-          styling: char.styling || char.description || existing.styling,
+          description: description.value,
+          appearance: appearance.value,
+          styling: styling.value,
           updatedAt: ts,
         }).where(eq(schema.characters.id, existing.id))
         await linkCharToEpisode(episodeId, existing.id)
@@ -278,10 +305,18 @@ const saveDedupScenes = createTool({
         || (normLocation ? scenesInProject.find(s => normalizeLocation(s.location) === normLocation) : undefined)
 
       if (existing) {
-        // 已存在完全匹配的场景：关联并补齐描述/光影
+        // 已存在完全匹配的场景：关联并补齐描述/光影；**用户维护过的非空文本不覆盖**
+        const scPrompt = mergeCuratedField(existing.prompt, scene.prompt || scene.description)
+        const scLighting = mergeCuratedField(existing.lighting, scene.lighting)
+        const scKept = [scPrompt.kept && 'prompt', scLighting.kept && 'lighting'].filter(Boolean)
+        if (scKept.length) {
+          logTaskProgress('ExtractTool', 'save-scenes-keep-curated', {
+            episodeId, dramaId, location: existing.location, kept: scKept.join(','),
+          })
+        }
         await db.update(schema.scenes).set({
-          prompt: scene.prompt || scene.description || existing.prompt,
-          lighting: scene.lighting || existing.lighting,
+          prompt: scPrompt.value,
+          lighting: scLighting.value,
           // time 不覆盖：保留首次登记的时段（仅作参考，不参与去重）
           updatedAt: ts,
         }).where(eq(schema.scenes.id, existing.id))
@@ -384,11 +419,21 @@ const saveDedupProps = createTool({
       if (existing) {
         // 归一化命中：括号定位/别名等近名视作同一道具复用
         if (matchedViaNorm) logTaskProgress('ExtractTool', 'save-props-reuse', { episodeId, dramaId, extracted: prop.name, reused: existing.name })
-        // 已存在：合并信息，保留 ID；物品外貌变更后旧的最终提示词失效
+        // 已存在：合并信息，保留 ID；**用户维护过的非空文本不覆盖**（见 mergeCuratedField）
+        const propType = mergeCuratedField(existing.type, prop.type)
+        const propDesc = mergeCuratedField(existing.description, prop.description)
+        const pKept = [propType.kept && 'type', propDesc.kept && 'description'].filter(Boolean)
+        if (pKept.length) {
+          logTaskProgress('ExtractTool', 'save-props-keep-curated', {
+            episodeId, dramaId, name: existing.name, kept: pKept.join(','),
+          })
+        }
         await db.update(schema.props).set({
-          type: prop.type || existing.type,
-          description: prop.description || existing.description,
-          finalPrompt: prop.description ? null : existing.finalPrompt,
+          type: propType.value,
+          description: propDesc.value,
+          // 旧最终提示词只在"描述真的被换掉"（原来为空、这次被提取填上）时失效；
+          // 保留用户已有描述时资产与 final_prompt 仍一致，不能清
+          finalPrompt: propDesc.kept ? existing.finalPrompt : (prop.description ? null : existing.finalPrompt),
           updatedAt: ts,
         }).where(eq(schema.props.id, existing.id))
         await linkPropToEpisode(episodeId, existing.id)
