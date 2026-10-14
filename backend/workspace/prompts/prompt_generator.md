@@ -102,6 +102,7 @@ MiniMax H3 的 prompt 上限是 **7000 字符，这是官方 hard limit、不可
      - **① `retention_analysis` 覆盖道具出现的每一拍**：中文工作版 `<Subject 3>（每个镜头都出现）: fully_preserved - ...`；**英文版同一行必须写英文** `<Subject 3> (appears in every shot): fully_preserved - ...` —— 该道具在几拍出现就列几拍。**漏列 = 明确告诉模型那一拍没有这个道具**。
      - **② 正文每一拍都要重复提到该道具**：不能只在第一拍写一次、后面默认"还在"。**每拍至少点名一次**（中文 `@道具名` / 英文 `the form`），并带上该拍的状态（`in her hand` / `on the bench` / `still in her grip`）。
      - **③ 收尾自检（数一遍）**：道具出现的拍数 **=** `retention_analysis` 里列它的拍数 **=** 正文提到它的拍数。**三者不等就是漏了**。
+     - **🔴🔴 `retention_analysis` 必须逐个覆盖 `subject_definitions` 的每个 `<Subject N>`（2026-10-14 立，实测 sb432 道具整片没参考）**：参考图和身份卡都已按编号接好，**`retention_analysis` 才是模型"保不保这个主体"的唯一声明** —— 漏掉的主体（尤其道具）在成片里**完全不参考参考图**。定义里声明了 `<Subject 1>…<Subject N>`，retention 里就必须**一条不漏、一条不多**、编号严格对应。**最容易踩的坑**：重新生成会把上一版提示词的 retention 整段继承下来，而主体编号因为新加了角色/道具而变了 → 旧编号错位（实测 sb432：retention 里 `<Subject 2>` 写的是"报告纸"、`<Subject 3>` 写的是"她的脸"，道具 `<Subject 5>` 一条都没有）。**保存前数一遍**：retention 里的 `<Subject N>` 集合 == 定义里的集合。
      - 2026-10-10 实测：ep7 重拆后 36 条分镜里，**8 条道具只出现在 1 个镜头、14 条完全没提道具** → 那些镜头里的道具必然失控。
      - **✅ 正确姿势（三条同时满足）**：
 

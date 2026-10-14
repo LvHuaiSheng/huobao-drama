@@ -288,7 +288,9 @@ function groupProblem(text: string, stage: { segs: string[]; limit: number }): s
  */
 import { findDanglingPropRef } from './prop-text-gates.js'
 import { findVoiceoverMouthAction, type VoiceoverMouthHit } from './voiceover-gates.js'
+import { findRetentionMismatch, type RetentionMismatch } from './retention-gate.js'
 export { findDanglingPropRef } from './prop-text-gates.js'
+export { findRetentionMismatch } from './retention-gate.js'
 
 /** 本集「绑定 + 已有图」的道具数（道具参考图引用闸的输入） */
 async function countEpisodePropRefs(episodeId: number): Promise<number> {
@@ -865,6 +867,50 @@ async function generateEnByStages(
     }
   }
 
+  // ③.10 retention_analysis 覆盖闸（2026-10-14 加，实测 sb432：道具整片没参考）
+  //      参考图与 RefMod 卡都已进工作流（运行时图核对过），但 retention_analysis 漏了道具主体、
+  //      且编号整体错位（继承上一版提示词 + 主体重新编号所致）→ 模型没有保留声明，就不保它。
+  //      判据：retention_analysis 的 <Subject N> 集合必须与 subject_definitions 完全一致。
+  //      命中 → 带指令重写 1 轮；仍不达标只留痕放行；重写后顶破硬上限 → 回滚。
+  {
+    let rm: RetentionMismatch | null = findRetentionMismatch(text)
+    if (rm) {
+      logTaskProgress('VideoPrompt', 'retention-mismatch-detected', {
+        episodeId, storyboardId: sb.id,
+        defined: rm.defined.join(','), listed: rm.listed.join(','),
+        missing: rm.missing.join(','), extra: rm.extra.join(','),
+      })
+      const snapshot = new Map(parts)
+      const res = (await agent.generate(
+        [{ role: 'user', content: buildRetentionFixPrompt(sb, text, rm) }],
+        { maxSteps: 6, requestContext },
+      )) as { text?: string } | undefined
+      const raw = cleanSegText(res?.text || '')
+      debugLog(episodeId, sb.id, 'retention-fix-1', raw, { defined: rm.defined, listed: rm.listed })
+      const got = splitEnSections(raw)
+      if (EN_SECTION_QUOTA.every(([k]) => got.get(k))) {
+        for (const [k, v] of got) parts.set(k, v)
+        text = assemble()
+        if (text.length > budget.limit) {
+          for (const k of parts.keys()) parts.delete(k)
+          for (const [k, v] of snapshot) parts.set(k, v)
+          text = assemble()
+          logTaskProgress('VideoPrompt', 'retention-rollback-over-limit', {
+            episodeId, storyboardId: sb.id, limit: budget.limit,
+          })
+        }
+      }
+      rm = findRetentionMismatch(text)
+      if (rm) {
+        logTaskProgress('VideoPrompt', 'retention-mismatch-unresolved', {
+          episodeId, storyboardId: sb.id,
+          defined: rm.defined.join(','), listed: rm.listed.join(','),
+          missing: rm.missing.join(','), extra: rm.extra.join(','),
+        })
+      }
+    }
+  }
+
   const under = text.length > 0 && text.length <= budget.limit
   if (!text) {
     logTaskError('VideoPrompt', 'segment-give-up', { episodeId, storyboardId: sb.id, stage: 'all', error: '拼接结果为空' })
@@ -925,6 +971,36 @@ function buildVoiceoverMouthFixPrompt(
 - **改成不含嘴部的动作**：汗珠从额角渗到下颌线、一滴一滴坠落、手臂抬起僵在半空、指节发僵、眼神定在某点、呼吸变浅、肩背绷紧 —— 用这些承载情绪。（**喉结/颈部动作也一并去掉**，它紧邻下颌，同样会把注意力引到嘴。）
 - **画面取景**：**不要**给这个角色脸部特写（实测 sb302：画外音拍给了脸部特写 → 旁白被读出来、嘴照动）。改成手部、肩背、侧后方中景，或让他的脸不入画。
 - **台词那一句照原样保留**：\`<Subject N> (Sx) says in an off-screen voiceover: <d>…</d> while her/his lips remain completely closed.\` 逐字不动（主语、编号、**官方锁嘴句**都不许改 —— 这句是唯一允许出现的嘴部描写）。
+**输出要求**：输出**完整六段**（subject_definitions: / summary: / retention_analysis: / detailed_description: / overall_soundscape: / non_diegetic_music:，段名与顺序不变）；不要解释、前言、结语；不要代码块围栏；不要调用任何保存工具。
+
+=== CURRENT VERSION ===
+${current}`
+}
+
+/** retention_analysis 覆盖/编号的重写指令（2026-10-14 加，实测 sb432：道具整片没参考）：
+ *  参考图与 RefMod 卡都在工作流里，但 retention_analysis 漏了主体、编号还整体错位
+ *  （继承上一版提示词 + 主体重新编号所致）→ 模型没有保留声明，就不保那个主体。
+ *  输出要求与其它重写一致：完整六段。 */
+function buildRetentionFixPrompt(
+  sb: { id: number; storyboardNumber: number | null },
+  current: string,
+  rm: RetentionMismatch,
+): string {
+  const miss = rm.missing.length ? `<Subject ${rm.missing.join('> <Subject ')}>` : '（无）'
+  const extra = rm.extra.length ? `<Subject ${rm.extra.join('> <Subject ')}>` : '（无）'
+  return `分镜 #${sb.storyboardNumber}(ID:${sb.id}) 的 video_prompt_en 里，\`retention_analysis\` 与 \`subject_definitions\` 对不上：
+- \`subject_definitions\` 声明了 <Subject ${rm.defined.join('> <Subject ')}>
+- \`retention_analysis\` 只写了 <Subject ${rm.listed.join('> <Subject ')}>
+- **漏了**：${miss}
+- **多出**（定义里没有的编号）：${extra}
+
+参考图和身份卡都已按 <Subject N> 序号接好，retention_analysis 是模型"保不保这个主体"的唯一声明 —— 漏掉的主体（尤其是道具）在成片里会**完全不参考参考图**（实测事故）。
+
+**怎么改（只改 \`retention_analysis\` 这一段，其余五段一字不动）**：
+- **逐个补齐**：\`subject_definitions\` 里的每一个 <Subject N> 都要在 \`retention_analysis\` 里有一条，**一条不漏、一条不多**，编号与定义严格对应（宁可按定义逐条重写一遍，也不要沿用旧编号）。
+- **每条写什么**：\`<Subject N>: fully_preserved - <该主体在画面里必须保持不变的具体特征>\`；主体是人物时写它的脸/发型/服装基准，是场景时写空间与光线，是道具时写它的**结构特征**（纸张颜色与边缘、表格线位置、印章位置与油墨边缘、单张不重复）。
+- **不许**在 retention 里写它"出现于哪一拍"以外的剧情动作，也不许写文字内容本身。
+- 若定义里出现了 <Audio J>，保留原有的音频条目（\`<Audio J>: reference - ...\`）不动。
 **输出要求**：输出**完整六段**（subject_definitions: / summary: / retention_analysis: / detailed_description: / overall_soundscape: / non_diegetic_music:，段名与顺序不变）；不要解释、前言、结语；不要代码块围栏；不要调用任何保存工具。
 
 === CURRENT VERSION ===

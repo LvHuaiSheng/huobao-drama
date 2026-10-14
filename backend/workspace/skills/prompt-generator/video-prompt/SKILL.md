@@ -237,6 +237,8 @@ non_diegetic_music:
      - 本段**全是在场对白、没有旁白** → `<Audio 1> is the voice-timbre reference for <Subject N> (S1).`
 2. **`summary`** — 一段英文，**以方括号任务类型开头**；本管线统一用 `[reference generation]`（有参考图但不以某图为首帧/关键帧、也不是编辑或续拍源视频时）。官方类型表：`keyframe completion` / `reference generation` / `video editing` / `video continuation` / `audio reuse` / `audio reference`，多关系用 ` + `
 3. **`retention_analysis`** — 每个标签一行，关系词只能用 `fully_preserved` / `partially_preserved` / `attribute_transfer` / `weak_reference`
+
+   - **🔴🔴 必须逐个覆盖 `subject_definitions` 的每个 `<Subject N>`（2026-10-14 立，实测 sb432 道具整片没参考）**：参考图和身份卡都已按编号接好，**retention 才是模型"保不保这个主体"的唯一声明** —— 漏掉的主体（尤其道具）在成片里**完全不参考参考图**。定义里有几个 `<Subject N>`，retention 就必须**一条不漏、一条不多**、编号严格对应。**最容易踩的坑**：重新生成会把上一版提示词的 retention 整段继承下来，而主体编号因为新加了角色/道具而变了 → 旧编号错位（实测 sb432：retention 的 `<Subject 2>` 写的是"报告纸"、`<Subject 3>` 写的是"她的脸"，道具 `<Subject 5>` 一条都没有）。保存前数一遍：retention 的 `<Subject N>` 集合 == 定义的集合。
    - `<Audio N>` 用 `reference`：
      - 有旁白时：`<Audio 1>: reference - its vocal timbre guides <Subject N>'s off-screen narration without copying the original signal.`
      - 全是在场对白时：`<Audio 1>: reference - its vocal timbre guides the dialogue delivery of <Subject N> without copying the original signal.`
