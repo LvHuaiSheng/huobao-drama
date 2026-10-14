@@ -196,6 +196,10 @@ non_diegetic_music:
 ```
 
 1. **`subject_definitions`** — 每个出场主体一行，**必须是 `<Subject N> is the <类别> in <Picture N>, with <外观特征>`**
+   - **🔴🔴 多人同框：衣物必须写具体名词，并指定「服装以 `<Picture N>` 为准」（2026-10-14 立，实测 sb432「宾客乙穿了宾客甲的衣服」）**：一拍的 `subject_definitions` 里出现**两个及以上角色主体**时，模型的属性会互相串（卡作者原话：*identity, clothing, background and composition can still mix*）。三条硬规则：
+     - **衣物写具体名词，笼统词一律不合格**：`muted business-casual suit` / `subdued solid-tone outfit` / `plain dark clothes` / 「得体的宴会便装」「色调沉稳」这类**都不算**——必须写清**外套颜色+款式、内搭、下装、鞋、配饰**（例：`a dark navy single-breasted suit jacket over a pale blue open-collar shirt, grey trousers, brown leather shoes, a silver wristwatch`）。取材于资产的 `styling`；`styling` 本身笼统时，把所有能提取的具体名词都写上，**绝不许用"得体 / 低调 / 素色"这类形容词顶替**。
+     - **显式指定归属**（官方 R2V 口径：给每张参考指定它负责什么）：该角色的外观句里必须写 `whose outfit comes from <Picture N> only`（中文工作版：`其服装以 <Picture N> 为准`）。
+     - **`retention_analysis` 里同样写具体衣物**：那一行也要写清外套 / 内搭 / 下装 / 鞋，不许笼统（笼统的 retention 等于没声明）。
    - 官方示例原文：`<Subject 1> is the young woman in <Picture 1>, with long dark hair, a blue cardigan, and a thin silver necklace.`
    - **🔴 `<Picture N>` 编号 = `read_storyboard_context` 返回的 `reference_order` 表，逐条照抄**：本管线参考图顺序固定为 **场景第 1 张 → 角色（id 升序）→ 道具最后**（与 `@图片N` 注入顺序、卡槽 `mod_N` 三者同号）。
   - **写法**：**先读该分镜的 `reference_order`**，表里每行的 `picture` 就是编号、`name` 就是对应资产 —— **逐条照抄**

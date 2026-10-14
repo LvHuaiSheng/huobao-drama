@@ -206,6 +206,10 @@ non_diegetic_music:
 ```
 
 1. **`subject_definitions`** — one line per tracked subject, **always `<Subject N> is the <category> in <Picture N>, with <appearance features>`**
+   - **🔴🔴 Two or more characters in one shot: write the clothing as concrete nouns and pin it to its reference (added 2026-10-14; measured sb432 — Guest B came out wearing Guest A's clothes)**: when one shot's `subject_definitions` declares **two or more character subjects**, the model mixes their attributes (the card author's own wording: *identity, clothing, background and composition can still mix*). Three hard rules:
+     - **Concrete garment nouns only — vague wording is a fail**: `muted business-casual suit` / `subdued solid-tone outfit` / `plain dark clothes` do not count — write the **jacket colour and cut, the shirt, the trousers, the shoes, the accessories** (e.g. `a dark navy single-breasted suit jacket over a pale blue open-collar shirt, grey trousers, brown leather shoes, a silver wristwatch`). Take it from the asset's `styling`; when `styling` itself is vague, extract every concrete noun it has and **never substitute adjectives like "tasteful / low-key / solid-tone"**.
+     - **Pin the ownership explicitly** (official R2V guidance: assign each reference a job): that character's appearance clause must say `whose outfit comes from <Picture N> only`.
+     - **Write the same concrete clothing in `retention_analysis`**: that line names the jacket, shirt, trousers and shoes too — a vague retention line declares nothing.
    - Official example: `<Subject 1> is the young woman in <Picture 1>, with long dark hair, a blue cardigan, and a thin silver necklace.`
    - **🔴 `<Picture N>` comes from the `reference_order` table returned by `read_storyboard_context`, copied row by row (established 2026-10-10 after a measured incident)**: this pipeline's reference order is fixed as **scene = image 1 → characters (id ascending) → props last** (same index as `@图片N` and the slot `mod_N`).
   - **How**: **read that storyboard's `reference_order` first**; each row's `picture` is the index, `name` is the asset — copy it **row by row**

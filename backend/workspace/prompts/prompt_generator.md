@@ -82,6 +82,10 @@ MiniMax H3 的 prompt 上限是 **7000 字符，这是官方 hard limit、不可
   - **不许按"谁先出场/谁先说话"排编号** —— 2026-10-10 实测：sb148 的 0-5s 里张建国先出场，LLM 把他写成 `<Picture 2>`（实际是林巧）、林巧写成 `<Picture 3>`（实际是张建国），**两个角色的参考图完全对调** → 成片出现两个张建国、身份全乱
    - **若某张图只是用来定义某个主体、不会单独当帧锚点，就不要给它独立的 `<Picture N>` 行，只在 `<Subject N>` 定义里引用**（官方原文：*If an image is used only to define a character, scene, costume, or style, do not create a standalone picture entry.*）
    - `with` 后面必须**把该主体的可见外观逐个点名**：脸型/发型（含长度颜色）/服装款式颜色/配饰/显著磨损。**外貌原文取自资产的 `appearance`/`styling`/`description`/`prompt`/`location` 字段，转写成英文，不得省略、不得自己另编一套**
+   - **🔴🔴 多人同框：衣物必须写具体名词，并指定「服装以 `<Picture N>` 为准」（2026-10-14 立，实测 sb432「宾客乙穿了宾客甲的衣服」）**：一拍的 `subject_definitions` 里出现**两个及以上角色主体**时，模型的属性会互相串（卡作者原话：*identity, clothing, background and composition can still mix*）。三条硬规则：
+     - **衣物写具体名词，笼统词一律不合格**：`muted business-casual suit` / `subdued solid-tone outfit` / `plain dark clothes` / 「得体的宴会便装」「色调沉稳」这类**都不算**——必须写清**外套颜色+款式、内搭、下装、鞋、配饰**（例：`a dark navy single-breasted suit jacket over a pale blue open-collar shirt, grey trousers, brown leather shoes, a silver wristwatch`）。取材于资产的 `styling`；`styling` 本身笼统时，把所有能提取的具体名词都写上，**绝不许用"得体 / 低调 / 素色"这类形容词顶替**。
+     - **显式指定归属**（官方 R2V 口径：给每张参考指定它负责什么）：该角色的外观句里必须写 `whose outfit comes from <Picture N> only`（中文工作版：`其服装以 <Picture N> 为准`）。
+     - **`retention_analysis` 里同样写具体衣物**：那一行也要写清外套 / 内搭 / 下装 / 鞋，不许笼统（笼统的 retention 等于没声明）。
    - **🔴 小特征与手持物（官方症状表口径，2026-10-13 新增、待我们成片验证）**：① 疤 / 痣 / 耳钉 / 雀斑这类小特征**必须按身体部位命名**（如「左眉尾上方一颗小痣」），并在 `subject_definitions` 与 `retention_analysis` **两处都写**；每次出现用**完全一样的话**、左右侧写死 —— **没写出来的特征不会出现**，写得含糊它会跑到另一边或来回飘。② **角色手里拿的东西必须有对应参考图**（否则抬起手是空的）。③ 手指多 / 手部畸形时，用**「手被画框裁掉」**规避。
    - 道具同样要有 `<Subject N>`：`<Subject 3> is the registration form in <Picture 3>, with ...`
      - **判断依据**：**只看该资产的 `final_prompt` / `prompt`（生图定稿）**，里面写明是多视角板（`三联参考板`/`三视图板`/`四格板`/`多格板`/`character sheet`/`multiple views`/`shown from N angles`）。**明确不看 `description`** —— 那是物品外观描述，不许往里放任何排版/布局信息（2026-10-09 踩过：往 description 塞了「左大格/右上小格」，污染外观字段，已回滚）。**没写明就按单视角处理，不许自己猜**。
