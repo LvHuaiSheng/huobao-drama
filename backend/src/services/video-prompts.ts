@@ -100,11 +100,38 @@ const SEG_MARKERS = EN_SECTION_QUOTA.map(([s]) => s).join('|')
  *  是 63 字符 → 没被清掉、落库成中文（吃播第4集分镜1 实测）。现在放宽到 300 并支持「标题+段名同一行」。
  *  英文版正文里不该出现整行 【…】 —— 一律清掉。 */
 export function sanitizeEnPrompt(t: string): string {
-  return String(t || '')
+  const cleaned = String(t || '')
     .replace(/^[ \t]*【[^】]{1,300}】[ \t]*$/gm, '')
     .replace(/^[ \t]*【[^】]{1,300}】[ \t]*(?=[a-z_]+:)/gm, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
+  return stripStrayChinese(cleaned).text
+}
+
+/** 机械清理「紧贴英文词的游离中文」（2026-10-14 加，实测 sb419/422/425）
+ *
+ *  症状：英文发送版里出现 `the pale marble floor carries mirrored倒影 rendered as …`、
+ *  `only the thin碎碎 whisper of the guests`、`a rising wave of whispered议论, skirt hems` ——
+ *  模型把想说的中文词跟在英文词后面（同一概念的翻译残留）。语言闸能抓到，但重写指令把中文一律
+ *  当「哪几拍出现」类标注，模型认为没有标注可改 → 一轮重写后原样保留（日志 en-cn-unresolved）。
+ *
+ *  修法：机械删除「**前一个字符是 ASCII 字母** 且 **后一个字符是字母/空白/标点**」的 1~4 字中文串。
+ *  安全性：① `<d>…</d>` 台词块整段跳过（台词本来就是中文）；② 画面内中文文字（招牌/字幕）在英文版里
+ *  总是带引号且前后有空格，不满足「紧贴字母」条件，不会被误伤；③ 只处理 ≤4 字（更长的中文串交给
+ *  语言闸的 AI 重写，机械删可能丢语义）。
+ */
+export function stripStrayChinese(en: string): { text: string; stripped: string[] } {
+  if (!en) return { text: en, stripped: [] }
+  const stripped: string[] = []
+  const parts = String(en).split(/(<d>[\s\S]*?<\/d>)/g)
+  const out = parts.map((seg, idx) => {
+    if (idx % 2 === 1) return seg // <d> 台词块：原样保留
+    return seg.replace(/([A-Za-z])([\u4e00-\u9fff]{1,4})(?=[A-Za-z\s,.;:!?)\]])/g, (_m, ascii: string, cn: string) => {
+      stripped.push(cn)
+      return ascii
+    })
+  })
+  return { text: out.join(''), stripped }
 }
 
 /** 英文版 `<d>…</d>` 台词之外的汉字（个数 + 首个样例）—— 语言闸用 */
@@ -766,7 +793,10 @@ function buildChineseFixPrompt(
 
 出问题的地方（例）：${sample}
 
-**怎么改**：把这些中文字符改成对应的英文说法（它们一般是「哪几拍出现」这类标注或分组标题，**不是台词**）；**其余内容一个字符都不许改** —— 台词原文、时间戳、\`<Subject N>\` / \`<Picture N>\` 编号全部保持原样。
+**怎么改**（两类，按实际情况判断）：
+- **① 紧贴在英文词后面的中文残留**（如 \`mirrored倒影\` / \`thin碎碎 whisper\` / \`whispered议论\`）：**直接删掉那几个中文字，英文词保留**，其余不动。
+- **② 「哪几拍出现」这类中文标注 / 分组标题**（如 \`（每个镜头都出现）\` / \`…三段】\`）：改成对应的英文说法（\`(appears in every shot)\` 等）。
+- 判据：**中文字符一个都不许留**；台词、时间戳、\`<Subject N>\` / \`<Picture N>\` 编号**一个字符都不许改**。
 **输出要求**：输出**完整六段**（\`subject_definitions:\` / \`summary:\` / \`retention_analysis:\` / \`detailed_description:\` / \`overall_soundscape:\` / \`non_diegetic_music:\`，段名与顺序不变）；不要解释、前言、结语；不要代码块围栏；不要调用任何保存工具。
 
 === CURRENT VERSION ===
