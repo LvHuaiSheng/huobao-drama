@@ -1977,6 +1977,8 @@ async function genAssetFinalPrompt() {
   if (!detail.open || !detail.item?.id) return
   const force = !!assetFinalPrompt.value
   try {
+    // 先落库再生成：否则后端 Agent 读的是库里没改过的旧文本，生成结果与本次修改无关
+    await persistAssetInfoDraft()
     const fp = await ensureAssetPrompt(detail.type, detail.item.id, force)
     if (!fp) throw new Error(t('episode.asset.promptGenFailedRetry'))
     assetPromptDraft.value = fp
@@ -1998,13 +2000,14 @@ async function copyAssetFinalPrompt() {
   }
 }
 
-async function saveAssetDetail() {
+/** 2026-10-14 修：只提交「改过的描述字段」（与 saveAssetDetail 同源，供两者共用）。
+ *  抽出来是为了让「重新生成提示词」也能先落库——否则后端 Agent 读的是库里没改过的旧文本，
+ *  生成出来的提示词还是修改前那一版（用户实测报「重新生成提示词还是按没修改前的生效」）。 */
+function buildAssetInfoPayload() {
   const detail = assetDetail.value
-  if (!detail.open || !detail.item?.id) return
   const item = detail.item
-  // 只提交真正修改过的字段：无修改保存不应触发后端的提示词失效置空
   const payload = {}
-  let infoChanged = false
+  if (!item?.id) return payload
   if (detail.type === 'character') {
     if (assetDetailDraft.value.appearance !== (item.appearance || '')) payload.appearance = assetDetailDraft.value.appearance
     if (assetDetailDraft.value.styling !== (item.styling || '')) payload.styling = assetDetailDraft.value.styling
@@ -2014,7 +2017,31 @@ async function saveAssetDetail() {
   } else {
     if (assetDetailDraft.value.description !== (item.description || '')) payload.description = assetDetailDraft.value.description
   }
-  infoChanged = Object.keys(payload).length > 0
+  return payload
+}
+
+/** 把弹窗里改过的描述字段落库（不动 final_prompt），并同步本地列表 */
+async function persistAssetInfoDraft() {
+  const detail = assetDetail.value
+  const item = detail.item
+  const payload = buildAssetInfoPayload()
+  if (!item?.id || !Object.keys(payload).length) return
+  if (detail.type === 'character') await characterAPI.update(item.id, payload)
+  else if (detail.type === 'scene') await sceneAPI.update(item.id, payload)
+  else await propAPI.update(item.id, payload)
+  Object.assign(item, payload)
+  const list = detail.type === 'character' ? chars.value : detail.type === 'scene' ? scenes.value : propItems.value
+  const target = list.find(x => x.id === item.id)
+  if (target) Object.assign(target, payload)
+}
+
+async function saveAssetDetail() {
+  const detail = assetDetail.value
+  if (!detail.open || !detail.item?.id) return
+  const item = detail.item
+  // 只提交真正修改过的字段：无修改保存不应触发后端的提示词失效置空
+  const payload = buildAssetInfoPayload()
+  const infoChanged = Object.keys(payload).length > 0
   // 手动编辑过最终提示词才提交；空串视为清空
   if (assetPromptDirty.value) payload.final_prompt = assetPromptDraft.value.trim() || ''
   if (!infoChanged && !assetPromptDirty.value) {

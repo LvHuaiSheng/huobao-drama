@@ -1135,6 +1135,24 @@ function openEdit(m) {
   editDialog.value = true
 }
 
+/** 2026-10-14 修：点「重新生成提示词」前，先把弹窗里**改过的描述字段**落库。
+ *  原来直接调 generate-prompt（force=true），后端 Agent 读的是**库里没改过的旧文本** →
+ *  生成出来的提示词还是修改前那一版（用户实测报「重新生成提示词还是按没修改前的生效」）。
+ *  只提交描述字段，**不传 finalPrompt**（后端未传时保留原值）。 */
+async function persistAssetDraftFields(m) {
+  if (!m) return
+  const d = editDraft
+  if (m.kindKey === 'character') {
+    await characterAPI.update(m.id, {
+      name: d.name, role: d.role, appearance: d.appearance, description: d.description, styling: d.styling,
+    })
+  } else if (m.kindKey === 'scene') {
+    await sceneAPI.update(m.id, { location: d.location, time: d.time, prompt: d.prompt, lighting: d.lighting })
+  } else {
+    await propAPI.update(m.id, { name: d.name, type: d.type, description: d.description })
+  }
+}
+
 // 生成/重新生成最终提示词（不生图）：调用各类型 generate-prompt 接口，结果写回 draft
 // ⚠️ 必须按「类型:id」逐项记账（曾用单个布尔 → 一张卡在跑，**所有**弹层的按钮都变「生成中」且禁用，用户实测报过）
 const finalPromptGen = ref({})
@@ -1148,6 +1166,8 @@ async function generateFinalPrompt(m) {
   if (finalPromptGen.value[key]) return
   finalPromptGen.value = { ...finalPromptGen.value, [key]: true }
   try {
+    // 先落库再生成（见 persistAssetDraftFields 注释）
+    try { await persistAssetDraftFields(m) } catch (e) { toastError(e); return }
     let res
     if (m.kindKey === 'character') res = await characterAPI.generatePrompt(m.id, epId, true)
     else if (m.kindKey === 'scene') res = await sceneAPI.generatePrompt(m.id, epId, true)
