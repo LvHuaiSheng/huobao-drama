@@ -21,10 +21,14 @@ type TaskType = 'image' | 'video'
 
 const taskLabel = (type: TaskType) => (type === 'image' ? 'ImageTask' : 'VideoTask')
 
-// 轮询节奏：图片 5s×120（上限 10 分钟）；视频 10s×300
+// 轮询节奏：图片 5s×120（上限 10 分钟）；视频 10s×900（上限 2.5 小时）
+//  视频为什么从 300 次（50 分钟）放宽到 900 次：本地 4080 是**单卡串行**（shim 把整个生成
+//  等待包在 _comfy_lock 里），批量一次提交 N 条时，第 k 条要等 (k-1)×单条耗时（实测 3.2~3.9
+//  分钟/条）。50 分钟只够排到第 ~13 条，批量再大后面的就会被判「Timeout: polling attempts
+//  exhausted」——片子其实还在正常排队生成。放宽后窗口 ≈ 2.5 小时，与前端批量等待窗口一致。
 const POLL_PROFILES: Record<TaskType, { attempts: number; intervalMs: number; maxDurationMs: number | null }> = {
   image: { attempts: 120, intervalMs: 5000, maxDurationMs: 600_000 },
-  video: { attempts: 300, intervalMs: 10_000, maxDurationMs: null },
+  video: { attempts: 900, intervalMs: 10_000, maxDurationMs: null },
 }
 
 interface GenerateImageParams {
@@ -440,6 +444,20 @@ function parseTaskParams(raw: string | null | undefined): Record<string, any> {
   }
 }
 
+/** 2026-10-14：把上游回报的真实耗时并进 params（不改表结构）。
+ *  前端据此显示「生成 3m30s · 排队 10m40s」，而不是 completed_at - created_at
+ *  的累积值（本地单卡串行排队时，那个数把排队时间也算进了生成时间）。 */
+function withTiming(
+  rawParams: string | null | undefined,
+  timing?: { genSeconds?: number; queueSeconds?: number },
+): string {
+  const merged = parseTaskParams(rawParams)
+  if (timing && (timing.genSeconds != null || timing.queueSeconds != null)) {
+    merged.timing = timing
+  }
+  return JSON.stringify(merged)
+}
+
 async function processTask(id: number, config: AIConfig) {
   try {
     const [record] = await db.select().from(schema.sysTask).where(eq(schema.sysTask.id, id))
@@ -543,11 +561,11 @@ async function processTask(id: number, config: AIConfig) {
 
     if (type === 'image') {
       const adapter = getImageAdapter(config.provider)
-      const { isAsync, taskId, imageUrl } = adapter.parseGenerateResponse(result)
+      const { isAsync, taskId, imageUrl, timing: imageTiming } = adapter.parseGenerateResponse(result)
 
       if (!isAsync && imageUrl) {
-        logTaskProgress(label, 'sync-complete', { id, imageUrl })
-        await handleImageComplete(record, imageUrl)
+        logTaskProgress(label, 'sync-complete', { id, imageUrl, timing: imageTiming })
+        await handleImageComplete(record, imageUrl, imageTiming)
         return
       }
 
@@ -555,8 +573,8 @@ async function processTask(id: number, config: AIConfig) {
         // 同步模式但无 URL（Gemini 等返回 base64）
         const b64 = adapter.extractImageBase64(result)
         if (b64) {
-          logTaskProgress(label, 'sync-base64-complete', { id, mimeType: b64.mimeType })
-          await handleImageCompleteBase64(record, b64.data, b64.mimeType)
+          logTaskProgress(label, 'sync-base64-complete', { id, mimeType: b64.mimeType, timing: imageTiming })
+          await handleImageCompleteBase64(record, b64.data, b64.mimeType, imageTiming)
           return
         }
         throw new Error('No image URL or base64 data in response')
@@ -653,8 +671,8 @@ async function pollTask(record: SysTaskRecord, config: AIConfig, taskId: string)
             }
           }
         } else if (pollResp.videoUrl) {
-          logTaskSuccess(label, 'poll-complete', { id: record.id, taskId, videoUrl: pollResp.videoUrl })
-          await handleVideoComplete(record, pollResp.videoUrl, pollResp.duration)
+          logTaskSuccess(label, 'poll-complete', { id: record.id, taskId, videoUrl: pollResp.videoUrl, timing: pollResp.timing })
+          await handleVideoComplete(record, pollResp.videoUrl, pollResp.duration, pollResp.timing)
           return
         }
       }
@@ -781,29 +799,44 @@ function resumeInterruptedPolling(record: SysTaskRecord, config: AIConfig, label
   })
 }
 
-async function handleImageComplete(record: SysTaskRecord, imageUrl: string) {
+async function handleImageComplete(
+  record: SysTaskRecord,
+  imageUrl: string,
+  timing?: { genSeconds?: number; queueSeconds?: number },
+) {
   const localPath = await downloadFile(imageUrl, 'images')
   // 列表页缩略图（前端按命名约定推导地址，失败不影响主流程）
   await generateImageThumb(localPath)
 
   await db.update(schema.sysTask)
-    .set({ resultUrl: imageUrl, localPath, status: 'completed', completedAt: now(), updatedAt: now() })
+    .set({
+      resultUrl: imageUrl, localPath, status: 'completed', completedAt: now(), updatedAt: now(),
+      params: withTiming(record.params, timing),
+    })
     .where(eq(schema.sysTask.id, record.id))
 
-  logTaskSuccess('ImageTask', 'downloaded', { id: record.id, provider: record.provider, localPath })
+  logTaskSuccess('ImageTask', 'downloaded', { id: record.id, provider: record.provider, localPath, timing })
 
   await writeBackImageAssets(record, localPath)
 }
 
-async function handleImageCompleteBase64(record: SysTaskRecord, base64Data: string, mimeType: string) {
+async function handleImageCompleteBase64(
+  record: SysTaskRecord,
+  base64Data: string,
+  mimeType: string,
+  timing?: { genSeconds?: number; queueSeconds?: number },
+) {
   const localPath = await saveBase64Image(base64Data, mimeType, 'images')
   await generateImageThumb(localPath)
 
   await db.update(schema.sysTask)
-    .set({ localPath, status: 'completed', completedAt: now(), updatedAt: now() })
+    .set({
+      localPath, status: 'completed', completedAt: now(), updatedAt: now(),
+      params: withTiming(record.params, timing),
+    })
     .where(eq(schema.sysTask.id, record.id))
 
-  logTaskSuccess('ImageTask', 'saved-base64', { id: record.id, provider: record.provider, mimeType, localPath })
+  logTaskSuccess('ImageTask', 'saved-base64', { id: record.id, provider: record.provider, mimeType, localPath, timing })
 
   await writeBackImageAssets(record, localPath)
 }
@@ -829,15 +862,23 @@ async function writeBackImageAssets(record: SysTaskRecord, localPath: string) {
   }
 }
 
-async function handleVideoComplete(record: SysTaskRecord, videoUrl: string, duration: number | null | undefined) {
+async function handleVideoComplete(
+  record: SysTaskRecord,
+  videoUrl: string,
+  duration: number | null | undefined,
+  timing?: { genSeconds?: number; queueSeconds?: number },
+) {
   const localPath = await downloadFile(videoUrl, 'videos')
   // 海报帧供列表/封面展示，避免前端为显示首帧缓冲整个视频
   await extractVideoPoster(localPath)
   await db.update(schema.sysTask)
-    .set({ resultUrl: videoUrl, localPath, status: 'completed', completedAt: now(), updatedAt: now() })
+    .set({
+      resultUrl: videoUrl, localPath, status: 'completed', completedAt: now(), updatedAt: now(),
+      params: withTiming(record.params, timing),
+    })
     .where(eq(schema.sysTask.id, record.id))
 
-  logTaskSuccess('VideoTask', 'downloaded', { id: record.id, localPath, storyboardId: record.storyboardId, duration })
+  logTaskSuccess('VideoTask', 'downloaded', { id: record.id, localPath, storyboardId: record.storyboardId, duration, timing })
 
   if (record.storyboardId) {
     await db.update(schema.storyboards)

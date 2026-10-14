@@ -126,6 +126,8 @@ export interface ImageGenResponse {
   taskId?: string
   /** 同步模式下直接返回的图片 URL */
   imageUrl?: string
+  /** 上游（本地中转）回报的真实耗时（同步生图时带上，用于显示真实生成/排队时间） */
+  timing?: { genSeconds?: number; queueSeconds?: number }
 }
 
 export interface ImagePollResponse {
@@ -145,4 +147,8 @@ export interface VideoPollResponse {
   videoUrl?: string
   duration?: number
   error?: string
+  /** 上游（本地中转）回报的真实耗时：genSeconds = 真正生成多久，queueSeconds = 排队多久。
+   *  2026-10-14 加：本地单卡串行排队时，「提交→完成」会把排队时间算进生成时间（实测同批
+   *  显示 4m/7m/10m/14m，而每条真实生成都是 3.2~3.9 分钟）→ 有这个字段就用它显示。 */
+  timing?: { genSeconds?: number; queueSeconds?: number }
 }

@@ -1108,6 +1108,10 @@
                     <span class="video-task-sep">·</span>
                     <span>{{ t('episode.tasks.duration', { dur: genTaskDuration(row) }) }}</span>
                   </template>
+                  <template v-if="genTaskQueueDuration(row)">
+                    <span class="video-task-sep">·</span>
+                    <span>{{ t('episode.tasks.queue', { dur: genTaskQueueDuration(row) }) }}</span>
+                  </template>
                   <span class="video-task-sep">·</span>
                   <span>#{{ row.id }}</span>
                 </div>
@@ -2520,6 +2524,7 @@ const genTaskRows = computed(() => {
     prompt: t.prompt || '',
     createdAt: t.created_at || '',
     completedAt: t.completed_at || '',
+    timing: parseTaskTiming(t.params),
   }))
   const mergeRows = genMerges.value.map(m => ({
     key: `merge-${m.id}`,
@@ -2561,11 +2566,45 @@ function genTaskPreviewSrc(url) {
   return /^https?:\/\//.test(url) ? url : '/' + url
 }
 
+// 2026-10-14：sys_task.params 里可能带上游回报的真实耗时（本地中转 shim → ComfyUI 真值）
+function parseTaskTiming(raw) {
+  if (!raw) return null
+  try {
+    const p = typeof raw === 'string' ? JSON.parse(raw) : raw
+    const t = p?.timing
+    if (!t || typeof t !== 'object') return null
+    const gen = Number(t.genSeconds)
+    const queue = Number(t.queueSeconds)
+    return {
+      genSeconds: Number.isFinite(gen) ? gen : null,
+      queueSeconds: Number.isFinite(queue) ? queue : null,
+    }
+  } catch {
+    return null
+  }
+}
+
+function fmtDurationSec(sec) {
+  if (!Number.isFinite(sec) || sec < 0) return ''
+  const ms = sec * 1000
+  return ms >= 60000 ? `${Math.floor(ms / 60000)}m${Math.round((ms % 60000) / 1000)}s` : `${Math.round(ms / 1000)}s`
+}
+
 function genTaskDuration(row) {
+  // 优先显示**这条自己真正跑了多久**（上游 timing.genSeconds）。
+  // 兜底的 completed_at - created_at 在批量提交时算的是「排队 + 自身」的累积值
+  // （实测同一批：4m05s / 7m16s / 10m46s / 14m18s，而每条真值都是 3.2~3.9 分钟）。
+  if (row?.timing?.genSeconds != null) return fmtDurationSec(row.timing.genSeconds)
   if (!row.createdAt || !row.completedAt) return ''
   const ms = new Date(row.completedAt).getTime() - new Date(row.createdAt).getTime()
   if (!Number.isFinite(ms) || ms < 0) return ''
   return ms >= 60000 ? `${Math.floor(ms / 60000)}m${Math.round((ms % 60000) / 1000)}s` : `${Math.round(ms / 1000)}s`
+}
+
+// 排队时长（同样来自上游真值；拿不到就不显示）
+function genTaskQueueDuration(row) {
+  const q = row?.timing?.queueSeconds
+  return q != null ? fmtDurationSec(q) : ''
 }
 
 // 抽屉打开且有进行中任务时,4s 轮询;关闭或全部结束时停止
@@ -3771,7 +3810,7 @@ async function genVid(sb, opts = {}) {
     const generation = await taskAPI.generate({ type: 'video', ...params })
     if (!opts.silent) toast.success(t('episode.vid.generating'))
     await refresh()
-    pollVideoGeneration(generation?.id, sb.id)
+    pollVideoGeneration(generation?.id, sb.id, opts)
   } catch (e) {
     pendingVideoIds.value = pendingVideoIds.value.filter(item => item !== sb.id)
     failedVideoMessages.value = {
@@ -3781,7 +3820,7 @@ async function genVid(sb, opts = {}) {
     toastError(e, { fallback: 'episode.vid.genFailed' })
   }
 }
-async function pollVideoGeneration(generationId, storyboardId) {
+async function pollVideoGeneration(generationId, storyboardId, opts = {}) {
   if (!generationId) {
     watchAsyncResult(() => {
       const target = sbs.value.find(s => s.id === storyboardId)
@@ -3791,7 +3830,15 @@ async function pollVideoGeneration(generationId, storyboardId) {
     }, 60, 4000)
     return
   }
-  for (let i = 0; i < 120; i++) {
+  // 2026-10-14 B1：等待窗口不再写死 120×4s = 8 分钟。
+  // 本地 4080 是单卡串行（shim 把整个生成等待包在锁里），批量一次提交 N 条时第 k 条
+  // 要等 (k-1)×单条耗时（实测 3.2~3.9 分钟/条）→ 从第 3 条起全部误报「视频生成超时」，
+  // 而片子其实在正常排队、也确实出片了。改为按**排在前面的条数**放宽，上限 2250 次
+  //（4s×2250 = 2.5 小时，与后端视频轮询窗口一致）；批量提交（opts.silent）不再弹超时 toast，
+  // 只把状态留在任务栏（真正的失败由后端 2.5h 窗口判定）。
+  const ahead = pendingVideoIds.value.filter(id => id !== storyboardId).length
+  const maxAttempts = Math.min(2250, 120 + ahead * 90)
+  for (let i = 0; i < maxAttempts; i++) {
     await sleep(4000)
     try {
       const res = await taskAPI.get(generationId)
@@ -3819,7 +3866,8 @@ async function pollVideoGeneration(generationId, storyboardId) {
     ...failedVideoMessages.value,
     [storyboardId]: t('episode.vid.genTimeout'),
   }
-  toast.error(t('episode.vid.genTimeout'))
+  // 批量提交时不弹（否则一次批量会连弹十几条「视频生成超时」，而它们只是排队）
+  if (!opts.silent) toast.error(t('episode.vid.genTimeout'))
 }
 async function doMerge(ids) {
   const storyboardIds = Array.isArray(ids) ? ids : undefined

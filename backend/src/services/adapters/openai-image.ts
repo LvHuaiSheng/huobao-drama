@@ -136,6 +136,19 @@ export class OpenAIImageAdapter implements ImageProviderAdapter {
     return Math.max(multiple, Math.round(value / multiple) * multiple)
   }
 
+  /** 本地中转（shim）在同步响应里附带 shim_timing：真实生成/排队秒数（标准客户端忽略该字段） */
+  private parseShimTiming(result: any): { genSeconds?: number; queueSeconds?: number } | undefined {
+    const t = result?.shim_timing
+    if (!t || typeof t !== 'object') return undefined
+    const gen = Number(t.gen_seconds)
+    const queue = Number(t.queue_seconds)
+    if (!Number.isFinite(gen) && !Number.isFinite(queue)) return undefined
+    return {
+      genSeconds: Number.isFinite(gen) ? gen : undefined,
+      queueSeconds: Number.isFinite(queue) ? queue : undefined,
+    }
+  }
+
   parseGenerateResponse(result: any): ImageGenResponse {
     // OpenAI DALL-E 3 目前是同步返回，但规范上也有异步 task 模式
     if (result.task_id || result.id) {
@@ -143,13 +156,13 @@ export class OpenAIImageAdapter implements ImageProviderAdapter {
     }
     const imageUrl = result.data?.[0]?.url || result.url
     if (imageUrl) {
-      return { isAsync: false, imageUrl }
+      return { isAsync: false, imageUrl, timing: this.parseShimTiming(result) }
     }
     // b64_json 模式
     const b64 = result.data?.[0]?.b64_json
     if (b64) {
       // 对于 base64，返回特殊标记，实际处理在 extractImageBase64
-      return { isAsync: false, imageUrl: undefined }
+      return { isAsync: false, imageUrl: undefined, timing: this.parseShimTiming(result) }
     }
     throw new Error('No image URL in response')
   }

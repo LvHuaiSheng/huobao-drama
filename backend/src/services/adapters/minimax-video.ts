@@ -155,9 +155,20 @@ export class MiniMaxVideoAdapter implements VideoProviderAdapter {
     const status = task.status
 
     if (status === 'succeeded') {
+      // 2026-10-14：本地中转（shim）会带回 ComfyUI 真值 timing，透传给上层落库/显示
+      const t = task.timing && typeof task.timing === 'object' ? task.timing : null
+      const genSeconds = Number(t?.gen_seconds)
+      const queueSeconds = Number(t?.queue_seconds)
+      const timing = (Number.isFinite(genSeconds) || Number.isFinite(queueSeconds))
+        ? {
+            genSeconds: Number.isFinite(genSeconds) ? genSeconds : undefined,
+            queueSeconds: Number.isFinite(queueSeconds) ? queueSeconds : undefined,
+          }
+        : undefined
       return {
         status: 'completed',
         videoUrl: task.content?.url || task.video_url,
+        ...(timing ? { timing } : {}),
       }
     }
     if (status === 'failed' || status === 'cancelled') {
