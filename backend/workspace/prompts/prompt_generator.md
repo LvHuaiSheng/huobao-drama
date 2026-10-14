@@ -57,6 +57,12 @@ model: ""
 
 - **🔴 画风/介质措辞必须逐字沿用给定的英文规范（2026-10-14 立，实测根因）**：Agent 上下文里「本项目画风规范 → 正文渲染语言」段，英文任务现在直接给**英文版**；**照它的措辞写，不许自己边读中文规范边翻**（原来只给中文规范，模型边译边写，把「明暗」这类中文话题词漏在英文句子里 —— sb396/sb400 体检报"英文版混入 2 个中文字符"）。固定英文术语：明暗→`light and shade`、平涂色块→`flat colour blocks`、闭合黑线描边→`closed black outlines`、硬边阴影→`hard-edged shadow shapes`。**英文版里出现任何中文字符（除 `<d>[Chinese]…</d>` 台词与画面内文字）即为不合格。**
 
+- **🔴🔴 动作类约束一律写正面描述，禁用否定句（2026-10-14 立，实测事故 sb421）**：本链路是 `BasicGuider` + cfg=1，**没有负向分支** —— 否定句不扣分，反而把被否定的动作词（`turn his head` / `slow down`）当成正面描述喂给模型，**它会照着演**（实测：提示词写「全程没有偏头、没有减速」，成片里男主真的停下并转向她）。所以：
+  - **禁写**「否定词 + 动作动词」的句子（`does not / never / without / no one / nobody / cannot` + 转身 / 停步 / 减速 / 回头 / 看 / 碰 / 反应 / 点头 / 微笑…）。
+  - **一律改成正面陈述**：写他**看向哪、朝向哪、步幅与节奏如何、结果是什么**。例：`he does not turn his head or slow down` → `his chin stays level and square to the far end of the aisle, his eyes fixed on the far doors, his strides keeping exactly the same length and rhythm through the whole shot`；「她伸着手没人接」写成结果本身 —— `her outstretched hands stay unanswered in mid-air`。
+  - **例外（这些否定必须保留，不算违规）**：数量锁 `only one … never duplicated` / `never a second`；画面与音频属性 `no gradients` / `no gloss` / `no depth-of-field blur` / `no new light source` / `no repeated identical outfits` / `no human voice …` / `no readable text`；**音频声明 `No one speaks in this shot`**（本规则要求写的，不是动作约束）；群演防重复 `never a repeated face` / `never detailed faces`；画风头里的 `avoid painterly soft blending` 等风格否定；官方锁嘴原句 `while her lips remain completely closed`；音色参考的 `without copying the original signal`。
+  - **细则与判据见「video-prompt 技能」的「英文发送版」节；后端另有机器闸 `negated-action`（命中重写 1 轮、超长则回滚）。**
+
 > 📌 **英文发送版（六段）的全部细则见「video-prompt 技能」的「英文发送版」节 —— 本流程单不再重复，避免每次请求重复读同一段（2026-10-12 精简）。**
 
 **除对话、歌词与画面内可见文字外，全部写英文**（官方原文：*Write all six rewrite sections in English. Preserve the original language only for dialogue and lyrics inside `<d>` and for text visibly present in the scene.*）。

@@ -143,6 +143,37 @@ export function findChineseOutsideDialogue(en: string): { count: number; sample:
   return { count: hits.length, sample: body.slice(Math.max(0, i - 40), i + 40).replace(/\n/g, ' ') }
 }
 
+/** 动作类否定句检测（2026-10-14 加，实测 sb421）
+ *  本链路是 BasicGuider + cfg=1，**没有负向分支** —— `he does not turn his head or slow down`
+ *  不扣分，反而把 turn his head / slow down 当正面描述喂给模型，成片里他真的停下并转向她。
+ *  判据：同一子句里「否定词 + 动作动词」。ACT 表故意只收**会改变画面的动作/朝向动词**：
+ *    · 不收 `speak` —— 「No one speaks in this shot」是本规则**要求写**的音频声明（15+ 条真实数据命中），
+ *      收进来会把每一条都误报；
+ *    · 不收 `face/faces` —— 「never a repeated face」「never detailed faces」是背景群演防重复的正当约束；
+ *      只留 `facing`（`never facing the lens` 才是真该改的动作约束）。
+ *  于是数量锁（never duplicated）、画面音频属性（no gradients / no human voice）、
+ *  官方锁嘴句（lips remain completely closed）、音色参考（without copying the original signal）
+ *  这些正当否定天然不命中，不需要额外白名单。 */
+export function findNegatedAction(en: string): { count: number; sample: string } {
+  if (!en) return { count: 0, sample: '' }
+  const body = String(en).replace(/<d>[\s\S]*?<\/d>/g, ' ')
+  const NEG = "(?:does not|do not|doesn't|don't|never|without|no one|nobody|cannot|can't|fails to|is not|are not|was not|were not)"
+  const ACT = '(?:turn|turns|turning|look|looks|looking|glance|glances|stop|stops|stopping|slow|slows|slowing|move|moves|moving|react|reacts|respond|responds|nod|nods|smile|smiles|reach|reaches|touch|touches|lift|lifts|raise|raises|pause|pauses|hesitate|hesitates|walk|walks|walking|facing|head|heads)'
+  // 「没人提高嗓门」这类仍是音频声明（不改变画面），放过
+  const WHITELIST = ['their voice', 'his voice', 'her voice']
+  const re = new RegExp(`${NEG}\\s+(?:\\w+\\s+){0,2}?${ACT}\\b`, 'gi')
+  const hits: string[] = []
+  let m: RegExpExecArray | null
+  while ((m = re.exec(body)) !== null) {
+    const hit = m[0].trim()
+    // 白名单按「命中处往后 30 字符」判（匹配常停在动词上，如 `no one raises` + `their voice`）
+    const win = body.slice(m.index, m.index + m[0].length + 30).toLowerCase()
+    if (WHITELIST.some(w => win.includes(w))) continue
+    hits.push(hit)
+  }
+  return { count: hits.length, sample: hits.slice(0, 3).join(' | ') }
+}
+
 /** 落库前的源头兜底（2026-10-13，用户要求「不能只靠体检」）：机械清掉越界的主体/参考图编号。
  *  实测模型仍会给「没被提取成道具资产」的东西编 `<Subject 3>`（甚至 `<Picture 3>`），规则层治不住 100%。
  *  做法（确定性，不依赖模型）：
@@ -760,6 +791,47 @@ async function generateEnByStages(
     }
   }
 
+  // ③.7 动作类否定句闸（2026-10-14 加，实测 sb421）
+  //      本链路 BasicGuider + cfg=1，没有负向分支 —— `he does not turn his head or slow down`
+  //      不扣分，反而把 turn his head / slow down 当正面描述喂给模型，成片里他真停下、真转向她。
+  //      命中 → 带「改成正面描述」指令重写 1 轮（输出完整六段，拿不全就保留原版）；
+  //      仍不达标只留痕放行（不硬拦）。重写后若总长超出硬上限 → 回滚，避免把整条分镜做废。
+  {
+    let na = findNegatedAction(text)
+    if (na.count) {
+      logTaskProgress('VideoPrompt', 'negated-action-detected', {
+        episodeId, storyboardId: sb.id, count: na.count, sample: na.sample,
+      })
+      const snapshot = new Map(parts)
+      const res = (await agent.generate(
+        [{ role: 'user', content: buildNegatedActionFixPrompt(sb, text, na.sample) }],
+        { maxSteps: 6, requestContext },
+      )) as { text?: string } | undefined
+      const raw = cleanSegText(res?.text || '')
+      debugLog(episodeId, sb.id, 'negated-action-fix-1', raw, { count: na.count })
+      const got = splitEnSections(raw)
+      if (EN_SECTION_QUOTA.every(([k]) => got.get(k))) {
+        for (const [k, v] of got) parts.set(k, v)
+        text = assemble()
+        if (text.length > budget.limit) {
+          // 正面描述通常更长 → 顶破硬上限就回滚（宁可留着否定句，也不能让整条分镜落库失败）
+          for (const k of parts.keys()) parts.delete(k)
+          for (const [k, v] of snapshot) parts.set(k, v)
+          text = assemble()
+          logTaskProgress('VideoPrompt', 'negated-action-rollback-over-limit', {
+            episodeId, storyboardId: sb.id, limit: budget.limit,
+          })
+        }
+      }
+      na = findNegatedAction(text)
+      if (na.count) {
+        logTaskProgress('VideoPrompt', 'negated-action-unresolved', {
+          episodeId, storyboardId: sb.id, count: na.count, sample: na.sample,
+        })
+      }
+    }
+  }
+
   const under = text.length > 0 && text.length <= budget.limit
   if (!text) {
     logTaskError('VideoPrompt', 'segment-give-up', { episodeId, storyboardId: sb.id, stage: 'all', error: '拼接结果为空' })
@@ -797,6 +869,30 @@ function buildChineseFixPrompt(
 - **① 紧贴在英文词后面的中文残留**（如 \`mirrored倒影\` / \`thin碎碎 whisper\` / \`whispered议论\`）：**直接删掉那几个中文字，英文词保留**，其余不动。
 - **② 「哪几拍出现」这类中文标注 / 分组标题**（如 \`（每个镜头都出现）\` / \`…三段】\`）：改成对应的英文说法（\`(appears in every shot)\` 等）。
 - 判据：**中文字符一个都不许留**；台词、时间戳、\`<Subject N>\` / \`<Picture N>\` 编号**一个字符都不许改**。
+**输出要求**：输出**完整六段**（\`subject_definitions:\` / \`summary:\` / \`retention_analysis:\` / \`detailed_description:\` / \`overall_soundscape:\` / \`non_diegetic_music:\`，段名与顺序不变）；不要解释、前言、结语；不要代码块围栏；不要调用任何保存工具。
+
+=== CURRENT VERSION ===
+${current}`
+}
+
+/** 动作类否定句的重写指令（2026-10-14 加，实测 sb421）：把「否定词 + 动作动词」改成正面描述，其余一字不动。 */
+function buildNegatedActionFixPrompt(
+  sb: { id: number; storyboardNumber: number | null },
+  current: string,
+  sample: string,
+): string {
+  return `分镜 #${sb.storyboardNumber}(ID:${sb.id}) 的 video_prompt_en 里**用否定句写了动作要求**，这在 H3 上等于没写、还会起反作用（本链路 cfg=1，没有负向分支：否定句不扣分，反而把被否定的动作词当成正面描述喂给模型，模型会照着演）。
+
+出问题的句子（例）：${sample}
+
+**怎么改（只改这些句子，其余一字不动）**：
+- **禁写**「否定词 + 动作动词」（does not / never / without / no one / nobody / cannot + turn / stop / slow / look back / look / touch / react / nod / smile / move / walk / speak …）。
+- **改成正面描述**：写他**看向哪、朝向哪、步幅与节奏如何、结果是什么**。
+  - \`he does not turn his head or slow down\` → \`his chin stays level and square to the far end of the aisle, his eyes fixed on the far doors, his strides keeping exactly the same length and rhythm through the whole shot\`
+  - \`without turning his head\` → \`his eyes fixed on the far end of the hall\`
+  - \`never turning back\` / \`never facing the lens\` → \`his back stays to the lens\`
+  - 「没人接她的手」→ 写成结果本身：\`her outstretched hands stay unanswered in mid-air\`
+- **必须保留、不算违规（一个字都不许改）**：数量锁 \`only one … never duplicated\` / \`never a second\`；画面与音频属性 \`no gradients\` / \`no gloss\` / \`no depth-of-field blur\` / \`no new light source\` / \`no repeated identical outfits\` / \`no human voice …\` / \`no readable text\`；官方锁嘴原句 \`while her lips remain completely closed\`；音色参考 \`without copying the original signal\`；以及全部台词、时间戳、\`<Subject N>\` / \`<Picture N>\` 编号。
 **输出要求**：输出**完整六段**（\`subject_definitions:\` / \`summary:\` / \`retention_analysis:\` / \`detailed_description:\` / \`overall_soundscape:\` / \`non_diegetic_music:\`，段名与顺序不变）；不要解释、前言、结语；不要代码块围栏；不要调用任何保存工具。
 
 === CURRENT VERSION ===

@@ -113,6 +113,7 @@ description: 视频提示词规范 — 根据分镜段落内容生成按时间�
 - [ ] **逐拍台词预算（更硬，先满足这条）**：**每一拍各自的**台词字数 ≤ 该拍秒数 × 4.5（例：5 秒拍 ≤22 字；**拍长由真实变化决定，常见 4~7 秒，10 秒段通常只有 2 拍 —— 不要为凑台词预算把拍切短**）。「整段不超」≠「每拍不超」
 - [ ] **整段台词预算**：总字数 ≤ **(段长秒数 − 4) × 4.5**（10 秒段 ≤27 字，建议 ≤25）。**两条都要满足，取更严的那条** —— 逐拍管「别堆在一拍里念不完」，整段管「别把整段塞满、给换气与环境音留余量」
 - [ ] **拍数 = description 里【镜头N】的个数（代码硬校验，数不对就被打回重写）**：不相等的唯一正当来源是拆解拆错了 —— **别在提示词侧并拍**，回拆解侧重拆该分镜；交界处若没变化，照写但**禁 `the same…`/「继续」兜底**
+- [ ] **正文里有没有「否定词 + 动作动词」**（`does not / never / without / no one / nobody` + 转身 / 停步 / 减速 / 回头 / 看 / 碰 / 反应…）？有就改成正面描述（看向哪 / 朝向哪 / 节奏如何 / 结果是什么）；上面「禁止事项」里列的例外不算
 
 **实测反例（别再这么写）**：
 
@@ -147,6 +148,7 @@ description: 视频提示词规范 — 根据分镜段落内容生成按时间�
 - 引用列表之外的场景/角色名
 - 抽象心理描写、文学化比喻（模型只认可见画面）
 - 语言与会话语言指令不符
+- **动作类约束禁用否定句（2026-10-14 立，实测事故 sb421）**：不写 `does not turn his head` / `never stops` / `without slowing down` / `nobody stops` 这类「否定词 + 动作动词」—— 本链路是 `BasicGuider` + cfg=1、**没有负向分支**，否定词等于把该动作写进正面描述，模型会照着演（实测提示词写「全程没有偏头、没有减速」，成片里男主真停下并转向她）。**一律改成正面描述**：写他看向哪 / 朝向哪 / 步幅与节奏如何 / 结果是什么（例：`his chin stays level and square to the far end of the aisle, his eyes fixed on the far doors, his strides keeping exactly the same length and rhythm through the whole shot`；「她伸着手没人接」写成结果 —— `her outstretched hands stay unanswered in mid-air`）。**例外（必须保留、不算违规）**：数量锁 `only one … never duplicated` / `never a second`；画面与音频属性 `no gradients` / `no gloss` / `no depth-of-field blur` / `no new light source` / `no repeated identical outfits` / `no human voice …` / `no readable text`；**音频声明 `No one speaks in this shot`**；群演防重复 `never a repeated face` / `never detailed faces`；画风头的 `avoid painterly soft blending` 等；官方锁嘴原句 `while her lips remain completely closed`；音色参考 `without copying the original signal`。后端机器闸 `negated-action` 会复核（命中重写 1 轮，超长则回滚）。
 
 ## 保存
 
