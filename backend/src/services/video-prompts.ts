@@ -277,13 +277,18 @@ function groupProblem(text: string, stage: { segs: string[]; limit: number }): s
   return null
 }
 
-/** 道具「纸面/屏幕文字」的两向闸（2026-10-14 移出本文件 → ./prop-text-gates.ts，纯函数、可单测）
- *  ① 有道具参考图却写「看不清」→ findIllegibleWithPropRef（实测 sb432 事故）
- *  ② 没有道具参考图却写「照抄参考图」→ findDanglingPropRef（实测 sb393/sb394 事故）
- *  propRefCount = 本集绑定且已有图的道具数。 */
-import { findDanglingPropRef, findIllegibleWithPropRef } from './prop-text-gates.js'
+/**
+ * 道具参考图引用闸（纯函数在 ./prop-text-gates.ts，可脱离 DB/Agent 模块图单测）
+ *
+ * 2026-10-14 晚修正：上一版还加了「有参考图却写『看不清』」的闸（findIllegibleWithPropRef）——
+ * **判据是错的，已撤掉**。证据：用户认可、工作正常的 sb431 稿子里本来就写着
+ * `illegible character blocks, no readable text`，说明这句话并不妨碍道具锁定；
+ * 而那道闸的改写指令（要求「逐字复刻每一行字」）反而把 sb432 弄得更差。
+ * 道具锁不住的真正差异见 video-prompt 技能「道具镜必须绝对静止」一节。
+ */
+import { findDanglingPropRef } from './prop-text-gates.js'
 import { findVoiceoverMouthAction, type VoiceoverMouthHit } from './voiceover-gates.js'
-export { findDanglingPropRef, findIllegibleWithPropRef, ILLEGIBLE_PATTERNS } from './prop-text-gates.js'
+export { findDanglingPropRef } from './prop-text-gates.js'
 
 /** 本集「绑定 + 已有图」的道具数（道具参考图引用闸的输入） */
 async function countEpisodePropRefs(episodeId: number): Promise<number> {
@@ -742,7 +747,7 @@ async function generateEnByStages(
     }
   }
 
-  // 本集「绑定 + 已有图」的道具数：③.6（没图却写照抄）/ ③.7（否定句重写的保留项）/ ③.8（有图却写「看不清」）三个闸共用
+  // 本集「绑定 + 已有图」的道具数：③.6（没图却写照抄）/ ③.7（否定句重写）共用
   const propRefCount = await countEpisodePropRefs(episodeId)
 
   // ③.6 道具参考图引用闸（2026-10-14 加，实测 sb393/sb394）
@@ -790,7 +795,7 @@ async function generateEnByStages(
       })
       const snapshot = new Map(parts)
       const res = (await agent.generate(
-        [{ role: 'user', content: buildNegatedActionFixPrompt(sb, text, na.sample, propRefCount > 0) }],
+        [{ role: 'user', content: buildNegatedActionFixPrompt(sb, text, na.sample) }],
         { maxSteps: 6, requestContext },
       )) as { text?: string } | undefined
       const raw = cleanSegText(res?.text || '')
@@ -813,45 +818,6 @@ async function generateEnByStages(
       if (na.count) {
         logTaskProgress('VideoPrompt', 'negated-action-unresolved', {
           episodeId, storyboardId: sb.id, count: na.count, sample: na.sample,
-        })
-      }
-    }
-  }
-
-  // ③.8 有道具参考图却写「看不清」闸（2026-10-14 加，实测 sb432「DNA血缘鉴定报告」）
-  //      有参考图时把纸面/屏幕写成 illegible / no readable text，等于让模型把参考图上的内容糊掉 →
-  //      用户看到的现象就是「道具没挂上 / 没锁住」。命中 → 带「改成以参考图为准」指令重写 1 轮；
-  //      仍不达标只留痕放行；重写后顶破硬上限 → 回滚（宁可留着旧措辞，也不能让整条分镜落库失败）。
-  {
-    let il = findIllegibleWithPropRef(text, propRefCount)
-    if (il) {
-      logTaskProgress('VideoPrompt', 'illegible-with-propref-detected', {
-        episodeId, storyboardId: sb.id, propRefCount, problem: il,
-      })
-      const snapshot = new Map(parts)
-      const res = (await agent.generate(
-        [{ role: 'user', content: buildIllegiblePropFixPrompt(sb, text, il) }],
-        { maxSteps: 6, requestContext },
-      )) as { text?: string } | undefined
-      const raw = cleanSegText(res?.text || '')
-      debugLog(episodeId, sb.id, 'illegible-prop-fix-1', raw, { propRefCount })
-      const got = splitEnSections(raw)
-      if (EN_SECTION_QUOTA.every(([k]) => got.get(k))) {
-        for (const [k, v] of got) parts.set(k, v)
-        text = assemble()
-        if (text.length > budget.limit) {
-          for (const k of parts.keys()) parts.delete(k)
-          for (const [k, v] of snapshot) parts.set(k, v)
-          text = assemble()
-          logTaskProgress('VideoPrompt', 'illegible-prop-rollback-over-limit', {
-            episodeId, storyboardId: sb.id, limit: budget.limit,
-          })
-        }
-      }
-      il = findIllegibleWithPropRef(text, propRefCount)
-      if (il) {
-        logTaskProgress('VideoPrompt', 'illegible-with-propref-unresolved', {
-          episodeId, storyboardId: sb.id, propRefCount, problem: il,
         })
       }
     }
@@ -950,38 +916,15 @@ function buildVoiceoverMouthFixPrompt(
   current: string,
   hits: VoiceoverMouthHit[],
 ): string {
-  return `分镜 #${sb.storyboardNumber}(ID:${sb.id}) 的 video_prompt_en 里，**画外音那一拍**给画面内的角色写了嘴部动作 —— H3 会把台词安在那个张嘴的人身上（实测：sb437 顾明轩念出了苏清禾的台词）。
+  return `分镜 #${sb.storyboardNumber}(ID:${sb.id}) 的 video_prompt_en 里，**画外音那一拍**给画面内的角色写了「嘴」（张嘴、闭嘴、嘴唇、mouth、lips 都算）—— 本链路 cfg=1、没有负向分支，**提到嘴就等于让嘴动**，H3 会把台词安到那个嘴动的人身上（实测：sb437 顾明轩在画面上念出了苏清禾的画外音台词）。
 
 命中的拍与词：${hits.map(h => `${h.shot} ${h.sample}`).join('；')}
 
 **怎么改（只改这些句子，其余一字不动）**：
-- **删掉画面内角色的嘴部动作**：lips part / lips open / mouth opens / opens his mouth / mutters / whispers 之类**一个都不许留**。
-- **改成不含嘴部的动作**：喉结滚动（\`his Adam's apple working once\` 可以留）、额角出汗、汗滴坠落、手臂抬起僵在半空、眼神与呼吸 —— 用这些承载情绪，别用嘴。
-- **该角色必须显式锁嘴**：在他出场的这一拍里补一句锁嘴（\`his mouth stays shut\` / \`his lips stay closed and still\`，主语按性别改）—— 这是**唯一**允许出现的嘴部描写。
-- **台词那一句照原样保留**：\`<Subject N> (Sx) says in an off-screen voiceover: <d>…</d> while her/his lips remain completely closed.\` 逐字不动（主语、编号、锁嘴句都不许改）。
-**输出要求**：输出**完整六段**（subject_definitions: / summary: / retention_analysis: / detailed_description: / overall_soundscape: / non_diegetic_music:，段名与顺序不变）；不要解释、前言、结语；不要代码块围栏；不要调用任何保存工具。
-
-=== CURRENT VERSION ===
-${current}`
-}
-
-/** 有道具参考图却写「看不清」的重写指令（2026-10-14 加，实测 sb432）：
- *  本分镜有道具参考图 → 纸面内容必须交给参考图，不许写 illegible / no readable text 把内容糊掉。
- *  输出要求与其它重写一致：完整六段，便于整份替换。 */
-function buildIllegiblePropFixPrompt(
-  sb: { id: number; storyboardNumber: number | null },
-  current: string,
-  problem: string,
-): string {
-  return `分镜 #${sb.storyboardNumber}(ID:${sb.id}) 的 video_prompt_en 里，把**有参考图的道具**的纸面/屏幕内容写成了「看不清」。
-
-${problem}
-
-**怎么改（只改这些措辞，其余一字不动）**：
-- **删掉**「看不清」类措辞：illegible / no readable text / unreadable / cannot be read / blurred character blocks /「无法辨认」「看不清」。
-- **改成**「纸面内容一律以参考图为准」：写成 \`the printed side follows the reference sheet exactly, word for word\` 这类**只指向参考图、不复述具体文字**的写法；英文也可用 \`with the printed wording taken verbatim from <Picture N>\`（N 换成该道具实际编号）。
-- **保留**：\`<Picture N>\` 引用、「必须与参考图完全一致」这类照抄指令（那是本分镜该写的）、\`retention_analysis\` 里该道具的 \`fully_preserved\`（把 blank opaque back 这类改成「版面与红章位置照参考图」）。
-- **不许**在正文里复述纸面上的具体字（那会与参考图打架，实测必错）。
+- **删掉画面内角色所有嘴部字样**：lips part / lips open / mouth opens / opens his mouth / **mouth stays shut** / **lips stay closed and still** / mutters / whispers —— 一个都不许留。**不要用「嘴闭着」去锁嘴**（提到嘴反而会让嘴动）。
+- **改成不含嘴部的动作**：汗珠从额角渗到下颌线、一滴一滴坠落、手臂抬起僵在半空、指节发僵、眼神定在某点、呼吸变浅、肩背绷紧 —— 用这些承载情绪。（**喉结/颈部动作也一并去掉**，它紧邻下颌，同样会把注意力引到嘴。）
+- **画面取景**：**不要**给这个角色脸部特写（实测 sb302：画外音拍给了脸部特写 → 旁白被读出来、嘴照动）。改成手部、肩背、侧后方中景，或让他的脸不入画。
+- **台词那一句照原样保留**：\`<Subject N> (Sx) says in an off-screen voiceover: <d>…</d> while her/his lips remain completely closed.\` 逐字不动（主语、编号、**官方锁嘴句**都不许改 —— 这句是唯一允许出现的嘴部描写）。
 **输出要求**：输出**完整六段**（subject_definitions: / summary: / retention_analysis: / detailed_description: / overall_soundscape: / non_diegetic_music:，段名与顺序不变）；不要解释、前言、结语；不要代码块围栏；不要调用任何保存工具。
 
 === CURRENT VERSION ===
@@ -993,7 +936,6 @@ function buildNegatedActionFixPrompt(
   sb: { id: number; storyboardNumber: number | null },
   current: string,
   sample: string,
-  hasPropRef = false,
 ): string {
   return `分镜 #${sb.storyboardNumber}(ID:${sb.id}) 的 video_prompt_en 里**用否定句写了动作要求**，这在 H3 上等于没写、还会起反作用（本链路 cfg=1，没有负向分支：否定句不扣分，反而把被否定的动作词当成正面描述喂给模型，模型会照着演）。
 
@@ -1006,7 +948,7 @@ function buildNegatedActionFixPrompt(
   - \`without turning his head\` → \`his eyes fixed on the far end of the hall\`
   - \`never turning back\` / \`never facing the lens\` → \`his back stays to the lens\`
   - 「没人接她的手」→ 写成结果本身：\`her outstretched hands stay unanswered in mid-air\`
-- **必须保留、不算违规（一个字都不许改）**：数量锁 \`only one … never duplicated\` / \`never a second\`；画面与音频属性 \`no gradients\` / \`no gloss\` / \`no depth-of-field blur\` / \`no new light source\` / \`no repeated identical outfits\` / \`no human voice …\`${hasPropRef ? '（注意：本分镜**有**道具参考图 → \`no readable text\` / \`illegible character blocks\` 这类「看不清」措辞**不属于**保留项，要改成「纸面内容以参考图为准、逐字一致」，别把参考图糊掉）' : ' / \`no readable text\`'}；官方锁嘴原句 \`while her lips remain completely closed\`；音色参考 \`without copying the original signal\`；以及全部台词、时间戳、\`<Subject N>\` / \`<Picture N>\` 编号。
+- **必须保留、不算违规（一个字都不许改）**：数量锁 \`only one … never duplicated\` / \`never a second\`；画面与音频属性 \`no gradients\` / \`no gloss\` / \`no depth-of-field blur\` / \`no new light source\` / \`no repeated identical outfits\` / \`no human voice …\` / \`no readable text\`；官方锁嘴原句 \`while her lips remain completely closed\`；音色参考 \`without copying the original signal\`；以及全部台词、时间戳、\`<Subject N>\` / \`<Picture N>\` 编号。
 **输出要求**：输出**完整六段**（\`subject_definitions:\` / \`summary:\` / \`retention_analysis:\` / \`detailed_description:\` / \`overall_soundscape:\` / \`non_diegetic_music:\`，段名与顺序不变）；不要解释、前言、结语；不要代码块围栏；不要调用任何保存工具。
 
 === CURRENT VERSION ===
