@@ -15,6 +15,8 @@ import { eq } from 'drizzle-orm'
 import { now } from '../../utils/response.js'
 import { getDramaStylePrompt } from '../../services/style-preset.js'
 import { getDramaId } from '../context.js'
+import { findAlternatives } from '../../services/prompt-check.js'
+import { logTaskProgress } from '../../utils/task-logger.js'
 
 // ─── 角色提示词 ───────────────────────────────────────
 
@@ -58,6 +60,11 @@ const saveCharacterFinalPrompt = createTool({
 
     const stylePrompt = await getDramaStylePrompt(dramaId)
     const finalPrompt = stylePrompt ? `${stylePrompt}, ${prompt}` : prompt
+    // 二选一体检（2026-10-14 用户拍板 A）：外观类是最终事实源，提示词里留「或」= 生图每次随机挑一个
+    const alt = findAlternatives(prompt)
+    if (alt.count) {
+      logTaskProgress('FinalPrompt', 'alternatives-detected', { kind: 'character', id: character_id, count: alt.count, samples: alt.samples })
+    }
     await db.update(schema.characters)
       .set({ finalPrompt, updatedAt: now() })
       .where(eq(schema.characters.id, character_id))
@@ -112,6 +119,10 @@ const saveSceneFinalPrompt = createTool({
 
     const stylePrompt = await getDramaStylePrompt(dramaId)
     const finalPrompt = stylePrompt ? `${stylePrompt}, ${prompt}` : prompt
+    const alt = findAlternatives(prompt)
+    if (alt.count) {
+      logTaskProgress('FinalPrompt', 'alternatives-detected', { kind: 'scene', id: scene_id, count: alt.count, samples: alt.samples })
+    }
     await db.update(schema.scenes)
       .set({ finalPrompt, updatedAt: now() })
       .where(eq(schema.scenes.id, scene_id))
@@ -165,6 +176,10 @@ const savePropFinalPrompt = createTool({
 
     const stylePrompt = await getDramaStylePrompt(dramaId)
     const finalPrompt = stylePrompt ? `${stylePrompt}, ${prompt}` : prompt
+    const alt = findAlternatives(prompt)
+    if (alt.count) {
+      logTaskProgress('FinalPrompt', 'alternatives-detected', { kind: 'prop', id: prop_id, count: alt.count, samples: alt.samples })
+    }
     await db.update(schema.props)
       .set({ finalPrompt, updatedAt: now() })
       .where(eq(schema.props.id, prop_id))

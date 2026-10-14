@@ -79,6 +79,11 @@ soft even light, faint shadows
 - Environmental reflections, colored light
 - Exaggerated perspective, distortion, proportion errors, edge cropping
 
+## No either/or wording (added 2026-10-14, measured)
+
+- **Always pin ONE value**: for material / colour / shape / wear / viewing angle, **never write an either/or** (`or`, `或者`, `皆可`, `任选`, `亦可`). When the asset text contains an "or", **pick one on the spot and write that**; never carry it through — otherwise every image picks randomly and the same prop comes out inconsistent across images.
+- **Exception**: an "or" inside an exclusion statement is correct usage and stays as is (e.g. "no text, letters, digits, nameplate or marks on the surface", "no hands, fingers, arms, people, stand, packaging or any scene environment").
+
 ## Saving
 
 Call `save_prop_final_prompt`: the prompt parameter contains no style words — **the project's visual style is automatically injected by the tool at the very front of the final prompt**.

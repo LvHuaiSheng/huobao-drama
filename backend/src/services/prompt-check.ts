@@ -401,6 +401,29 @@ export function checkStoryboardPrompt(sb: StoryboardCheckInput, opts: CheckOptio
   return out
 }
 
+/** 二选一（「或 / 或者 / 皆可 / 任选 / 亦可 / 均可」）机械体检（2026-10-14 加，用户拍板 A）
+ *
+ *  为什么查：外观类字段（角色 appearance/styling、场景 prompt/lighting、道具 description）是**最终事实源** ——
+ *  生图 `final_prompt` 由它们生成、视频 `verbatim_lock` 原文照抄。写「黑色或蓝色西装」= 让模型每次随机挑一个，
+ *  同一角色跨图跨镜头不一致（实测全库 23 个角色里 6 个中招）。
+ *
+ *  判据：**按句切分**（。；换行），句内有二选一词且**没有否定词**才算命中。
+ *  否定词 = 排他说明，属于正确用法，必须放过（「画面中不出现任何文字、水印或签名」
+ *  「没有手、手指、手臂、人物或任何场景环境」「无任何身影、剪影、倒影中的人或照片里的人」）。
+ */
+export function findAlternatives(text: string): { count: number; samples: string[] } {
+  if (!text) return { count: 0, samples: [] }
+  const ALT = /或者|或(?=[\u4e00-\u9fff])|皆可|任选|亦可|均可/
+  const NEG = /不出现|没有|不含|不得|禁止|无任何|不许|不要|不能|勿|未出现|杜绝/
+  const samples: string[] = []
+  for (const sentence of text.split(/[。；;\n]/)) {
+    const s = sentence.trim()
+    if (!s || !ALT.test(s) || NEG.test(s)) continue
+    samples.push(s.length > 80 ? s.slice(0, 80) + '…' : s)
+  }
+  return { count: samples.length, samples: samples.slice(0, 3) }
+}
+
 export function summarizeChecks(items: Array<{ issues: CheckIssue[] }>) {
   const errorCount = items.reduce((n, it) => n + it.issues.filter(i => i.level === 'error').length, 0)
   const warnCount = items.reduce((n, it) => n + it.issues.filter(i => i.level === 'warn').length, 0)

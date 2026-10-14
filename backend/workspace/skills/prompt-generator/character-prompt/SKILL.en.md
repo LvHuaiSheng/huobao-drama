@@ -72,6 +72,11 @@ Convert the character's personality traits into outward bearing and expression d
 - Text, labels, watermarks, signatures
 - Heavy shadows, coloured background light, background props
 
+## No either/or wording (added 2026-10-14, measured)
+
+- **Always pin ONE value**: for colour / style / hairstyle / material / angle / lighting, **never write an either/or** (`or`, `或者`, `皆可`, `任选`, `亦可`) — e.g. "a black or blue suit", "single or double eyelids", "a sequinned or satin dress". When the asset text contains an "or", **pick one on the spot and write that**; never carry it through — otherwise every image picks randomly and the same character comes out inconsistent across images.
+- **Exception**: an "or" inside an exclusion statement is correct usage and stays as is (e.g. "no text, watermark or signature in frame", "no hands, fingers, arms, people or any scene environment").
+
 ## Saving
 
 Call `save_character_final_prompt`: the prompt parameter contains no style words — **the project's visual style is automatically injected by the tool at the very front of the final prompt**.

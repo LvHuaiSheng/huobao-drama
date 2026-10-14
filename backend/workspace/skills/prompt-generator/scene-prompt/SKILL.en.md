@@ -70,6 +70,11 @@ All set dressing, period texture, and key visual elements in `prompt` (scene des
 - Motion blur, objects in motion (the scene reference image must be still and stable)
 - Merely listing set dressing without giving relative positions (the spatial structure must be continuous and self-consistent)
 
+## No either/or wording (added 2026-10-14, measured)
+
+- **Always pin ONE value**: for set dressing / material / colour / light direction / colour temperature / contrast, **never write an either/or** (`or`, `或者`, `皆可`, `任选`, `亦可`). When the asset text contains an "or", **pick one on the spot and write that**; never carry it through — otherwise every image picks randomly and the same scene comes out inconsistent across images.
+- **Exception**: an "or" inside an exclusion statement is correct usage and stays as is (e.g. "no text, watermark or signature in frame", "no hands, fingers, arms, people or any scene environment").
+
 ## Saving
 
 Call `save_scene_final_prompt`: the prompt parameter contains no style words — **the project's visual style is automatically injected by the tool at the very front of the final prompt**.
