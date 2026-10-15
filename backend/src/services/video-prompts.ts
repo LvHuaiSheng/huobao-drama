@@ -19,6 +19,7 @@ import fs from 'fs'
 import path from 'path'
 import { eq } from 'drizzle-orm'
 import { db, schema } from '../db/index.js'
+import { looksLikeChinese } from './zh-lang.js'
 import { mastra } from '../mastra/index.js'
 import { buildAgentRequestContext } from '../agents/context.js'
 import { getDramaStylePrompt } from './style-preset.js'
@@ -674,7 +675,12 @@ async function generateEnByStages(
   const checkStages = () => EN_STAGES
     .map(stage => {
       const cur = stage.segs.map(s => parts.get(s) || '').filter(Boolean).join('\n')
-      return { stage, cur, problem: groupProblem(cur, stage) }
+      // 🔴 字段名必须叫 `current`：buildRewriteMultiPrompt 读的是 `it.current`。
+      //    2026-10-15 修：这里原来叫 `cur` → 压缩指令里的 ORIGINAL 段全是字面量 `undefined`
+      //    （模型的原话：「本轮附带的 ORIGINAL 三段内容均为 undefined（空），无法压缩」），
+      //    整轮压缩白跑、英文版留在超标状态落库（用户报「一键修复没成功」）。
+      //    这个字段名不匹配一直是 tsc 的一条既存报错（TS2345 @ 本函数调用处），改名后消失。
+      return { stage, current: cur, problem: String(groupProblem(cur, stage) || '') }
     })
     .filter(x => x.problem)
 
@@ -712,7 +718,7 @@ async function generateEnByStages(
   }
   // 不立刻放弃：没压到位的组记下来，最后按「全文是否 ≤ 硬上限」统一裁决
   //（个别组略超自己的配额可以容忍，不该让整条作废）
-  const failedStages: Array<{ key: string; problem: string }> = bad.map(b => ({ key: b.stage.key, problem: b.problem }))
+  const failedStages: Array<{ key: string; problem: string }> = bad.map(b => ({ key: b.stage.key, problem: String(b.problem || '') }))
   if (failedStages.length) {
     logTaskProgress('VideoPrompt', 'segment-over-quota', {
       episodeId, storyboardId: sb.id, stages: failedStages.map(f => `${f.key}: ${f.problem}`),
@@ -1295,17 +1301,25 @@ async function generateZhPrompt(
 ): Promise<string> {
   const expected = ((sb.description || '').match(/【镜头/g) || []).length
   let last = ''
+  let langWrong = false
   const ZH_MAX_TRY = 3
   for (let attempt = 1; attempt <= ZH_MAX_TRY; attempt++) {
     // 2026-10-14：上报「本条进度」用（拍数不符会重试，最多 3 次）
     onNote?.('zh', attempt, ZH_MAX_TRY)
-    const rule = expected
+    // 2026-10-15：**语言闸**。实测模型会把英文写进这一份（sb465：5763 字符全英文）——
+    //   而拍数校验对英文恒为 0，只会带「合并拍」这种没用的指令重试 3 次，最后照样把英文返回、落库。
+    //   所以先判语言：上一版不是中文 → 下一轮直接点名「你写错语言了」。
+    const langRule = langWrong
+      ? '\n🔴🔴 **上一版你写成了英文 —— 这一份必须是中文工作版：用中文写、整篇以中文字符为主**。' +
+        '英文版是另一个字段（video_prompt_en），不要在这里输出英文；`@角色名`、`<Picture N>`、秒数这类标记照旧保留。'
+      : ''
+    const rule = (expected
       ? `\n🔴🔴 **本分镜的 description 里有 ${expected} 个【镜头N】—— 必须正好写 ${expected} 拍（一个不多、一个不少）**：` +
         '每个【镜头N】对应一拍；镜头内部的运镜变化（继续推近／继续横移）、台词窗口、安静拍都不算新拍。' +
-        (attempt > 1
+        (attempt > 1 && !langWrong
           ? `\n上一版你写了 ${countZhBeats(last)} 拍（应为 ${expected} 拍）：请把「同机位、只是运镜延续」的相邻两拍合并成一拍（切镜与推近写在同一条拍里），不要用别的方式凑数。`
           : '')
-      : ''
+      : '') + langRule
     const res = (await agent.generate(
       [
         {
@@ -1320,11 +1334,21 @@ async function generateZhPrompt(
     )) as { text?: string } | undefined
     last = cleanSegText(res?.text || '')
     if (!last) continue
+    // 语言闸（2026-10-15）：整篇不是中文 ⇒ 这一份写错了语言，拍数校验对它没意义（英文拍数恒为 0）
+    if (!looksLikeChinese(last)) {
+      langWrong = true
+      logTaskProgress('VideoPrompt', 'zh-not-chinese-retry', {
+        storyboardId: sb.id, attempt, len: last.length, head: last.slice(0, 40).replace(/\s+/g, ' '),
+      })
+      continue
+    }
     const got = countZhBeats(last)
     if (!expected || got === expected) return last
     logTaskProgress('VideoPrompt', 'zh-beat-count-retry', { storyboardId: sb.id, attempt, expected, got })
   }
-  return last
+  // 3 次都没写出中文 ⇒ 返回空串：调用方据此把这条判为失败、一个字都不落库，
+  // **绝不把英文当中文工作版写进 video_prompt**（旧的中文稿原样保留）。
+  return looksLikeChinese(last) ? last : ''
 }
 
 /** 启动批量生成（立即返回）；运行中返回 started:false,total:-1；无待生成分镜返回 started:false,total:0；
@@ -1408,7 +1432,7 @@ export async function startVideoPromptBatch(
     (note, step, steps) => mark('zh', note, step, steps))
         if (!zh) {
           task.failed++
-          itemErr = '中文工作版生成为空'
+          itemErr = '中文工作版生成为空（或写成了英文，已不落库）'
           logTaskError('VideoPrompt', 'batch-shot', { storyboardId: sb.id, error: itemErr })
           continue
         }
