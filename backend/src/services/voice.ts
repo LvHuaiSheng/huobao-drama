@@ -81,7 +81,64 @@ export function voiceBaseWavPath(id: string): string | null {
   return fs.existsSync(p) ? p : null
 }
 
-/** 状态：文件为准（ready=卡在），另叠加内存里的"正在抽" */
+/**
+ * 「沿用原角色声音」链接（2026-10-15 用户拍板 B：换装角色要能链接回原角色）
+ *
+ * 标记写在 meta 里 `inherit_from = <基准角色 id>`；**不复制 wav**，读的时候解析过去 →
+ * 基准角色以后重出声音，变体这边自动跟着变（一份真源，不留旧副本）。
+ */
+export function readVoiceInherit(id: number): number | null {
+  try {
+    const m = JSON.parse(fs.readFileSync(voiceMetaPath(voiceCardName(id)), 'utf8'))
+    const b = Number(m?.inherit_from)
+    return Number.isFinite(b) && b > 0 && b !== Number(id) ? b : null
+  } catch {
+    return null
+  }
+}
+
+/** 这个角色**实际**用谁的声音：设了沿用链接且那一方有 wav → 原角色；否则用自己的 */
+export function effectiveVoiceId(id: number): number {
+  const own = Number(id)
+  if (!own) return own
+  const base = readVoiceInherit(own)
+  if (base && fs.existsSync(voiceWavPath(voiceCardName(base)))) return base // 明确的「沿用」优先于自己的
+  return own
+}
+
+/** 设「沿用原角色声音」。返回 false 的情形：id 非法、指自己、或**原角色还没生成过声音**（否则会得到一个点了没反应的死链接） */
+export function setVoiceInherit(id: number, baseId: number | null): boolean {
+  const own = Number(id)
+  if (!own || Number(baseId) === own) return false
+  if (baseId && !fs.existsSync(voiceWavPath(voiceCardName(Number(baseId))))) return false
+  const name = voiceCardName(own)
+  let m: any = {}
+  try {
+    m = JSON.parse(fs.readFileSync(voiceMetaPath(name), 'utf8')) || {}
+  } catch {
+    m = {}
+  }
+  if (!baseId) delete m.inherit_from
+  else {
+    m.inherit_from = Number(baseId)
+    m.inherit_at = new Date().toISOString()
+  }
+  try {
+    fs.mkdirSync(voicesDir(), { recursive: true })
+    // 解除后若这份 meta 已空（本来就只有链接、没有自己的参数记录）→ 删掉文件，别留空壳
+    if (!baseId && !Object.keys(m).length) {
+      fs.unlinkSync(voiceMetaPath(name))
+      return true
+    }
+    fs.writeFileSync(voiceMetaPath(name), JSON.stringify(m, null, 1))
+    return true
+  } catch (err: any) {
+    logTaskError('Voice', 'inherit', { id: own, baseId, error: err?.message })
+    return false
+  }
+}
+
+/** 状态：文件为准（ready=有源 wav），另叠加内存里的"正在抽"；变体若沿用原角色则报基准角色的状态 */
 export function voiceStatus(id: number): {
   name: string
   ready: boolean
@@ -91,10 +148,14 @@ export function voiceStatus(id: number): {
   desc: string
   /** 「生成角色提示词」时顺带产出的音色描述（声音面板/角色卡展示用；用户手改后以文件为准） */
   voiceDesc: string
-  /** 已生成声音卡的源 wav 在不在（前端据此决定显示不显示试听播放器） */
+  /** 源 wav 在不在（前端据此决定显示不显示试听播放器） */
   wav: boolean
+  /** 非空 = 这个角色「沿用」了该角色的声音（换装变体链接回原角色用） */
+  inheritFrom: number | null
 } {
-  const name = voiceCardName(id)
+  const own = Number(id)
+  const eff = effectiveVoiceId(own)
+  const name = voiceCardName(eff)
   let ready = false
   let size = 0
   let base = ''
@@ -114,7 +175,18 @@ export function voiceStatus(id: number): {
   } catch {
     /* 没有参数记录 */
   }
-  return { name, ready, pending: pending.has(name), size, base, desc, wav: fs.existsSync(voiceWavPath(name)), voiceDesc: readVoicePrompt(id) }
+  const inheritFrom = readVoiceInherit(own)
+  return {
+    name,
+    ready,
+    pending: pending.has(voiceCardName(own)) || pending.has(name),
+    size,
+    base,
+    desc,
+    wav: ready,
+    voiceDesc: readVoicePrompt(own),
+    inheritFrom,
+  }
 }
 
 /** 在抽中的任务（App 重启即丢；状态查询把它与文件状态合并） */
@@ -251,14 +323,21 @@ export async function voiceCardsForCharacters(
   const out: Array<{ name: string; data: string }> = []
   const missing: string[] = []
   for (const id of list) {
-    const name = voiceCardName(id)
+    // 换装变体「沿用原角色声音」→ 解析到原角色那份 wav；同一份音频只下发一次
+    const eff = effectiveVoiceId(id)
+    const name = voiceCardName(eff)
     // 没有做声音的角色（没有参数记录）→ 跳过，不要求带声音
     if (!fs.existsSync(voiceMetaPath(name))) continue
+    if (out.some((o) => o.name === name)) continue
     try {
       const buf = await fs.promises.readFile(voiceWavPath(name))
       out.push({ name, data: buf.toString('base64') })
     } catch {
-      missing.push(`角色 ${id}（声音 ${name}）`)
+      missing.push(
+        eff === id
+          ? `角色 ${id}（声音 ${name}）`
+          : `角色 ${id}（沿用角色 ${eff} 的声音，但那位还没有生成声音）`,
+      )
     }
   }
   if (missing.length) {

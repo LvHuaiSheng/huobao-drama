@@ -631,6 +631,17 @@
               <input v-model="voiceDialog.desc" class="voice-input" :placeholder="t('detail.voice.descHint')" maxlength="60" />
             </div>
             <p v-if="voiceDialog.aiHint" class="voice-msg">{{ t('detail.voice.aiFilled') }}</p>
+            <!-- 换装变体：可「沿用原角色声音」（只写链接、不复制音频；原角色换声音这边跟着变） -->
+            <div v-if="voiceDialog.baseCharId" class="voice-row">
+              <span class="voice-label">{{ t('detail.voice.inherit') }}</span>
+              <template v-if="voiceDialog.inheritBaseId">
+                <span class="voice-msg">{{ t('detail.voice.inheritOn', { name: voiceDialog.baseCharName }) }}</span>
+                <button class="btn btn-sm" type="button" @click="clearVoiceInherit">{{ t('detail.voice.inheritClear') }}</button>
+              </template>
+              <button v-else class="btn btn-sm" type="button" @click="doVoiceInherit">
+                {{ t('detail.voice.inheritDo', { name: voiceDialog.baseCharName }) }}
+              </button>
+            </div>
             <p class="voice-note">{{ t('detail.voice.note') }}</p>
             <!-- 声音：已有卡 / 刚生成完就显示播放器（源 wav），不用再点一次试听 -->
             <audio v-if="voiceDialog.audioUrl" :src="voiceDialog.audioUrl" controls class="voice-player" />
@@ -658,6 +669,19 @@
           <input v-model="costumeDialog.label" class="voice-input" :placeholder="t('detail.costume.labelHint')" maxlength="12" />
           <label class="voice-label">{{ t('detail.costume.desc') }}</label>
           <textarea v-model="costumeDialog.desc" class="voice-input" rows="3" :placeholder="t('detail.costume.descHint')"></textarea>
+          <div class="voice-row">
+            <button
+              class="btn btn-sm"
+              type="button"
+              :disabled="costumeDescBusy || !costumeDialog.label"
+              :title="t('detail.costume.descAiTitle')"
+              @click="genCostumeDesc"
+            >
+              <span v-if="costumeDescBusy" class="ring-spinner sm"></span>
+              {{ costumeDescBusy ? t('detail.costume.descAiDoing') : t('detail.costume.descAi') }}
+            </button>
+            <span class="voice-hint">{{ t('detail.costume.descAiHint') }}</span>
+          </div>
           <label class="voice-label">{{ t('detail.costume.ref') }}</label>
           <div class="voice-row">
             <span class="voice-msg">{{ costumeDialog.refImage || t('detail.costume.refDefault') }}</span>
@@ -671,7 +695,7 @@
               :class="{ 'is-on': !costumeDialog.refImage }"
               :title="t('detail.costume.refDefault')"
               @click="costumeDialog.refImage = ''"
-            >{{ t('detail.costume.refDefaultChip') }}</button>
+            >{{ t('detail.costume.refDefaultChip') }}{{ costumeDialog.base ? ' · ' + costumeDialog.base.name : '' }}</button>
             <button
               v-for="c in costumeRefOptions"
               :key="'cref-' + c.id"
@@ -978,7 +1002,11 @@ async function makeRefmodCard(m) {
 const voiceBases = ref([])
 const voiceCards = ref({})
 const voiceBusy = ref({})
-const voiceDialog = ref({ open: false, id: 0, name: '', sex: 'male', base: '', desc: '', busy: false, audioUrl: '', msg: '', hasCard: false })
+const voiceDialog = ref({
+  open: false, id: 0, name: '', sex: 'male', base: '', desc: '', busy: false, audioUrl: '', msg: '', hasCard: false,
+  // 换装变体专用（2026-10-15）：baseChar* = 原角色（variant_of 指向的），inheritBaseId = 当前是否已沿用
+  baseCharId: 0, baseCharName: '', inheritBaseId: 0, inheritBaseName: '',
+})
 function voiceBusyOne(m) { return !!voiceBusy.value[m.id] }
 function voiceBusyAny(m) { return voiceBusyOne(m) || isPending(m) }
 function voiceReady(m) { return !!voiceCards.value[String(m.id)]?.ready }
@@ -1000,12 +1028,18 @@ async function openVoiceDialog(m) {
   const sex = guessVoiceSex(m)
   const opts = voiceBases.value.filter(b => b.sex === sex)
   const card = voiceCards.value[String(m.id)] || {}
+  // 换装变体：原角色（variant_of）——面板里显示「沿用原角色（X）的声音」按钮 / 已沿用状态
+  const baseChar = m.variant_of
+    ? materials.value.find(x => x.kindKey === 'character' && x.id === m.variant_of)
+    : null
   voiceDialog.value = {
     open: true, id: m.id, name: m.name || '', sex,
     base: card.base || opts[0]?.id || '',
     // 优先级：下面从磁盘取的当前值 > 角色卡上的当前描述 > 上次实际生成用的那份
     desc: card.voiceDesc || card.desc || '',
     busy: false, audioUrl: card.wav ? voiceCardAudioUrl(m.id) : '', msg: '', hasCard: !!card.ready, aiHint: false,
+    baseCharId: baseChar ? baseChar.id : 0, baseCharName: baseChar ? (baseChar.name || '') : '',
+    inheritBaseId: Number(card.inheritFrom || 0), inheritBaseName: baseChar ? (baseChar.name || '') : '',
   }
   // 音色描述以**磁盘当前版本**为准：不管是在编辑框里点过「AI 生成」还是手改保存，
   // 只要落过盘就必须立刻联动进这个面板（以前只在没描述时才取，导致已有卡时一直显示旧描述）
@@ -1028,6 +1062,36 @@ function setVoiceSex(sex) {
 function playBase(id) { if (id) voiceDialog.value.audioUrl = `/api/v1/voice/bases/${encodeURIComponent(id)}/audio` }
 // 已生成声音卡的源 wav 地址（带时间戳：重抽后强制刷新，不吃缓存）
 function voiceCardAudioUrl(id) { return `/api/v1/voice/audio?id=${Number(id)}&t=${Date.now()}` }
+
+// 换装变体「沿用原角色声音」：只在盘上写一条链接（不复制音频），出片时按链接取原角色那条 32k wav
+async function doVoiceInherit() {
+  const d = voiceDialog.value
+  if (!d.id || !d.baseCharId) return
+  try {
+    const r = await voiceAPI.inherit(d.id, d.baseCharId)
+    d.inheritBaseId = d.baseCharId
+    d.hasCard = !!r?.ready
+    d.audioUrl = r?.wav ? voiceCardAudioUrl(d.id) : ''
+    toast.success(t('detail.voice.inheritDone', { name: d.baseCharName }))
+    await loadVoiceStatus()
+  } catch (e) {
+    toastError(e)
+  }
+}
+async function clearVoiceInherit() {
+  const d = voiceDialog.value
+  if (!d.id) return
+  try {
+    const r = await voiceAPI.clearInherit(d.id)
+    d.inheritBaseId = 0
+    d.hasCard = !!r?.ready
+    d.audioUrl = r?.wav ? voiceCardAudioUrl(d.id) : ''
+    toast.success(t('detail.voice.inheritCleared'))
+    await loadVoiceStatus()
+  } catch (e) {
+    toastError(e)
+  }
+}
 
 async function doVoiceGenerate() {
   const d = voiceDialog.value
@@ -1113,6 +1177,28 @@ const costumeRefOptions = computed(() => {
   const list = (drama.value && drama.value.characters) || []
   return list.filter(c => matHasImage(c))
 })
+
+// 「这套衣服的描述」AI 生成（2026-10-15）：按造型名 + 角色自动写一版，用户可再改、可再点换说法
+const costumeDescBusy = ref(false)
+async function genCostumeDesc() {
+  const d = costumeDialog.value
+  if (!d.base || !d.label || costumeDescBusy.value) return
+  costumeDescBusy.value = true
+  try {
+    const r = await characterAPI.costumePrompt(d.base.id, {
+      costume_label: String(d.label).trim(),
+      prev: String(d.desc || '').trim() || undefined,
+    })
+    if (r?.desc) {
+      costumeDialog.value.desc = r.desc
+      toast.success(t('detail.costume.descAiDone'))
+    }
+  } catch (e) {
+    toastError(e)
+  } finally {
+    costumeDescBusy.value = false
+  }
+}
 
 async function openCostumeDialog(m) {
   // 🔴 造型卡上也能点「换装造型」：这时以它的**基准角色**为基准（否则会套娃命名「A·正装·正装」）

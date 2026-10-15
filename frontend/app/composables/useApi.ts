@@ -87,6 +87,8 @@ export const characterAPI = {
   /** 新建换装造型变体角色并生成它的定妆板（走图像编辑，只换衣服不动脸） */
   costumeVariant: (id: number, data: { episode_id: number; costume_label: string; costume_desc?: string; reference_image_url?: string; model?: string; auto_card?: boolean }) => api.post(`/characters/${id}/costume-variant`, data),
   variants: (id: number) => api.get(`/characters/${id}/variants`),
+  /** 让 AI 写「这套衣服」的完整描述（换装弹窗的 AI 生成按钮） */
+  costumePrompt: (id: number, data: { costume_label: string; prev?: string }) => api.post<{ desc: string }>(`/characters/${id}/costume-prompt`, data),
 }
 
 export const sceneAPI = {
@@ -122,6 +124,9 @@ export const voiceAPI = {
   savePrompt: (id: number, desc: string) => api.put(`/voice/prompt`, { id, desc }),
   genPrompt: (id: number, force = true) => api.post<{ desc: string }>(`/voice/prompt`, { id, force }),
   generate: (data: { id: number; base: string; desc?: string; force?: boolean }) => api.post('/voice/generate', data),
+  /** 换装变体「沿用原角色声音」：写/清链接标记（不复制音频） */
+  inherit: (id: number, baseId: number) => api.post(`/voice/inherit`, { id, base_id: baseId }),
+  clearInherit: (id: number) => api.del(`/voice/inherit?id=${Number(id)}`),
   del: (id: number) => api.del(`/voice?id=${id}`),
 }
 

@@ -10,6 +10,7 @@ import { ensureVoiceDesc } from '../services/voice-prompt.js'
 import { removeRefmod, extractRefmod } from '../services/refmod.js'
 import { removeVoice } from '../services/voice.js'
 import { generateCostumeBoard, costumeEditPrompt, COSTUME_EDIT_MODEL } from '../services/costume-edit.js'
+import { generateCostumeDesc } from '../services/costume-prompt.js'
 import { generateImageThumb } from '../utils/storage.js'
 import { logTaskError, logTaskProgress, logTaskStart, logTaskSuccess } from '../utils/task-logger.js'
 
@@ -263,6 +264,24 @@ app.post('/:id/costume-variant', async (c) => {
     logTaskError('CostumeVariant', 'generate', { baseId, variantId: variant.id, error: err.message })
     return badRequest(c, `换装图生成失败：${err.message}`)
   }
+})
+
+// POST /characters/:id/costume-prompt — 让 AI 写「这套衣服」的完整描述（换装弹窗的「AI 生成」按钮）
+//   body: { costume_label, prev?, text_model?, text_config_id? } → { desc }
+//   只出文本、不落库：描述是草稿，用户改完点「生成换装定妆图」才写进变体的 styling
+app.post('/:id/costume-prompt', async (c) => {
+  const id = Number(c.req.param('id'))
+  const body = await c.req.json().catch(() => ({} as any))
+  const [char] = await db.select().from(schema.characters).where(eq(schema.characters.id, id))
+  if (!char || char.deletedAt) return badRequest(c, '角色不存在')
+  const label = String(body?.costume_label || '').trim()
+  if (!label) return badRequest(c, 'costume_label（造型名）必填')
+  const desc = await generateCostumeDesc(char, label, String(body?.prev || '').trim() || undefined, {
+    model: body?.text_model,
+    configId: body?.text_config_id ?? undefined,
+  })
+  if (!desc) return badRequest(c, '衣服描述生成失败，请重试（或换一个文本模型配置）')
+  return success(c, { desc })
 })
 
 export default app

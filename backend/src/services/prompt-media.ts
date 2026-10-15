@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import { eq } from 'drizzle-orm'
 import { db, schema } from '../db/index.js'
 import { refmodCardName, refmodCardPath } from './refmod.js'
-import { voiceCardName } from './voice.js'
+import { effectiveVoiceId, voiceCardName, voiceWavPath } from './voice.js'
 import type { MediaContext, MediaRef } from './prompt-check.js'
 
 /**
@@ -41,7 +41,8 @@ export async function buildMediaRefs(storyboardId: number, slotLimit = 9): Promi
       picture: picNo++, kind: 'character', id: ch.id, name: ch.name,
       hasImage: !!(ch.imageUrl || '').trim(),
       hasCard: fs.existsSync(refmodCardPath(refmodCardName('character', ch.id))),
-      hasVoiceCard: fs.existsSync(refmodCardPath(voiceCardName(ch.id))),
+      // 判据是**源 wav 在不在**（.safetensors 声音卡 2026-10-11 已废）；换装变体沿用原角色时解析到原角色那份
+      hasVoiceCard: fs.existsSync(voiceWavPath(voiceCardName(effectiveVoiceId(ch.id)))),
     })
   }
   for (const pid of propLinks.map(l => l.propId).sort((a, b) => a - b)) {

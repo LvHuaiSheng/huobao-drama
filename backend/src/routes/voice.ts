@@ -12,10 +12,12 @@ import { Hono } from 'hono'
 import { eq } from 'drizzle-orm'
 import { db, schema } from '../db/index.js'
 import {
+  effectiveVoiceId,
   extractVoiceCard,
   listVoiceBases,
   previewVoice,
   removeVoice,
+  setVoiceInherit,
   voiceBaseWavPath,
   voiceCardName,
   voiceStatus,
@@ -88,10 +90,11 @@ app.get('/bases/:id/audio', (c) => {
 
 // 已生成声音卡的源 wav 试听（Mac 主副本 <data>/voices/<卡名>.wav；没生成过就 404）
 // 面板里「生成声音」完成后 / 再次打开面板时，前端拿这个地址直接播刚生成的那条
+// 换装变体沿用原角色声音时，这里解析到原角色那份 wav（听到的就是实际会用的那条）
 app.get('/audio', (c) => {
   const id = Number(c.req.query('id') || 0)
   if (!id) return badRequest(c, 'id 必填')
-  const p = voiceWavPath(voiceCardName(id))
+  const p = voiceWavPath(voiceCardName(effectiveVoiceId(id)))
   if (!fs.existsSync(p)) return notFound(c, '这个角色还没有生成声音')
   const buf = fs.readFileSync(p)
   return c.body(new Uint8Array(buf), 200, {
@@ -143,6 +146,33 @@ app.get('/status', (c) => {
   }
   const id = Number(idRaw || 0)
   if (!id) return badRequest(c, 'id 或 ids 必填')
+  return success(c, voiceStatus(id))
+})
+
+// 换装角色「沿用原角色声音」（2026-10-15 用户要求）：只写链接标记，**不复制 wav** →
+//   以后原角色重出声音，变体自动跟着变（一份真源）。出片时按链接解析到原角色那份 32k wav 下发。
+//   body: { id, base_id }
+app.post('/inherit', async (c) => {
+  try {
+    const body = await c.req.json()
+    const id = Number(body?.id || 0)
+    const baseId = Number(body?.base_id || 0)
+    if (!id) return badRequest(c, 'id（角色 id）必填')
+    if (!baseId) return badRequest(c, 'base_id（原角色 id）必填；解除沿用请用 DELETE /voice/inherit?id=')
+    if (!setVoiceInherit(id, baseId)) {
+      return badRequest(c, '设置失败：原角色 id 不合法、与自身相同，或它还没有生成过声音（先去原角色的声音面板生成一次再沿用）')
+    }
+    return success(c, voiceStatus(id))
+  } catch (err: any) {
+    logTaskError('Voice', 'inherit', { error: err?.message })
+    return serverError(c, err?.message || '设置沿用失败')
+  }
+})
+
+app.delete('/inherit', (c) => {
+  const id = Number(c.req.query('id') || 0)
+  if (!id) return badRequest(c, 'id 必填')
+  setVoiceInherit(id, null)
   return success(c, voiceStatus(id))
 })
 
