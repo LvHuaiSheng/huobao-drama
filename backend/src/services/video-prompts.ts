@@ -90,7 +90,11 @@ export function promptEnLimit(headLen: number): number {
  *  多跑一轮的代价（约 45 秒）远小于整条作废、用户还得手动重来的代价。
  *  2026-10-15 二次上调 3 → 4：压缩通道修好后（字段名 `current`）实测 sb473 仍差 84 字符
  *  （全文 6284 > 6200，detail 组 3627 > 2920）—— 一轮能压掉四五百字符，多给一轮就能过线。 */
-const MAX_SEG_RETRY = 4
+const MAX_SEG_RETRY = 6
+// 2026-10-15：4 → 6。证据（失控第7集分镜9/sb473，10 秒 3 镜、描述只有 323 字）：
+// detail 组 4272 → 4176 → 3901 → 3743 → 3631（≈110~160 字符/轮，约 14 秒/轮），
+// 而硬闸是「全文 6390 ≤ 6200」→ 只差 **190 字符**、再给两轮就能过（旧值 4 轮卡死 → 整条作废）。
+// 每轮成本仅约 14 秒，比整条作废便宜得多；干净条目不会进循环（见 shouldKeepCompressing）。
 /** 「空转」重发上限（2026-10-15 A 方案加）：模型只回一句前言（`I'll read the storyboard context…`）
  *  或空文本、一个段名都没带回来时，**不消耗重写轮次**、原样重发，最多连续重发这么多次。
  *  实测（2026-10-10~15 的 debug 日志）：压缩轮空转率 9%（rewrite-multi-1）/ 21%（rewrite-multi-2），
@@ -365,6 +369,7 @@ function groupProblem(text: string, stage: { segs: string[]; limit: number }): s
  * 道具锁不住的真正差异见 video-prompt 技能「道具镜必须绝对静止」一节。
  */
 import { findDanglingPropRef } from './prop-text-gates.js'
+import { shouldKeepCompressing } from './seg-compress-gate.js'
 import { findVoiceoverMouthAction, type VoiceoverMouthHit } from './voiceover-gates.js'
 import { findRetentionMismatch, type RetentionMismatch } from './retention-gate.js'
 import { findVoiceoverOnscreenLock, type VoiceoverLockGap } from './voiceover-onscreen-gate.js'
@@ -507,6 +512,7 @@ function buildRewritePrompt(
 5. 镜头描述去掉氛围补充：\`soft modelling\`、\`light level unchanged\`、\`consistent exposure\` 这类删掉
 6. \`overall_soundscape\` 只留 3~5 个主要音效，其余删
 7. 删掉所有重复的 "stays identical to the reference" 类尾句，保留一次即可
+8. \`detailed_description\` 的正文**按拍均分**：每拍上限 = ⌊2500 ÷ 拍数⌋（3 拍＝每拍 ≤830 字符）——**逐拍自己数着写**，别指望回头统一砍（2026-10-15 加：实测 sb473 首稿正文 4272 字符、压 4 轮才到 3631，每轮只肯砍 100 多字符，最后差 190 字符整条作废）
 
 **必须保留（砍了会穿帮）**：
 - <d>…</d> 里的台词原文（一个字都不能改）
@@ -558,6 +564,7 @@ ${quotaLines}
 5. 镜头描述去掉氛围补充：\`soft modelling\`、\`light level unchanged\`、\`consistent exposure\` 这类删掉
 6. \`overall_soundscape\` 只留 3~5 个主要音效，其余删
 7. 删掉所有重复的 "stays identical to the reference" 类尾句，保留一次即可
+8. \`detailed_description\` 的正文**按拍均分**：每拍上限 = ⌊2500 ÷ 拍数⌋（3 拍＝每拍 ≤830 字符）——**逐拍自己数着写**，别指望回头统一砍（2026-10-15 加：实测 sb473 首稿正文 4272 字符、压 4 轮才到 3631，每轮只肯砍 100 多字符，最后差 190 字符整条作废）
 
 **必须保留（砍了会穿帮）**：
 - <d>…</d> 里的台词原文（一个字都不能改）
@@ -686,9 +693,14 @@ async function generateEnByStages(
     })
     .filter(x => x.problem)
 
+  // 2026-10-12：拼装时剥掉「【…】」分组标题行 —— 那些是后端重写指令里的分组标题
+  //（EN_STAGES 的 label），模型会照抄进正文（实测 sb356/分镜9 混进 2 行），必须一律清掉。
+  const assemble = () => sanitizeEnPrompt(EN_SECTION_QUOTA.map(([s]) => parts.get(s) || '').filter(Boolean).join('\n'))
+
   let bad = checkStages()
   const rewriteState = { round: 0, emptyStreak: 0 }
-  while (bad.length && rewriteState.round < MAX_SEG_RETRY) {
+  // 循环条件见 shouldKeepCompressing：缺段必补；总量已达标就别再磨组配额（省时间）。
+  while (shouldKeepCompressing(bad, assemble().length, budget.limit) && rewriteState.round < MAX_SEG_RETRY) {
     onNote?.('en_rewrite', rewriteState.round + 1, MAX_SEG_RETRY)
     logTaskProgress('VideoPrompt', 'segment-retry', {
       episodeId, storyboardId: sb.id, attempt: rewriteState.round + 1,
@@ -728,9 +740,6 @@ async function generateEnByStages(
   }
 
   // ③ 按文档顺序拼接 + 统一裁决
-  // 2026-10-12：拼装时剥掉「【…】」分组标题行 —— 那些是后端重写指令里的分组标题
-  //（EN_STAGES 的 label），模型会照抄进正文（实测 sb356/分镜9 混进 2 行），必须一律清掉。
-  const assemble = () => sanitizeEnPrompt(EN_SECTION_QUOTA.map(([s]) => parts.get(s) || '').filter(Boolean).join('\n'))
   let text = assemble()
   debugLog(episodeId, sb.id, 'assembled', text, {
     segments: EN_SECTION_QUOTA.filter(([s]) => parts.get(s)).length,
@@ -1100,9 +1109,13 @@ async function generateEnByStages(
   }
   if (!under) {
     // 全文仍超硬上限 → 真失败（超了会被 H3 拒收，不能落库）
+    // 2026-10-15：错误文案改成**可执行的下一步**——用户看到的不该只是数字（他没法据此做任何事）。
+    const shots = ((sb.description || '').match(/【镜头/g) || []).length
     logTaskError('VideoPrompt', 'segment-give-up', {
       episodeId, storyboardId: sb.id, stage: 'all',
-      error: `全文 ${text.length} > ${budget.limit}；未达标的组：${failedStages.map(f => `${f.key}(${f.problem})`).join('; ') || '无'}` + `（风格头 ${budget.headLen} 字符已计入预算）`,
+      error: `全文 ${text.length} > ${budget.limit}（超出 ${text.length - budget.limit} 字符，压缩到轮数上限仍未达标；风格头 ${budget.headLen} 字符已计入预算）。`
+        + `这条分镜的内容量超过了 H3 单段提示词上限 → 处理办法：① 在分镜列表把这条拆成两条；`
+        + `② 或减少镜头数（现在 ${shots} 个镜头）后重新生成；③ 或先不管它、整集先出片（其余分镜不受影响）。`,
     })
     return { text: '', ok: false }
   }
