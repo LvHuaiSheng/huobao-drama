@@ -176,13 +176,7 @@ export function stripStrayChinese(en: string): { text: string; stripped: string[
 }
 
 /** 英文版 `<d>…</d>` 台词之外的汉字（个数 + 首个样例）—— 语言闸用 */
-export function findChineseOutsideDialogue(en: string): { count: number; sample: string } {
-  const body = String(en || '').replace(/<d>[\s\S]*?<\/d>/g, '')
-  const hits = body.match(/[\u4e00-\u9fff]/g) || []
-  if (!hits.length) return { count: 0, sample: '' }
-  const i = body.search(/[\u4e00-\u9fff]/)
-  return { count: hits.length, sample: body.slice(Math.max(0, i - 40), i + 40).replace(/\n/g, ' ') }
-}
+/** 英文版语言闸：见 `./en-cn-gate.ts`（零依赖、可单测）——引号里的画面内文字不算违规 */
 
 /** 动作类否定句检测（2026-10-14 加，实测 sb421）
  *  本链路是 BasicGuider + cfg=1，**没有负向分支** —— `he does not turn his head or slow down`
@@ -370,6 +364,7 @@ function groupProblem(text: string, stage: { segs: string[]; limit: number }): s
  */
 import { findDanglingPropRef } from './prop-text-gates.js'
 import { shouldKeepCompressing } from './seg-compress-gate.js'
+import { findChineseOutsideDialogue } from './en-cn-gate.js'
 import { findVoiceoverMouthAction, type VoiceoverMouthHit } from './voiceover-gates.js'
 import { findRetentionMismatch, type RetentionMismatch } from './retention-gate.js'
 import { findVoiceoverOnscreenLock, type VoiceoverLockGap } from './voiceover-onscreen-gate.js'
@@ -1170,7 +1165,7 @@ function buildChineseFixPrompt(
 **怎么改**（两类，按实际情况判断）：
 - **① 紧贴在英文词后面的中文残留**（如 \`mirrored倒影\` / \`thin碎碎 whisper\` / \`whispered议论\`）：**直接删掉那几个中文字，英文词保留**，其余不动。
 - **② 「哪几拍出现」这类中文标注 / 分组标题**（如 \`（每个镜头都出现）\` / \`…三段】\`）：改成对应的英文说法（\`(appears in every shot)\` 等）。
-- 判据：**中文字符一个都不许留**；台词、时间戳、\`<Subject N>\` / \`<Picture N>\` 编号**一个字符都不许改**。
+- 判据：**中文字符一个都不许留**（⚠️ **引号里的画面内文字是合法的**——招牌/屏幕/横幅上的原文要保留原样中文，别去改它；只处理引号外的中文）；台词、时间戳、\`<Subject N>\` / \`<Picture N>\` 编号**一个字符都不许改**。
 **输出要求**：输出**完整六段**（\`subject_definitions:\` / \`summary:\` / \`retention_analysis:\` / \`detailed_description:\` / \`overall_soundscape:\` / \`non_diegetic_music:\`，段名与顺序不变）；不要解释、前言、结语；不要代码块围栏；**不要调用任何工具（包括 read_storyboard_context —— 原文已附在下面，直接输出结果，不要去查库里的旧稿）**。
 
 === CURRENT VERSION ===
