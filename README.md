@@ -4,8 +4,6 @@
 
 A self-maintained fork of [chatfire-AI/huobao-drama](https://github.com/chatfire-AI/huobao-drama) — an AI short-drama production pipeline (script → assets → storyboards → video), shipped as an Electron desktop app with a Nuxt front end and a TypeScript back end.
 
-![HuobaoDrama](drama.png)
-
 > **This is a personal fork.** All of my changes live on the **`chain`** branch; **`master`** is kept exactly as upstream delivered it, which makes diffing easy. I do not chase upstream updates, and I do not offer support for this fork.
 > App version `desktop 4.0.13` · last update 2026-10-15 · 224 own commits since 2026-10-07.
 

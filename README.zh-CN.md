@@ -4,8 +4,6 @@
 
 这是我自维护的 [chatfire-AI/huobao-drama](https://github.com/chatfire-AI/huobao-drama) 分支 —— 一个 AI 短剧生产流水线（剧本 → 资产 → 分镜 → 视频），形态是 Electron 桌面应用 + Nuxt 前端 + TypeScript 后端。
 
-![HuobaoDrama](drama.png)
-
 > **这是个人自用分支。** 我自己的改动全部在 **`chain`** 分支上；**`master`** 保持上游原样，方便对照差异。我不追上游更新，也不提供技术支持。
 > 应用版本 `desktop 4.0.13` · 最近更新 2026-10-15 · 自 2026-10-07 起 224 条自己的提交。
 
