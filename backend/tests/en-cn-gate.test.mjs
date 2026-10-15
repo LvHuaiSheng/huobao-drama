@@ -10,6 +10,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
 const { findChineseOutsideDialogue } = await import('../src/services/en-cn-gate.ts')
 
@@ -34,6 +35,21 @@ test('正文里真正混进的中文仍然抓到（别把闸改瞎了）', () =>
   // 混在引号外的一句中文说明
   const bad3 = 'summary:\n她站在台前，手里捧着档案袋 opening the file bag.'
   assert.ok(findChineseOutsideDialogue(bad3).count >= 5)
+})
+
+test('回归 sb483（4.0.35）：<d> 台词 + 引号内片尾标题 = 全部合法，体检不许误报 blocking', () => {
+  // 实测原稿形态：49 个汉字全在这两类里；老判据只剥 <d>、不剥引号 → 误报 11 个 blocking error
+  const sb483 = [
+    'detailed_description:',
+    '[Shot 2] The narration continues as <Subject 3> says in an off-screen voiceover:',
+    '<d>[Chinese] 王梅的狂笑声仍在宴会厅中回荡，那双眼始终没有离开黑暗深处。</d> while <Subject 3>\'s lips remain completely closed.',
+    '[Shot 3] one horizontal line of white Chinese end-title text fades in, reading "真正的幕后大佬，到底是谁？", holding position.',
+  ].join('\n')
+  assert.equal(findChineseOutsideDialogue(sb483).count, 0)
+  // 体检侧必须用同一份判据（源码级接线断言）
+  const src = readFileSync(new URL('../src/services/prompt-check.ts', import.meta.url), 'utf8')
+  assert.match(src, /findChineseOutsideDialogue\(/)
+  assert.ok(!/enNoDialogue/.test(src), '体检侧不许再留只剥 <d> 的老判据')
 })
 
 test('sample 用来给模型看上下文（不超过 80 字符、无换行）', () => {

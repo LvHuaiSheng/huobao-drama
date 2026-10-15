@@ -11,6 +11,7 @@
 // 台词判据与生成侧闸（services/video-prompts.ts 的 zhEnConsistency）共用同一个纯函数 ——
 // 两边用不同谓词会给出相反结论（2026-10-15 实测 sb466/467）。zh-lang 零依赖，本文件「纯函数、零依赖」的性质不变。
 import { zhDialogueLines } from './zh-lang.js'
+import { findChineseOutsideDialogue } from './en-cn-gate.js'
 import { ambiguousStyling, assetColourGaps, WHAT_ZH } from './asset-colour-gate.js'
 
 export type CheckLevel = 'error' | 'warn'
@@ -316,16 +317,15 @@ export function checkStoryboardPrompt(sb: StoryboardCheckInput, opts: CheckOptio
   // ⑨b 英文版混入中文字符（2026-10-13 实测：40 条里 13 条中招，全在 retention_analysis 标注里）
   // 起因 = 中文侧规则写「标注用中文写」没限定版本 → 模型中英同产，把中文标注抄进了英文版。
   // 已知危害：中文会被 H3 当台词念（shim 代码里有 2026-10-09 实测记录）。
-  const enNoDialogue = en.replace(/<d>[\s\S]*?<\/d>/g, '')
-  const cnChars = enNoDialogue.match(/[\u4e00-\u9fff]/g) || []
-  if (cnChars.length) {
-    const idx = enNoDialogue.search(/[\u4e00-\u9fff]/)
-    const heads = enNoDialogue.slice(0, idx).match(/^([a-z_]+):/gm)
-    const loc = heads && heads.length ? heads[heads.length - 1].replace(':', '') : '整条'
-    const sample = (enNoDialogue.slice(idx).match(/^[^\n]{0,24}/) || [''])[0]
+  // 2026-10-15（4.0.35）：判据**统一到 `en-cn-gate.ts` 的 findChineseOutsideDialogue**。
+  //   4.0.23 只把生成侧的判据改对了，体检这份还停在「只剥 <d>、不剥引号」→ 画面内文字（规则本来就要求
+  //   写原样中文，如片尾标题 `reading "真正的幕后大佬，到底是谁？"`）被当成 blocking error 误报。
+  //   实测 sb483：全稿 49 个汉字全在 `<d>` 与引号内，生成侧判 0 处越界、体检却报 11 个字符 error。
+  const cnOutside = findChineseOutsideDialogue(en)
+  if (cnOutside.count) {
     out.push(mk({
-      level: 'error', code: 'en-has-chinese', location: loc,
-      message: `英文版里混入 ${cnChars.length} 个中文字符（除 <d> 台词与画面文字外不许有中文）→ 例：${sample} —— 中文会被 H3 当台词念，标注必须写英文`,
+      level: 'error', code: 'en-has-chinese', location: '整条',
+      message: `英文版里混入 ${cnOutside.count} 个中文字符（除 <d> 台词与画面文字外不许有中文）→ 例：${cnOutside.sample} —— 中文会被 H3 当台词念，标注必须写英文`,
     }))
   }
 
