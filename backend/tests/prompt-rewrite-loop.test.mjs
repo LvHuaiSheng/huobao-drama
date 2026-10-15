@@ -65,3 +65,12 @@ test('连续两轮一个字符都没砍掉 → 早停（2026-10-15 实测 sb483 
   assert.match(src2, /'segment-noop-stop'/)
   assert.match(src2, /\} else noopStreak = 0/)
 })
+
+test('首稿写飞（超上限 >800）→ 整稿重来一次（用户 2026-10-15 拍板 B）', () => {
+  const src3 = readFileSync(new URL('../src/services/video-prompts.ts', import.meta.url), 'utf8')
+  assert.match(src3, /const DRAFT_OVER_LIMIT_RETRY = 800/)
+  assert.match(src3, /for \(let pass = 0; pass < 2; pass\+\+\)/)
+  assert.match(src3, /if \(pass === 0 && over > DRAFT_OVER_LIMIT_RETRY\)/)
+  // 实测两条失败首稿超 2172 / 3418，成功首稿只超 0~313 → 阈值 800 落在两者之间
+  assert.match(src3, /'en-full-regenerate'/)
+})

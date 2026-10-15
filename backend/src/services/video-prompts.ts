@@ -612,67 +612,87 @@ async function generateEnByStages(
   //    此时整单直接判失败 —— 这类"整段空转"必须重试，否则一集十几条分镜全靠碰运气。
   //    maxSteps 4 → 6（2026-10-12）：4 步是零余量（read_storyboard_context + 写正文 = 2 步），
   //    模板里任何"自检/去查/去数"类指令都会让 agent 多走一步、烧光步数后返回空文本。
-  let full = ''
+  // 2026-10-15（用户拍板 B）：**首稿「写飞」就整稿重来一次**。
+  //   实测依据：同两条失败分镜的首稿分别**超上限 2172 / 3418 字符**（压 6 轮也救不回来，白烧约 2 分钟），
+  //   而同批成功的首稿只超 0~313 → 用「超 800」当分界：超太多就别磨，直接重采样一次
+  //   （重来的一次若同样写飞，照旧走压缩/失败路径，**不再第三次**，避免无限重试）。
+  const draftLen = () => EN_SECTION_QUOTA.map(([s]) => parts.get(s) || '').filter(Boolean).join('\n').length
+  const DRAFT_OVER_LIMIT_RETRY = 800
   let parts = new Map<string, string>()
-  for (let attempt = 1; attempt <= MAX_FULL_RETRY; attempt++) {
-    onNote?.('en_draft', attempt, MAX_FULL_RETRY)
-    const res = (await agent.generate(
-      [{ role: 'user', content: buildFullPrompt(sb, videoLabel, extra, zhPrompt, budget.limit, budget.headLen) }],
-      { maxSteps: 6, requestContext },
-    )) as { text?: string } | undefined
-    full = cleanSegText(res?.text || '')
-    parts = splitEnSections(full)
-    debugLog(episodeId, sb.id, attempt === 1 ? 'full' : `full-retry-${attempt}`, full, {
-      under: full.length <= budget.limit,
-      sections: parts.size,
-    })
-    // 2026-10-12：判据从「切出任何一段」改成「**六段齐**」——实测（sb354）模型首轮只输出 5 段
-    //（漏 subject_definitions），旧的「有段就 break」会让残废输出过关，最后被视频侧拒发。
-    if (parts.size >= EN_SECTION_QUOTA.length) break
-    logTaskProgress('VideoPrompt', 'full-retry', {
-      episodeId, storyboardId: sb.id, attempt, len: full.length, head: full.slice(0, 60),
-    })
-  }
-  if (!parts.size) {
-    logTaskError('VideoPrompt', 'segment-give-up', {
-      episodeId, storyboardId: sb.id, stage: 'full',
-      error: `整体生成 ${MAX_FULL_RETRY} 次都没切出任何段名（最后一次 ${full.length} 字符）`,
-    })
-    return { text: '', ok: false }
-  }
-
   /** 容错写回：Agent 若又输出全文，只取需要的段 —— 逐段写回（见 writeBackSections 的注释）。 */
   const writeBack = (raw: string, segs: string[]): string[] => writeBackSections(parts, raw, segs)
-
-  // ①.5 缺段补写（2026-10-12 加）：首轮可能整段漏掉（模型直接从 summary: 开始写）。
-  //      缺段不是"超标"，压缩指令救不回来 → 单独一次「补写」请求；最多 2 轮。
-  const missingSegs = () => EN_SECTION_QUOTA.map(([s]) => s).filter(s => !parts.get(s))
-  const fillState = { round: 0, emptyStreak: 0 }
-  while (missingSegs().length && fillState.round < MAX_SEG_FILL_RETRY) {
-    onNote?.('en_fill', fillState.round + 1, MAX_SEG_FILL_RETRY)
-    const miss = missingSegs()
-    logTaskProgress('VideoPrompt', 'segment-missing', { episodeId, storyboardId: sb.id, round: fillState.round + 1, missing: miss })
-    const res = (await agent.generate(
-      [{ role: 'user', content: buildRewriteMultiPrompt(sb, miss.map(s => {
-        const stage = EN_STAGES.find(st => st.segs.includes(s)) || EN_STAGES[0]
-        return { stage, current: '', problem: `缺少这一段：${s}` }
-      }), fillState.round + 1, extra, zhPrompt) }],
-      { maxSteps: 6, requestContext },
-    )) as { text?: string } | undefined
-    const raw = cleanSegText(res?.text || '')
-    debugLog(episodeId, sb.id, `write-missing-${fillState.round + 1}-${fillState.emptyStreak + 1}`, raw, { missing: miss })
-    const written = writeBack(raw, miss)
-    // 2026-10-15（A 方案）：补写空转（模型只回前言/空文本，实测 sb423 两轮都是 0 字符）不消耗补写轮次
-    const next = advanceRewriteState(fillState, written.length > 0)
-    if (!next.consumed) {
-      logTaskProgress('VideoPrompt', 'segment-fill-empty', {
-        episodeId, storyboardId: sb.id, round: fillState.round + 1, streak: next.emptyStreak, len: raw.length,
+  for (let pass = 0; pass < 2; pass++) {
+    // ── ① 整体生成（pass 0 = 首次；pass 1 = 首稿写飞后的重采样） ─────────────
+    let full = ''
+    parts = new Map<string, string>()
+    for (let attempt = 1; attempt <= MAX_FULL_RETRY; attempt++) {
+      onNote?.('en_draft', attempt, MAX_FULL_RETRY)
+      const res = (await agent.generate(
+        [{ role: 'user', content: buildFullPrompt(sb, videoLabel, extra, zhPrompt, budget.limit, budget.headLen) }],
+        { maxSteps: 6, requestContext },
+      )) as { text?: string } | undefined
+      full = cleanSegText(res?.text || '')
+      parts = splitEnSections(full)
+      debugLog(episodeId, sb.id, attempt === 1 ? 'full' : `full-retry-${attempt}`, full, {
+        under: full.length <= budget.limit,
+        sections: parts.size,
       })
+      // 2026-10-12：判据从「切出任何一段」改成「**六段齐**」——实测（sb354）模型首轮只输出 5 段
+      //（漏 subject_definitions），旧的「有段就 break」会让残废输出过关，最后被视频侧拒发。
+      if (parts.size >= EN_SECTION_QUOTA.length) break
+      logTaskProgress('VideoPrompt', 'full-retry', {
+        episodeId, storyboardId: sb.id, attempt, len: full.length, head: full.slice(0, 60),
+      })
+    }
+    if (!parts.size) {
+      logTaskError('VideoPrompt', 'segment-give-up', {
+        episodeId, storyboardId: sb.id, stage: 'full',
+        error: `整体生成 ${MAX_FULL_RETRY} 次都没切出任何段名（最后一次 ${full.length} 字符）`,
+      })
+      return { text: '', ok: false }
+    }
+
+    // ①.5 缺段补写（2026-10-12 加）：首轮可能整段漏掉（模型直接从 summary: 开始写）。
+    //      缺段不是"超标"，压缩指令救不回来 → 单独一次「补写」请求；最多 2 轮。
+    const missingSegs = () => EN_SECTION_QUOTA.map(([s]) => s).filter(s => !parts.get(s))
+    const fillState = { round: 0, emptyStreak: 0 }
+    while (missingSegs().length && fillState.round < MAX_SEG_FILL_RETRY) {
+      onNote?.('en_fill', fillState.round + 1, MAX_SEG_FILL_RETRY)
+      const miss = missingSegs()
+      logTaskProgress('VideoPrompt', 'segment-missing', { episodeId, storyboardId: sb.id, round: fillState.round + 1, missing: miss })
+      const res = (await agent.generate(
+        [{ role: 'user', content: buildRewriteMultiPrompt(sb, miss.map(s => {
+          const stage = EN_STAGES.find(st => st.segs.includes(s)) || EN_STAGES[0]
+          return { stage, current: '', problem: `缺少这一段：${s}` }
+        }), fillState.round + 1, extra, zhPrompt) }],
+        { maxSteps: 6, requestContext },
+      )) as { text?: string } | undefined
+      const raw = cleanSegText(res?.text || '')
+      debugLog(episodeId, sb.id, `write-missing-${fillState.round + 1}-${fillState.emptyStreak + 1}`, raw, { missing: miss })
+      const written = writeBack(raw, miss)
+      // 2026-10-15（A 方案）：补写空转（模型只回前言/空文本，实测 sb423 两轮都是 0 字符）不消耗补写轮次
+      const next = advanceRewriteState(fillState, written.length > 0)
+      if (!next.consumed) {
+        logTaskProgress('VideoPrompt', 'segment-fill-empty', {
+          episodeId, storyboardId: sb.id, round: fillState.round + 1, streak: next.emptyStreak, len: raw.length,
+        })
+        fillState.emptyStreak = next.emptyStreak
+        continue
+      }
+      fillState.round = next.round
       fillState.emptyStreak = next.emptyStreak
+    }
+
+    // 首稿写飞 → 清空重来一次（pass 1）；没写飞（或已经重来过）就进 ② 压缩
+    const over = draftLen() - budget.limit
+    if (pass === 0 && over > DRAFT_OVER_LIMIT_RETRY) {
+      logTaskProgress('VideoPrompt', 'en-full-regenerate', {
+        episodeId, storyboardId: sb.id, draft: draftLen(), over, limit: budget.limit,
+      })
+      for (const k of parts.keys()) parts.delete(k)
       continue
     }
-    fillState.round = next.round
-    fillState.emptyStreak = next.emptyStreak
+    break
   }
 
   // ② 逐组核定 → 超标组**一次性合并重写**（2026-10-12 提速 A）。

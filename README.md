@@ -5,7 +5,7 @@
 A self-maintained fork of [chatfire-AI/huobao-drama](https://github.com/chatfire-AI/huobao-drama) — an AI short-drama production pipeline (script → assets → storyboards → video), shipped as an Electron desktop app with a Nuxt front end and a TypeScript back end.
 
 > **This is a personal fork.** All of my changes live on the **`chain`** branch; **`master`** is kept exactly as upstream delivered it, which makes diffing easy. I do not chase upstream updates, and I do not offer support for this fork.
-> App version `desktop 4.0.24` · last update 2026-10-15 · 238 own commits since 2026-10-07.
+> App version `desktop 4.0.25` · last update 2026-10-15 · 239 own commits since 2026-10-07.
 
 ## What this fork adds
 
@@ -20,6 +20,7 @@ A self-maintained fork of [chatfire-AI/huobao-drama](https://github.com/chatfire
 
 | Date | Tag | Highlights |
 | --- | --- | --- |
+| 2026-10-15 | `v4.0.25-zdz1` | When a first draft runs wildly over the cap (more than 800 characters past the 6200 limit) the pipeline now discards it and regenerates the whole prompt once, instead of grinding six compression rounds on it. Measured: the two drafts that failed today were **2172 and 3418 characters over**, while every first draft that succeeded was at most **313 over** — the threshold separates the two cases cleanly. One extra attempt costs ~40–90 s and cannot loop (a second bad draft still goes down the normal compress-or-fail path). |
 | 2026-10-15 | `v4.0.24-zdz1` | Prompt generation must now derive `retention_analysis` from that run's own `subject_definitions` (never carry the previous draft's block over), and a new gate catches a retention line that names a different garment than the same-numbered definition. Measured case: one storyboard's English body tagged 苏清禾 as “the woman in the dark navy suit” and 张莉 as “the woman in the burgundy dress” — neither matches their reference boards (grey-blue work jacket / rose sequined dress) — so the video model followed the text and rendered the two characters swapped, even though the `<Picture N>` numbering and the transmitted image order were both verified correct. The gate rewrites that one section; validated against all 125 character subjects in the library: 10 hits, all genuine, zero false alarms on normal paraphrase. |
 | 2026-10-15 | `v4.0.23-zdz1` | The English-version Chinese check no longer flags in-frame on-screen text: the rules require such text to be written verbatim in Chinese inside quotes (`the phone screen reads "真正的幕后大佬是谁"`), yet the gate counted it as a violation and spent a “remove the Chinese” repair round on a perfectly legal prompt — which made the model translate the on-screen text (itself a rule violation) and failed the whole storyboard. Measured: ep22 storyboard 10 was discarded for exactly this. Quoted text is now excluded (half-width, full-width and corner quotes); genuine stray Chinese is still caught. |
 | 2026-10-15 | `v4.0.22-zdz1` | Compression stops early after two consecutive rounds that cut nothing: the model re-sends the identical text once it has run out of things it is willing to delete (measured in the same batch: rounds 4, 5 and 6 all reported the same 1315/3784 character counts, ~19 s each, for nothing). Combined with 4.0.21 this turns a stuck storyboard's grind into “fail fast with an actionable message” or “accept because the total already fits”. |
