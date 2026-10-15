@@ -66,12 +66,10 @@ const tasks = new Map<number, VideoPromptBatchStatus>()
 
 /** video_prompt_en 的基准硬上限（含换行与标点），与 video-prompt 技能「英文发送版」节一致：
  *  MiniMax H3 官方 7000 字符 hard limit − 发送时拼的风格头 − 余量 ≈ 6200。
- *  ⚠️ 6200 隐含假设「风格头 ≤768 字符」；真实上限请用 promptEnLimit() 按项目算。 */
-export const PROMPT_EN_LIMIT = 6200
-/** MiniMax H3 官方 prompt hard limit：不可放宽，超了 adapters/minimax-video.ts 直接抛「提示词超长」 */
-export const H3_PROMPT_HARD_LIMIT = 7000
-/** 风格头与正文之间的拼接符「，\n」+ 安全余量（风格头是后端发送时临时拼上去的，也占 H3 的额度） */
-export const PROMPT_HEAD_RESERVE = 32
+ *  ⚠️ 6220（4.0.37 起）隐含假设「风格头 ≤768 字符」；真实上限请用 promptEnLimit() 按项目算。 */
+// 2026-10-16（4.0.37）：长度边界算式搬进零依赖模块 `seg-compress-gate.ts`（便于单测），此处转出以保持既有 import 不变。
+export { PROMPT_EN_LIMIT, H3_PROMPT_HARD_LIMIT, PROMPT_HEAD_RESERVE, promptEnLimit } from './seg-compress-gate.js'
+import { PROMPT_EN_LIMIT, H3_PROMPT_HARD_LIMIT, PROMPT_HEAD_RESERVE, promptEnLimit } from './seg-compress-gate.js'
 
 /**
  * 按项目实际的风格头长度算 video_prompt_en 的上限（2026-10-11 加）。
@@ -82,9 +80,7 @@ export const PROMPT_HEAD_RESERVE = 32
  * 与代码无关，所以预算必须跟着它走，而不是写死。
  *   风格头短 → 仍是 6200（行为不变）；风格头长 → 自动收紧正文预算。
  */
-export function promptEnLimit(headLen: number): number {
-  return Math.min(PROMPT_EN_LIMIT, H3_PROMPT_HARD_LIMIT - Math.max(0, headLen) - PROMPT_HEAD_RESERVE)
-}
+
 /** 重写轮数上限（2026-10-12 提速 A：合并重写后一轮 = 1 次请求；2026-10-15 B 方案：2 → 3 轮。
  *  理由：一条分镜常常只差几十字符（实测 sb450 只超 5 字符、sb460 超 51、sb426 超 81），
  *  多跑一轮的代价（约 45 秒）远小于整条作废、用户还得手动重来的代价。

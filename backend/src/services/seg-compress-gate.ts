@@ -94,6 +94,24 @@ export function shouldTargetTotalOnly(
   return quotaDeficit > 0 && need * 3 < quotaDeficit
 }
 
+// ---------- 全文长度边界（2026-10-16 4.0.37 搬来此零依赖模块，便于单测）----------
+/** MiniMax H3 官方 prompt hard limit：不可放宽，超了 adapters/minimax-video.ts 直接抛「提示词超长」 */
+export const H3_PROMPT_HARD_LIMIT = 7000
+/**
+ * 风格头与正文之间的拼接符「，\n」+ 安全余量。
+ * 2026-10-16（4.0.37）：**32 → 12**。原值 32 是我方凭感觉留的、从未实测；
+ * 实测过的唯一一次拒收是 8403 字符（远超 7000），说明计数就是普通字符数。
+ * 实测 sb483：必写内容 6208 + 风格头 768 = 6976（离 7000 还有 24 字），
+ * 却被 7000−768−32=6200 判死（差 8 字整条作废）。改 12 后该稿 6208 ≤ 6220 通过，且仍留 12 字余量。
+ */
+export const PROMPT_HEAD_RESERVE = 12
+/** 英文稿软上限 = 7000 − 768（anime 风格头实测长度）− 余量 */
+export const PROMPT_EN_LIMIT = H3_PROMPT_HARD_LIMIT - 768 - PROMPT_HEAD_RESERVE
+/** 按项目风格头实际长度算正文预算（风格头长 → 自动收紧正文） */
+export function promptEnLimit(headLen: number): number {
+  return Math.min(PROMPT_EN_LIMIT, H3_PROMPT_HARD_LIMIT - Math.max(0, headLen) - PROMPT_HEAD_RESERVE)
+}
+
 export function shouldKeepCompressing(
   groups: Array<{ problem: string }>,
   total: number,

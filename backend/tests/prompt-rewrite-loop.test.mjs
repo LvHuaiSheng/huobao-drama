@@ -17,7 +17,7 @@ import assert from 'node:assert'
 import { readFileSync } from 'node:fs'
 
 // 纯判据函数：直接跑真代码（seg-compress-gate.ts 零依赖，node 能直接 import TS）
-const { shouldKeepCompressing, itemBudgetLines, shouldTargetTotalOnly } = await import('../src/services/seg-compress-gate.ts')
+const { shouldKeepCompressing, itemBudgetLines, shouldTargetTotalOnly, PROMPT_EN_LIMIT, H3_PROMPT_HARD_LIMIT, PROMPT_HEAD_RESERVE, promptEnLimit } = await import('../src/services/seg-compress-gate.ts')
 const src = readFileSync(new URL('../src/services/video-prompts.ts', import.meta.url), 'utf8')
 
 test('总量已达标 + 各组只是超自己的配额 → 收工（别磨）', () => {
@@ -64,6 +64,19 @@ test('连续两轮一个字符都没砍掉 → 早停（2026-10-15 实测 sb483 
   assert.match(src2, /if \(noopStreak >= 2\) \{/)
   assert.match(src2, /'segment-noop-stop'/)
   assert.match(src2, /\} else noopStreak = 0/)
+})
+
+test('长度边界（4.0.37）：余量 32→12 ⇒ 正文上限 6200→6220（sb483 实测差 8 字被旧余量判死）', () => {
+  assert.equal(H3_PROMPT_HARD_LIMIT, 7000)
+  assert.equal(PROMPT_HEAD_RESERVE, 12)
+  assert.equal(PROMPT_EN_LIMIT, 6220)                 // 7000 − 768(anime 风格头) − 12
+  assert.equal(promptEnLimit(768), 6220)              // 本项目实际值
+  assert.equal(promptEnLimit(0), 6220)                // 风格头短 → 仍封顶 6220
+  assert.equal(promptEnLimit(1200), 5788)             // 风格头长 → 自动收紧
+  // 回归：实测那条稿子 6208 必须过线
+  assert.ok(6208 <= promptEnLimit(768))
+  // 端到端余量：正文上限 + 风格头 ≤ H3 硬上限
+  assert.ok(promptEnLimit(768) + 768 <= H3_PROMPT_HARD_LIMIT)
 })
 
 test('只盯全文缺口（4.0.34）：全文差 43、组配额缺口合计 1051 → 必须放弃组配额（sb483 实测）', () => {
