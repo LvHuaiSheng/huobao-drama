@@ -363,7 +363,7 @@ function groupProblem(text: string, stage: { segs: string[]; limit: number }): s
  * 道具锁不住的真正差异见 video-prompt 技能「道具镜必须绝对静止」一节。
  */
 import { findDanglingPropRef } from './prop-text-gates.js'
-import { shouldKeepCompressing, shouldRegenerateDraft, rosterBlock } from './seg-compress-gate.js'
+import { shouldKeepCompressing, shouldRegenerateDraft, rosterBlock, itemBudgetLines } from './seg-compress-gate.js'
 import { findChineseOutsideDialogue } from './en-cn-gate.js'
 import { findVoiceoverMouthAction, type VoiceoverMouthHit } from './voiceover-gates.js'
 import { findRetentionMismatch, findRetentionOutfitMismatch, type RetentionMismatch, type RetentionOutfitHit } from './retention-gate.js'
@@ -558,6 +558,16 @@ ${hard ? `
 🔴 **本轮是硬欠账**：全文现在 **${hard.len}** 字符，硬上限 **${hard.limit}**，**本轮至少砍掉 ${hard.need} 字符**。砍不够这轮就算白跑（后端会重发、你等更久，最后可能整条作废）。**别逐词微调**——直接删整句：氛围补充（光线/气氛/明暗描写）、重复复述的外观与保留句、"stays identical to the reference" 类尾句、形容词堆叠。英文一个句子通常就是 60~120 字符，删 5~8 句就够了。
 ` : ''}
 ${rosterBlock(zhPrompt)}
+${(() => {
+  const lines: string[] = []
+  for (const it of items) {
+    if (it.stage.segs.includes('detailed_description:')) lines.push(...itemBudgetLines(it.current, 'shot', 2500))
+    if (it.stage.segs.includes('subject_definitions:')) lines.push(...itemBudgetLines(it.current, 'subject', 1700))
+  }
+  return lines.length
+    ? `\n🔴 **逐项点名（每一项自己数一遍字数，别只看整段）**：\n${lines.join('\n')}\n（每一项都要压到目标以内，别只压整段总量；压不下来就先删氛围补充与重复复述。）\n`
+    : ''
+})()}
 **怎么压（照做，这些都是安全的）**：
 1. 删修饰性形容词与程度词：\`wind-and-oil weathered wheat-toned skin\` → \`weathered skin\`；\`slightly\` / \`very\` / \`gently\` / \`faintly\` 一律删
 2. 同一件事只说一遍：retention_analysis 说过的保留项，detailed_description 里不再复述外观细节；画面里同一动作只写一次
@@ -1032,12 +1042,23 @@ async function generateEnByStages(
     }
   }
 
+  // 2026-10-15（4.0.32）：**全文已超硬上限时，下面这一整段质量/格式闸全部跳过**。
+  //   实测 sb483：全文 6703 已注定失败（under=false → 下面直接 return ok:false），可 4 次闸改写
+  //  （zh-en-fix / voiceover-mouth / voiceover-onscreen-lock / colour-fix）**全部 rollback-over-limit**，
+  //   白烧约 90 秒、什么都没改出来。超限时改稿必然是「越改越长或原样」，改了也救不回长度。
+  const overLimit = text.length > budget.limit
+  if (overLimit) {
+    logTaskProgress('VideoPrompt', 'gates-skipped-over-limit', {
+      episodeId, storyboardId: sb.id, len: text.length, limit: budget.limit,
+    })
+  }
+
   // ③.9 画外音拍「多出来的嘴」闸（2026-10-14 加，实测 sb437「顾明轩念出苏清禾的台词」）
   //      该拍台词是画外音（`says in an off-screen voiceover` + 锁嘴句，写法完全合规），
   //      但同一拍里画面内的另一个角色被写了嘴部动作（`His lips part to a narrow gap and close again`）→
   //      H3 把台词安在那个张嘴的人身上。命中 → 带指令重写 1 轮（嘴部动作改成不含嘴部的写法）；
   //      仍不达标只留痕放行；重写后顶破硬上限 → 回滚。
-  {
+  if (!overLimit) {
     let vm: VoiceoverMouthHit[] = findVoiceoverMouthAction(text)
     if (vm.length) {
       logTaskProgress('VideoPrompt', 'voiceover-mouth-detected', {
@@ -1077,7 +1098,7 @@ async function generateEnByStages(
   //      且编号整体错位（继承上一版提示词 + 主体重新编号所致）→ 模型没有保留声明，就不保它。
   //      判据：retention_analysis 的 <Subject N> 集合必须与 subject_definitions 完全一致。
   //      命中 → 带指令重写 1 轮；仍不达标只留痕放行；重写后顶破硬上限 → 回滚。
-  {
+  if (!overLimit) {
     let rm: RetentionMismatch | null = findRetentionMismatch(text)
     let outfit = findRetentionOutfitMismatch(text)
     if (rm || outfit.length) {
@@ -1139,7 +1160,7 @@ async function generateEnByStages(
   //      不是画外的旁白者。稿子写成 `while her lips remain completely closed`（her=画外旁白者）时，
   //      画面里的角色没被锁嘴 → H3 让他张嘴把旁白念出来。
   //      命中 → 带指令重写 1 轮；仍不达标只留痕放行；重写后顶破硬上限 → 回滚。
-  {
+  if (!overLimit) {
     let vg: VoiceoverLockGap[] = findVoiceoverOnscreenLock(text, charSubjects)
     if (vg.length) {
       logTaskProgress('VideoPrompt', 'voiceover-onscreen-lock-detected', {
@@ -1179,7 +1200,7 @@ async function generateEnByStages(
   //   H3 自己猜）；② 王梅字段写「深蓝**或**灰褐色」而卡面是灰褐 ⇒ 文字与参考图打架。
   //   判据：定义段每个角色主体必须写出发色与服装色。资产文字里有的（assetHasIt）打回重写一轮；
   //   资产文字里压根没有的只留一条 warning —— 那种重写也变不出来，得先去补卡（体检里也会报）。
-  {
+  if (!overLimit) {
     const refs = (await buildMediaRefs(sb.id)).refs
     const assets = refs.map(r => ({ picture: r.picture, kind: r.kind, name: r.name, assetText: r.assetText || '' }))
     const defsOf = () => parts.get('subject_definitions:') || ''

@@ -47,6 +47,30 @@ export function rosterBlock(zhPrompt?: string, sectionQuota = SUBJECT_SECTION_QU
 `
 }
 
+/** 拆出每一拍 / 每个主体（纯函数，给「逐项点名」用） */
+function splitItems(text: string, kind: 'shot' | 'subject'): Array<{ label: string; len: number }> {
+  const t = String(text || '')
+  const re = kind === 'shot' ? /\[Shot (\d+)\]/g : /<Subject (\d+)>/g
+  const hits: Array<{ at: number; label: string }> = []
+  let m: RegExpExecArray | null
+  while ((m = re.exec(t))) hits.push({ at: m.index, label: kind === 'shot' ? `[Shot ${m[1]}]` : `<Subject ${m[1]}>` })
+  return hits.map((h, i) => ({ label: h.label, len: (i + 1 < hits.length ? hits[i + 1].at : t.length) - h.at }))
+}
+
+/**
+ * 逐拍 / 逐主体点名（2026-10-15 4.0.32 加）—— 比笼统喊「压 detail 段」有效得多。
+ *
+ * 实测 sb483：压缩指令只说「detail 超 1428 字符」时，模型 4 轮只肯砍 550/444/52/0（最后一轮一字不动）；
+ * 而实测每拍 1450 字 vs 目标 830，把「Shot 2 现在 1450 → 目标 ≤830」写清楚，模型才知道砍哪儿、砍多少。
+ */
+export function itemBudgetLines(text: string, kind: 'shot' | 'subject', sectionQuota: number): string[] {
+  const items = splitItems(text, kind)
+  if (!items.length) return []
+  const per = Math.max(80, Math.floor(sectionQuota / items.length / 10) * 10)
+  return items.filter(it => it.len > per)
+    .map(it => `- ${it.label} 现在 ${it.len} 字 → 目标 ≤${per}（砍 ${it.len - per}）`)
+}
+
 export function shouldKeepCompressing(
   groups: Array<{ problem: string }>,
   total: number,

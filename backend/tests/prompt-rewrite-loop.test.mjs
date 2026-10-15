@@ -17,7 +17,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 // 纯判据函数：直接跑真代码（seg-compress-gate.ts 零依赖，node 能直接 import TS）
-const { shouldKeepCompressing } = await import('../src/services/seg-compress-gate.ts')
+const { shouldKeepCompressing, itemBudgetLines } = await import('../src/services/seg-compress-gate.ts')
 const src = readFileSync(new URL('../src/services/video-prompts.ts', import.meta.url), 'utf8')
 
 test('总量已达标 + 各组只是超自己的配额 → 收工（别磨）', () => {
@@ -64,6 +64,33 @@ test('连续两轮一个字符都没砍掉 → 早停（2026-10-15 实测 sb483 
   assert.match(src2, /if \(noopStreak >= 2\) \{/)
   assert.match(src2, /'segment-noop-stop'/)
   assert.match(src2, /\} else noopStreak = 0/)
+})
+
+test('逐项点名（4.0.32）：逐拍 / 逐主体给出目标字数', () => {
+  // 实测 sb483：某些拍 1450 字、目标 830（2500÷3）
+  const detail = [
+    'detailed_description:',
+    '[Shot 1] ' + 'x'.repeat(970),
+    '[Shot 2] ' + 'y'.repeat(1490),
+    '[Shot 3] ' + 'z'.repeat(1015),
+  ].join('\n')
+  const l1 = itemBudgetLines(detail, 'shot', 2500)
+  // 2500÷3 拍 = 830/拍；三拍都超（980/1500/1024）→ 三条都要点出来
+  assert.equal(l1.length, 3, `三拍都该点名，实际 ${JSON.stringify(l1)}`)
+  assert.match(l1[1], /\[Shot 2\] 现在 1500 字 → 目标 ≤830（砍 670）/)
+  // 逐主体：1700 ÷ 2 主体 = 850
+  const defs = [
+    'subject_definitions:',
+    '<Subject 1> ' + 'a'.repeat(430),
+    '<Subject 2> ' + 'b'.repeat(900),
+    '<Subject 3> ' + 'c'.repeat(780),
+  ].join('\n')
+  const l2 = itemBudgetLines(defs, 'subject', 1700)
+  // 1700÷3 主体 = 560/主体；430 的达标放过，900 / 780 两条点名
+  assert.equal(l2.length, 2, `只该点超 560 的两条，实际 ${JSON.stringify(l2)}`)
+  assert.match(l2[0], /<Subject 2> 现在 \d+ 字 → 目标 ≤560/)
+  assert.match(l2[1], /<Subject 3> 现在 \d+ 字 → 目标 ≤560/)
+  assert.deepEqual(itemBudgetLines('', 'shot', 2500), [])
 })
 
 test('首稿写飞（超上限 >800、且六段齐）→ 整稿重来一次（4.0.27 起判据挪进纯函数）', () => {

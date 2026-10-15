@@ -3482,7 +3482,10 @@ async function runPromptRepair() {
   if (promptCheck.repairing || batchCheck.fixing || !promptCheck.sb || !promptCheck.repairNotes) return
   promptCheck.repairing = true
   try {
-    const res = await episodeAPI.generateVideoPrompts(epId.value, chatModelOverride(), chatConfigId(), [promptCheck.sb.id], promptCheck.repairNotes)
+    // 2026-10-15（4.0.32）：**不再把体检的修法清单当 `extra` 下发**。
+    //   实测（sb483，14:59 与 16:38 两次失败都带这段 193 字清单）：给模型的指令越多，它写得越长 →
+    //   越容易超 6200 → 越失败 → 再点一键修复，形成反噬循环。闸与修法现在都在代码侧自动做，不需要下发给生成模型。
+    const res = await episodeAPI.generateVideoPrompts(epId.value, chatModelOverride(), chatConfigId(), [promptCheck.sb.id], '')
     if (res && res.already_running) { toast.info(t('episode.check.busy')); return }
     markVpbEpisode(epId.value)
     for (let i = 0; i < 120; i++) {
@@ -3554,28 +3557,13 @@ function jumpToCheckedStoryboard(it) {
   setTimeout(() => { runPromptCheck(sb) }, 120)
 }
 
-// 把多条分镜的修法清单合并成一份「补充说明」（去重；同一套通用规则，不分条下发）
-function buildUnionRepairNotes(items) {
-  const seen = new Set()
-  const lines = []
-  for (const it of items) {
-    for (const raw of String(it.repair_notes || '').split('\n')) {
-      const line = raw.trim()
-      if (!line || line.indexOf('逐条满足') === 0 || seen.has(line)) continue
-      seen.add(line)
-      lines.push(line)
-    }
-  }
-  if (!lines.length) return ''
-  return '逐条满足以下自检要求（不改剧情、不改台词原文、不改参考图对应关系）：\n' + lines.join('\n')
-}
-
-// 一键修复全部：一次性把「有问题的分镜」重写一遍（带合并后的修法清单），跑完自动重新体检
+// 一键修复全部：一次性把「有问题的分镜」重写一遍，跑完自动重新体检
+// 2026-10-15（4.0.32）：**不再把体检的修法清单当 extra 下发**（给模型的指令越多写得越长 → 越容易超限，见 runPromptRepair 同注释）
 async function fixAllChecked() {
   const targets = batchBadItems.value
   if (batchCheck.fixing || promptCheck.repairing || videoPromptBatch.running || !targets.length) return
   const ids = targets.map(it => it.storyboard_id)
-  const notes = buildUnionRepairNotes(targets)
+  const notes = ''
   batchCheck.fixing = true
   batchCheck.fixTotal = ids.length
   batchCheck.fixDone = 0
