@@ -3482,9 +3482,9 @@ async function runPromptRepair() {
   if (promptCheck.repairing || batchCheck.fixing || !promptCheck.sb || !promptCheck.repairNotes) return
   promptCheck.repairing = true
   try {
-    // 2026-10-15（4.0.32）：**不再把体检的修法清单当 `extra` 下发**。
-    //   实测（sb483，14:59 与 16:38 两次失败都带这段 193 字清单）：给模型的指令越多，它写得越长 →
-    //   越容易超 6200 → 越失败 → 再点一键修复，形成反噬循环。闸与修法现在都在代码侧自动做，不需要下发给生成模型。
+    // 2026-10-15（4.0.32）：**不再把体检的修法清单当 `extra` 下发**。实测（sb483，两次失败的请求都带同一段 193 字清单）：
+    //   给模型的指令越多，它写得越长 → 越容易超 6200 → 越失败 → 再点一键修复，形成反噬循环。
+    //   闸与修法现在都在代码侧自动做，清单对生成模型没有用处。
     const res = await episodeAPI.generateVideoPrompts(epId.value, chatModelOverride(), chatConfigId(), [promptCheck.sb.id], '')
     if (res && res.already_running) { toast.info(t('episode.check.busy')); return }
     markVpbEpisode(epId.value)
