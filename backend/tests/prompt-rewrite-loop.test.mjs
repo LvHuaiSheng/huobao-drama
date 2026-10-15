@@ -44,3 +44,15 @@ test('接线与参数：循环走该判定、轮数上限 6、逐拍额度写进
   assert.equal((src.match(/每拍上限 = ⌊2500 ÷ 拍数⌋/g) || []).length, 2, '两个压缩 prompt 都要带上')
   assert.match(src, /在分镜列表把这条拆成两条/)
 })
+
+test('压缩轮带硬欠账指标 + 记录每轮实砍量（2026-10-15：sb481 六轮从 8660 才到 6616、差 416 作废）', () => {
+  const src2 = readFileSync(new URL('../src/services/video-prompts.ts', import.meta.url), 'utf8')
+  // 循环把「全文现在多少 / 上限多少 / 本轮至少砍多少」传进压缩 prompt
+  assert.match(src2, /const need = lenBefore - budget\.limit/)
+  assert.match(src2, /need > 0 \? \{ len: lenBefore, limit: budget\.limit, need \} : undefined/)
+  assert.match(src2, /hard\?: \{ len: number; limit: number; need: number \}/)
+  assert.match(src2, /本轮至少砍掉 \$\{hard\.need\} 字符/)
+  // 每轮实砍量进日志（用来验证这条指令到底有没有用）
+  assert.match(src2, /'segment-round-cut'/)
+  assert.match(src2, /cut: lenBefore - assemble\(\)\.length/)
+})

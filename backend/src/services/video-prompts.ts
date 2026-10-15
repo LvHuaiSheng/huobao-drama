@@ -535,6 +535,7 @@ function buildRewriteMultiPrompt(
   attempt: number,
   extra?: string,
   zhPrompt?: string,
+  hard?: { len: number; limit: number; need: number },
 ): string {
   const quotaLines = items
     .map(it => {
@@ -555,7 +556,9 @@ function buildRewriteMultiPrompt(
 
 超标组与目标：
 ${quotaLines}
-
+${hard ? `
+🔴 **本轮是硬欠账**：全文现在 **${hard.len}** 字符，硬上限 **${hard.limit}**，**本轮至少砍掉 ${hard.need} 字符**。砍不够这轮就算白跑（后端会重发、你等更久，最后可能整条作废）。**别逐词微调**——直接删整句：氛围补充（光线/气氛/明暗描写）、重复复述的外观与保留句、"stays identical to the reference" 类尾句、形容词堆叠。英文一个句子通常就是 60~120 字符，删 5~8 句就够了。
+` : ''}
 **怎么压（照做，这些都是安全的）**：
 1. 删修饰性形容词与程度词：\`wind-and-oil weathered wheat-toned skin\` → \`weathered skin\`；\`slightly\` / \`very\` / \`gently\` / \`faintly\` 一律删
 2. 同一件事只说一遍：retention_analysis 说过的保留项，detailed_description 里不再复述外观细节；画面里同一动作只写一次
@@ -702,12 +705,18 @@ async function generateEnByStages(
   // 循环条件见 shouldKeepCompressing：缺段必补；总量已达标就别再磨组配额（省时间）。
   while (shouldKeepCompressing(bad, assemble().length, budget.limit) && rewriteState.round < MAX_SEG_RETRY) {
     onNote?.('en_rewrite', rewriteState.round + 1, MAX_SEG_RETRY)
+    const lenBefore = assemble().length
+    const need = lenBefore - budget.limit
     logTaskProgress('VideoPrompt', 'segment-retry', {
       episodeId, storyboardId: sb.id, attempt: rewriteState.round + 1,
       stages: bad.map(b => b.stage.key), problem: bad.map(b => b.problem).join(' | '),
     })
     const res = (await agent.generate(
-      [{ role: 'user', content: buildRewriteMultiPrompt(sb, bad, rewriteState.round + 1, extra, zhPrompt) }],
+      // 2026-10-15：带上**硬欠账指标**（全文现在多少、上限多少、本轮至少砍多少）——
+      // 实测模型每轮只肯砍 100~300 字符、后几轮只砍 20~30（sb481 六轮才从 8660 压到 6616、
+      // 差 416 就作废）。光说「目标 ≤ 2920」它不当硬要求，必须点名差额。
+      [{ role: 'user', content: buildRewriteMultiPrompt(sb, bad, rewriteState.round + 1, extra, zhPrompt,
+        need > 0 ? { len: lenBefore, limit: budget.limit, need } : undefined) }],
       { maxSteps: 6, requestContext },
     )) as { text?: string } | undefined
     const raw = cleanSegText(res?.text || '')
@@ -715,6 +724,11 @@ async function generateEnByStages(
       groups: bad.map(b => b.stage.key),
     })
     const written = writeBack(raw, bad.flatMap(b => b.stage.segs))
+    // 2026-10-15 加：记下**这一轮实际砍了多少**（用来判断「硬欠账」指标有没有用、每轮是否在白磨）
+    logTaskProgress('VideoPrompt', 'segment-round-cut', {
+      episodeId, storyboardId: sb.id, round: rewriteState.round + 1,
+      cut: lenBefore - assemble().length, len: assemble().length, need: Math.max(0, need),
+    })
     // 2026-10-15（A 方案）：空转不消耗轮次 —— 模型只回一句前言/空文本时原样重发，
     // 连续 MAX_EMPTY_RETRY 次仍空转才记账往前走（见 advanceRewriteState）。
     const next = advanceRewriteState(rewriteState, written.length > 0)
