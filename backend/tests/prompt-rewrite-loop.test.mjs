@@ -54,7 +54,7 @@ test('压缩轮带硬欠账指标 + 记录每轮实砍量（2026-10-15：sb481 �
   assert.match(src2, /本轮至少砍掉 \$\{hard\.need\} 字符/)
   // 每轮实砍量进日志（用来验证这条指令到底有没有用）
   assert.match(src2, /'segment-round-cut'/)
-  assert.match(src2, /cut: lenBefore - assemble\(\)\.length/)
+  assert.match(src2, /const cut = lenBefore - assemble\(\)\.length/)
 })
 
 test('连续两轮一个字符都没砍掉 → 早停（2026-10-15 实测 sb483 第 4/5/6 轮一模一样，白烧 3 轮）', () => {
