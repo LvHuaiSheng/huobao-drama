@@ -56,3 +56,12 @@ test('压缩轮带硬欠账指标 + 记录每轮实砍量（2026-10-15：sb481 �
   assert.match(src2, /'segment-round-cut'/)
   assert.match(src2, /cut: lenBefore - assemble\(\)\.length/)
 })
+
+test('连续两轮一个字符都没砍掉 → 早停（2026-10-15 实测 sb483 第 4/5/6 轮一模一样，白烧 3 轮）', () => {
+  const src2 = readFileSync(new URL('../src/services/video-prompts.ts', import.meta.url), 'utf8')
+  assert.match(src2, /let noopStreak = 0/)
+  assert.match(src2, /if \(cut <= 5\) \{/)
+  assert.match(src2, /if \(noopStreak >= 2\) \{/)
+  assert.match(src2, /'segment-noop-stop'/)
+  assert.match(src2, /\} else noopStreak = 0/)
+})

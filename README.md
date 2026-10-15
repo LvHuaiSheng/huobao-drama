@@ -5,7 +5,7 @@
 A self-maintained fork of [chatfire-AI/huobao-drama](https://github.com/chatfire-AI/huobao-drama) — an AI short-drama production pipeline (script → assets → storyboards → video), shipped as an Electron desktop app with a Nuxt front end and a TypeScript back end.
 
 > **This is a personal fork.** All of my changes live on the **`chain`** branch; **`master`** is kept exactly as upstream delivered it, which makes diffing easy. I do not chase upstream updates, and I do not offer support for this fork.
-> App version `desktop 4.0.21` · last update 2026-10-15 · 235 own commits since 2026-10-07.
+> App version `desktop 4.0.22` · last update 2026-10-15 · 236 own commits since 2026-10-07.
 
 ## What this fork adds
 
@@ -20,6 +20,7 @@ A self-maintained fork of [chatfire-AI/huobao-drama](https://github.com/chatfire
 
 | Date | Tag | Highlights |
 | --- | --- | --- |
+| 2026-10-15 | `v4.0.22-zdz1` | Compression stops early after two consecutive rounds that cut nothing: the model re-sends the identical text once it has run out of things it is willing to delete (measured in the same batch: rounds 4, 5 and 6 all reported the same 1315/3784 character counts, ~19 s each, for nothing). Combined with 4.0.21 this turns a stuck storyboard's grind into “fail fast with an actionable message” or “accept because the total already fits”. |
 | 2026-10-15 | `v4.0.21-zdz1` | Each compression round now carries a hard deficit target (“the prompt is 6616 characters, the cap is 6200 — cut at least 416 this round”). The model used to shave only 100–300 characters per round (20–30 in later rounds) when merely told “compress to the quota”, so one ordinary storyboard burned 6 rounds from 8660 down to 6616 and was thrown away for 416 characters. Every round also logs how much it actually cut, so the next live run shows whether the harder instruction works. Normal shots already finish in ~40 s since 4.0.19 (first draft fits, zero compression rounds). |
 | 2026-10-15 | `v4.0.20-zdz1` | The batch progress strip no longer vanishes mid-run. It used to poll a fixed 240 times (2.5 s each = 10 minutes) and then silently clear itself, while a 10-storyboard batch really takes 20–30 minutes; display sleep freezes the renderer's timers, so the wipe landed right when the screen came back. The poll now follows the episode that owns the batch (persisted, survives page switches and reloads), runs for 100 minutes, keeps the panel with an explicit “stopped refreshing” hint instead of clearing it, and offers a “jump to that episode” button when the running batch belongs elsewhere. |
 | 2026-10-15 | `v4.0.19-zdz1` | The generation pipeline no longer burns its compression rounds on a group that cannot shrink while the whole prompt already fits: the loop now targets the real hard limit (6200 characters total) instead of the advisory per-group quotas, stops as soon as it fits, and gets 6 rounds instead of 4 (measured: a perfectly ordinary 10-second storyboard was discarded for being **190 characters** over, after 4 rounds that each shaved ~110). When it still cannot fit, the error now says what to do — split the storyboard or cut a shot — instead of printing numbers. |

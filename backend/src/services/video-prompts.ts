@@ -702,6 +702,7 @@ async function generateEnByStages(
 
   let bad = checkStages()
   const rewriteState = { round: 0, emptyStreak: 0 }
+  let noopStreak = 0
   // 循环条件见 shouldKeepCompressing：缺段必补；总量已达标就别再磨组配额（省时间）。
   while (shouldKeepCompressing(bad, assemble().length, budget.limit) && rewriteState.round < MAX_SEG_RETRY) {
     onNote?.('en_rewrite', rewriteState.round + 1, MAX_SEG_RETRY)
@@ -725,10 +726,23 @@ async function generateEnByStages(
     })
     const written = writeBack(raw, bad.flatMap(b => b.stage.segs))
     // 2026-10-15 加：记下**这一轮实际砍了多少**（用来判断「硬欠账」指标有没有用、每轮是否在白磨）
+    const cut = lenBefore - assemble().length
     logTaskProgress('VideoPrompt', 'segment-round-cut', {
       episodeId, storyboardId: sb.id, round: rewriteState.round + 1,
-      cut: lenBefore - assemble().length, len: assemble().length, need: Math.max(0, need),
+      cut, len: assemble().length, need: Math.max(0, need),
     })
+    // 2026-10-15 加：**连着两轮一个字符都没砍掉就直接收工** —— 实测（同批 sb483 第 4/5/6 轮
+    // 报的数字一模一样 1315/3784）模型对同一份原文会原样回一遍，再发几轮也只是重复烧时间。
+    // 早收工 = 早点进「按全文裁决」（达标就落库、不达标就立刻给出拆分镜的建议）。
+    if (cut <= 5) {
+      noopStreak += 1
+      if (noopStreak >= 2) {
+        logTaskProgress('VideoPrompt', 'segment-noop-stop', {
+          episodeId, storyboardId: sb.id, round: rewriteState.round + 1, len: assemble().length,
+        })
+        break
+      }
+    } else noopStreak = 0
     // 2026-10-15（A 方案）：空转不消耗轮次 —— 模型只回一句前言/空文本时原样重发，
     // 连续 MAX_EMPTY_RETRY 次仍空转才记账往前走（见 advanceRewriteState）。
     const next = advanceRewriteState(rewriteState, written.length > 0)
