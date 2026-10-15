@@ -38,9 +38,9 @@ test('没有超标的组 → 不压', () => {
   assert.equal(shouldKeepCompressing([], 6390, 6200), false)
 })
 
-test('接线与参数：循环走该判定、轮数上限 6、逐拍额度写进两处压缩 prompt、失败文案可执行', () => {
+test('接线与参数：循环走该判定、轮数上限 8、逐拍额度写进两处压缩 prompt、失败文案可执行', () => {
   assert.match(src, /while \(shouldKeepCompressing\(bad, assemble\(\)\.length, budget\.limit\) && rewriteState\.round < MAX_SEG_RETRY\)/)
-  assert.match(src, /^const MAX_SEG_RETRY = 6$/m)
+  assert.match(src, /^const MAX_SEG_RETRY = 8$/m)
   assert.equal((src.match(/每拍上限 = ⌊2500 ÷ 拍数⌋/g) || []).length, 2, '两个压缩 prompt 都要带上')
   assert.match(src, /在分镜列表把这条拆成两条/)
 })

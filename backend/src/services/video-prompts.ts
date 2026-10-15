@@ -90,7 +90,10 @@ export function promptEnLimit(headLen: number): number {
  *  多跑一轮的代价（约 45 秒）远小于整条作废、用户还得手动重来的代价。
  *  2026-10-15 二次上调 3 → 4：压缩通道修好后（字段名 `current`）实测 sb473 仍差 84 字符
  *  （全文 6284 > 6200，detail 组 3627 > 2920）—— 一轮能压掉四五百字符，多给一轮就能过线。 */
-const MAX_SEG_RETRY = 6
+// 2026-10-15（4.0.33）：6 → 8。实测 sb483（4.0.32）：6 轮把「超 2034」压到「只超 16」，
+// 第 4、6 轮模型回 0 但第 5 轮仍砍 89 —— 说明它没到底、只是轮数用完。多两轮 ≈ 多 40 秒，
+// 且仅在已超限时才跑（超限时后面的质量闸已跳过），净收益远大于代价。
+const MAX_SEG_RETRY = 8
 // 2026-10-15：4 → 6。证据（失控第7集分镜9/sb473，10 秒 3 镜、描述只有 323 字）：
 // detail 组 4272 → 4176 → 3901 → 3743 → 3631（≈110~160 字符/轮，约 14 秒/轮），
 // 而硬闸是「全文 6390 ≤ 6200」→ 只差 **190 字符**、再给两轮就能过（旧值 4 轮卡死 → 整条作废）。
@@ -902,13 +905,25 @@ async function generateEnByStages(
     }
   }
 
+  // 2026-10-15（4.0.32）：**全文已超硬上限时，下面所有质量/格式闸全部跳过**（③.5 起，含 zh-en 一致性）。
+  //   实测 sb483：全文 6703 已注定失败（under=false → 下面直接 return ok:false），可 4 次闸改写
+  //  （zh-en-fix / voiceover-mouth / voiceover-onscreen-lock / colour-fix）**全部 rollback-over-limit**，
+  //   白烧约 90 秒、什么都没改出来。超限时改稿必然是「越改越长或原样」，改了也救不回长度。
+  //   4.0.33 修正：③.5（zh-en 一致性）原在 `overLimit` 声明之前，漏跳了一次（sb483 实测白烧 12 秒）。
+  const overLimit = text.length > budget.limit
+  if (overLimit) {
+    logTaskProgress('VideoPrompt', 'gates-skipped-over-limit', {
+      episodeId, storyboardId: sb.id, len: text.length, limit: budget.limit,
+    })
+  }
+
   // ③.5 中英一致性程序校验（时间轴逐拍对齐 / 台词条数一致 / 无 HTML 实体）
   //      不合格 → 自动重写对应的组（时间轴/台词在 detail 组；HTML 实体在它出现的组），
   //      最多 2 轮；仍不达标则留痕放行（不硬拦，避免像 sb147 那样卡死）
   //      2026-10-12 挪到「③.3 拍数修复」**之后**（原来在它之前）：拍数修复会重写时间戳，
   //      先跑校验会被它推翻 → 结构先定、时间轴最后过闸（实测 sb362：中文 2 秒起、
   //      英文被拍数修复改成 At 00:04.000，而校验是在改写之前跑的，没人复核）。
-  {
+  if (!overLimit) {
     let problem = zhEnConsistency(text, zhPrompt)
     for (let attempt = 0; problem && attempt < 2; attempt++) {
       onNote?.('en_check', attempt + 1, 2)
@@ -1040,17 +1055,6 @@ async function generateEnByStages(
         })
       }
     }
-  }
-
-  // 2026-10-15（4.0.32）：**全文已超硬上限时，下面这一整段质量/格式闸全部跳过**。
-  //   实测 sb483：全文 6703 已注定失败（under=false → 下面直接 return ok:false），可 4 次闸改写
-  //  （zh-en-fix / voiceover-mouth / voiceover-onscreen-lock / colour-fix）**全部 rollback-over-limit**，
-  //   白烧约 90 秒、什么都没改出来。超限时改稿必然是「越改越长或原样」，改了也救不回长度。
-  const overLimit = text.length > budget.limit
-  if (overLimit) {
-    logTaskProgress('VideoPrompt', 'gates-skipped-over-limit', {
-      episodeId, storyboardId: sb.id, len: text.length, limit: budget.limit,
-    })
   }
 
   // ③.9 画外音拍「多出来的嘴」闸（2026-10-14 加，实测 sb437「顾明轩念出苏清禾的台词」）
