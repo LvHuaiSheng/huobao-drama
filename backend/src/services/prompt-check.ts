@@ -74,6 +74,17 @@ const EN_SECTIONS = [
   'non_diegetic_music',
 ]
 
+/**
+ * 逐拍台词密度上限（字/秒）—— 2026-10-15 由 4.5 提到 6，用户当天拍板。
+ *
+ * 4.5 是生成侧规则里的「建议值」（`(段长−4)×4.5` 那一套推出来的），当体检警戒线太吵：
+ * 全库 102 条带英文版的分镜里命中 **14 条（14%）**，其中大半是 5.33 字/秒 —— 而 H3 中文旁白
+ * **实测语速 5~6 字/秒**（见 `video-prompt` 技能的逐拍预算条），用户在成片里也确认这类念得完。
+ * 提到 6 之后全库只剩 **3 条**（6.0~6.3 字/秒，比语速上限还快 → 会被念快或吃掉字），当兜底保留。
+ * ⚠️ 这是**体检阈值**，生成侧规则（逐拍预算 ≤ 秒数×4.5）不动 —— 那边是「建议值」，改的是它才影响写法。
+ */
+const ZH_DIALOGUE_RATE_LIMIT = 6
+
 const RE_CN_CHAR = /[\u4e00-\u9fff]/g
 const RE_SHOT_HEADER = /^[ \t]*\[Shot \d+\]/gm
 const RE_ZH_BEAT = /^[ \t]*(\d+)[ \t]*-[ \t]*(\d+)[ \t]*秒[ \t]*[：:]/gm
@@ -284,14 +295,17 @@ export function checkStoryboardPrompt(sb: StoryboardCheckInput, opts: CheckOptio
         if (!r) return null
         const chars = [...b.matchAll(RE_EN_D)].reduce((n, m) => n + cnLen(m[1]), 0)
         if (!chars) return null
-        const budget = Math.floor((r.end - r.start) * 4.5)
-        return chars > budget ? `第 ${i + 1} 拍 ${chars} 字 / 上限 ${budget} 字（${r.end - r.start} 秒）` : null
+        const budget = Math.floor((r.end - r.start) * ZH_DIALOGUE_RATE_LIMIT)
+        return chars > budget ? `第 ${i + 1} 拍 ${chars} 字 / 上限 ${budget} 字（${r.end - r.start} 秒 ≈ ${(chars / (r.end - r.start)).toFixed(1)} 字/秒）` : null
       })
       .filter((x): x is string => !!x)
     if (over.length) {
       out.push(mk({
         level: 'warn', code: 'dialogue-over-budget', location: 'detailed_description',
-        message: '台词可能念不完（会拖到下一拍）→ ' + over.slice(0, 3).join('；'),
+        message: '台词比 H3 的实测语速还快（可能被念快或吃掉字）→ ' + over.slice(0, 3).join('；'),
+        // 不喂给「一键修复」：模型改不动自己的时间轴（要把台词拆到别的拍才有效），
+        // 历史实测每轮都改不掉、白烧一轮约 45 秒。真要收紧就改生成侧规则（见 SKILL 的逐拍预算条）。
+        autoFixable: false,
       }))
     }
   }
@@ -459,7 +473,8 @@ const REPAIR_TEXT: Record<string, string> = {
   'timeline-count': '英文版只有第 2 拍起才写时间戳（[Shot N] At 00:xx.000），第 1 拍不写；数量与中文拍数减一相同。',
   'timeline-mismatch': '英文版每一拍的时间戳必须与中文工作版该拍的起始秒数完全一致。',
   'dialogue-count': '台词句数与中文工作版完全一致、逐字取自 description，不许新增或删除台词。',
-  'dialogue-over-budget': '每拍台词字数 ≤ 该拍秒数 × 4.5（2 秒拍 ≤ 9 字）；超了就把这句拆到相邻拍或挪到窗口更长的拍。',
+  // `dialogue-over-budget` 故意**不进修法清单**（2026-10-15）：模型改不动自己写的时间轴，
+  // 历史实测每轮都改不掉、白烧一轮约 45 秒（该条已标 autoFixable:false）；真要收紧就改生成侧逐拍预算规则。
   'zh-dialogue-punct': '中文台词句末必须收标点（。！？），不许光秃秃结束。',
   'en-has-chinese': '英文版里除 `<d>[Chinese]…</d>` 台词与画面文字外，禁止出现任何中文字符；`retention_analysis` 的标注必须写成英文（(appears in every shot) / (appears in shots 2 and 3 only) / (off-screen only)）。',
   'html-entity': '禁止输出 &lt; / &gt; / &amp;：所有尖括号（<Subject N> / <Picture N> / <Audio N> / <d>）一律裸写。',

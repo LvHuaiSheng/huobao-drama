@@ -10,7 +10,11 @@
  * 且补之前先 `have = set(re.findall(r"<Audio (\d+)>"))` 去重。
  * ⇒ 该告警在现管线里是纯误报（还会白烧修复轮次），已删除。本测试锁死「不再出现」。
  *
- * 跑法：cd backend && node --test tests/prompt-check-no-audio-warn.test.mjs
+ * 体检告警回归（2026-10-15）：
+ *  1. 去掉 `media-no-audio-decl`（有声音卡但正文没写 `<Audio N>`）——中转侧本来就会补且去重，见下方注释；
+ *  2. `dialogue-over-budget` 阈值 4.5 → 6 字/秒（用户当天拍板：模型会自动适配语速、大部分念得完）并标为「不可自动修」。
+ *
+ * 跑法：cd backend && node --test tests/prompt-check-warnings.test.mjs
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -67,6 +71,32 @@ test('已有声音（源 wav 在）但正文没写 <Audio N> → 不再报 media
     media: { refs: [{ picture: 1, kind: 'character', id: 28, name: '苏清禾', hasImage: true, hasCard: false, hasVoiceCard: true }] },
   })
   assert.ok(issues2.map(i => i.code).includes('media-no-identity-card'), '缺身份卡的告警应保留')
+})
+
+test('逐拍台词告警阈值 = 6 字/秒（5.3 不报、6.5 才报）且不进一键修复', async () => {
+  const checkStoryboardPrompt = await loadChecker()
+  const zh2 = '0-2秒：她站住。\n2-4秒：她转身。'
+  const mkSb = (dialogue) => ({
+    id: 2, storyboardNumber: 2, duration: 4, description: '【镜头1】她站住。【镜头2】她转身。',
+    videoPrompt: zh2,
+    videoPromptEn: 'detailed_description:\n[Shot 1] she stops <d>[Chinese] ' + dialogue + '</d>\n[Shot 2] she turns',
+  })
+  // 12 字 / 2 秒 = 6.0 字/秒 → 刚好不报（用户 2026-10-15：H3 实测语速 5~6 字/秒，这类念得完）
+  const ok = checkStoryboardPrompt(mkSb('所有人都以为那是意外事故'))
+  assert.equal(ok.some(i => i.code === 'dialogue-over-budget'), false, '6.0 字/秒 不该再报')
+
+  // 13 字 / 2 秒 = 6.5 字/秒 → 报，并标 autoFixable:false（不喂给一键修复）
+  const bad = checkStoryboardPrompt(mkSb('所有人都以为那是意外事故了'))
+  const item = bad.find(i => i.code === 'dialogue-over-budget')
+  assert.ok(item, '6.5 字/秒 应报警')
+  assert.equal(item.autoFixable, false)
+  assert.match(item.message, /6\.5 字\/秒/)
+
+  // 修法清单里不再包含这条 code（否则一键修复会照它白烧一轮）
+  const { readFileSync } = await import('node:fs')
+  const src = readFileSync(new URL('../src/services/prompt-check.ts', import.meta.url), 'utf8')
+  assert.doesNotMatch(src, /^\s*'dialogue-over-budget':/m, '修法清单映射里不该再有这条')
+  assert.match(src, /const ZH_DIALOGUE_RATE_LIMIT = 6/)
 })
 
 test('源码级：media-no-audio-decl 已从体检与修法清单里清干净', async () => {

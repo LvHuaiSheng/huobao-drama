@@ -5,7 +5,7 @@
 A self-maintained fork of [chatfire-AI/huobao-drama](https://github.com/chatfire-AI/huobao-drama) — an AI short-drama production pipeline (script → assets → storyboards → video), shipped as an Electron desktop app with a Nuxt front end and a TypeScript back end.
 
 > **This is a personal fork.** All of my changes live on the **`chain`** branch; **`master`** is kept exactly as upstream delivered it, which makes diffing easy. I do not chase upstream updates, and I do not offer support for this fork.
-> App version `desktop 4.0.17` · last update 2026-10-15 · 231 own commits since 2026-10-07.
+> App version `desktop 4.0.18` · last update 2026-10-15 · 232 own commits since 2026-10-07.
 
 ## What this fork adds
 
@@ -20,6 +20,7 @@ A self-maintained fork of [chatfire-AI/huobao-drama](https://github.com/chatfire
 
 | Date | Tag | Highlights |
 | --- | --- | --- |
+| 2026-10-15 | `v4.0.18-zdz1` | The per-beat dialogue-density warning now fires only above 6 characters/second (H3 Mandarin narration measures 5–6 char/s; the old 4.5 threshold flagged 14 of 102 prompts, mostly survivable 5.3 char/s lines) and is no longer fed to one-click repair — the model cannot rewrite its own timeline, so it only burned a round. Current library: 3 hits left, all 6.0–6.3 char/s. |
 | 2026-10-15 | `v4.0.17-zdz1` | Health check: dropped the 「character has a voice but the prompt has no `<Audio N>` declaration」 warning — the relay injects `<Audio j>` itself (deduplicated, indices computed from its own binding) while the generator still reports `has_voice_card: false` (its predicate still points at the deprecated voice-card file), so the warning was unfixable and every repair pass burned rounds on it. Also one more compression round (3 → 4) for prompts that end up a few dozen characters over the limit. |
 | 2026-10-15 | `v4.0.16-zdz1` | Two more repair-pipeline fixes: the Chinese working prompt now has the model's English "thinking out loud" preamble stripped (it used to be saved as the first ~500 characters of the prompt); the dialogue-count predicate is now shared between the generation gate and the health check (the gate used a narrower pattern, so a couple of storyboards were flagged as 「Chinese/English dialogue mismatch」 and burned two repair rounds each for nothing — measured on 102 live prompts: 5 false alarms down to 3, none of them false). |
 | 2026-10-15 | `v4.0.15-zdz1` | Two repair-pipeline bugs found while investigating a failed one-click repair: (1) the compression request sent the literal `undefined` instead of the original prompt text — a caller/builder field-name mismatch that made every compression round a no-op, so an over-length English prompt was saved anyway; (2) the Chinese working prompt is now language-gated — an English reply can no longer be written into it, which is what had turned one storyboard's Chinese prompt into English. Regression tests added for both. |
