@@ -366,7 +366,7 @@ function groupProblem(text: string, stage: { segs: string[]; limit: number }): s
  * 道具锁不住的真正差异见 video-prompt 技能「道具镜必须绝对静止」一节。
  */
 import { findDanglingPropRef } from './prop-text-gates.js'
-import { shouldKeepCompressing, shouldRegenerateDraft, rosterBlock, itemBudgetLines } from './seg-compress-gate.js'
+import { shouldKeepCompressing, shouldRegenerateDraft, rosterBlock, itemBudgetLines, shouldTargetTotalOnly } from './seg-compress-gate.js'
 import { findChineseOutsideDialogue } from './en-cn-gate.js'
 import { findVoiceoverMouthAction, type VoiceoverMouthHit } from './voiceover-gates.js'
 import { findRetentionMismatch, findRetentionOutfitMismatch, type RetentionMismatch, type RetentionOutfitHit } from './retention-gate.js'
@@ -538,6 +538,12 @@ function buildRewriteMultiPrompt(
   zhPrompt?: string,
   hard?: { len: number; limit: number; need: number },
 ): string {
+  // 2026-10-15（4.0.34）：全文只差几十字、却要它把每组配额都压到位 → 模型追不动就一字不砍。
+  //  这种情况只报全文缺口，并明说「各段不必单独达标」（详见 shouldTargetTotalOnly 注释与实测数据）。
+  const totalOnly = shouldTargetTotalOnly(
+    hard?.need,
+    items.map(it => it.current.length - it.stage.limit),
+  )
   const quotaLines = items
     .map(it => {
       const quota = it.stage.segs
@@ -546,9 +552,16 @@ function buildRewriteMultiPrompt(
       // 缺段 ≠ 超标：缺段要「补写」，只喊压缩它救不回来（实测 sb354 缺 subject_definitions 后仍缺）
       const verb = /缺少|没有内容/.test(it.problem) ? `🔴 **这一段是缺失的，请补写它**（段名 + 完整内容）` : '压缩'
       const segNames = it.stage.segs.map(s => s.replace(':', '')).join(' / ')
-      return `- [${segNames}] ${verb}｜目标 ≤ ${it.stage.limit} 字符（组内逐段：${quota}）—— 现状：${it.problem}`
+      return totalOnly
+        ? `- [${segNames}] ${verb}｜**只需全文达标，本组不必压到 ${it.stage.limit} 字符**（组内配额 ${quota} 这一轮不考核）—— 现状：${it.problem}`
+        : `- [${segNames}] ${verb}｜目标 ≤ ${it.stage.limit} 字符（组内逐段：${quota}）—— 现状：${it.problem}`
     })
     .join('\n')
+  const totalOnlyNote = totalOnly
+    ? `
+🔴 **本轮判定标准只有一条：全文 ≤ ${hard!.limit} 字符（差 ${hard!.need} 字）。各组自己的配额这一轮不考核** —— 别去追「每组都要达标」（那是砍不出来的），挑最啰嗦的形容词、氛围补充、重复复述删，全文够了就算成功。
+`
+    : ''
   const zhTimeline = zhPrompt
     ? (zhPrompt.match(/^\s*\d+\s*-\s*\d+\s*秒[：:].*$/gm) || []).join('\n')
     : ''
@@ -557,7 +570,7 @@ function buildRewriteMultiPrompt(
 
 超标组与目标：
 ${quotaLines}
-${hard ? `
+${totalOnlyNote}${hard ? `
 🔴 **本轮是硬欠账**：全文现在 **${hard.len}** 字符，硬上限 **${hard.limit}**，**本轮至少砍掉 ${hard.need} 字符**。砍不够这轮就算白跑（后端会重发、你等更久，最后可能整条作废）。**别逐词微调**——直接删整句：氛围补充（光线/气氛/明暗描写）、重复复述的外观与保留句、"stays identical to the reference" 类尾句、形容词堆叠。英文一个句子通常就是 60~120 字符，删 5~8 句就够了。
 ` : ''}
 ${rosterBlock(zhPrompt)}
@@ -568,7 +581,7 @@ ${(() => {
     if (it.stage.segs.includes('subject_definitions:')) lines.push(...itemBudgetLines(it.current, 'subject', 1700))
   }
   return lines.length
-    ? `\n🔴 **逐项点名（每一项自己数一遍字数，别只看整段）**：\n${lines.join('\n')}\n（每一项都要压到目标以内，别只压整段总量；压不下来就先删氛围补充与重复复述。）\n`
+    ? `\n🔴 **逐项点名（每一项自己数一遍字数，别只看整段）**：\n${lines.join('\n')}\n（这些是**优先下手处**：${totalOnly ? '不必每项都到目标，全文总量达标即可' : '每一项都要压到目标以内，别只压整段总量'}；压不下来就先删氛围补充与重复复述。）\n`
     : ''
 })()}
 **怎么压（照做，这些都是安全的）**：

@@ -71,6 +71,26 @@ export function itemBudgetLines(text: string, kind: 'shot' | 'subject', sectionQ
     .map(it => `- ${it.label} 现在 ${it.len} 字 → 目标 ≤${per}（砍 ${it.len - per}）`)
 }
 
+/**
+ * 压缩时是否「只盯全文缺口、放弃各组自己的配额」（2026-10-15 4.0.34 加）。
+ *
+ * 实测 sb483：全文只差 **43** 字符（hard.limit − hard.len），可 prompt 同时写着
+ * 「summ ≤1100（超 349）、detail ≤2920（超 702）」= 要求砍 **1051** —— 模型去追那个不可能的目标，
+ * 连着两轮一个字都不砍（4.0.32 的第 4/6 轮、4.0.33 的第 3/4 轮都是 0），
+ * 最后因「连续零砍早停」或轮数上限收在 6743→6243，始终差几十字作废。
+ *
+ * 判据：全文缺口 > 0 且「全文缺口 × 3 < 各组配额缺口之和」⇒ 组配额已是次要目标，
+ * 直接告诉模型「把全文砍到 ≤limit 就行，各段不必单独达标」（它才会挑最啰嗦的地方删）。
+ */
+export function shouldTargetTotalOnly(
+  need: number | undefined,
+  stageOver: number[],
+): boolean {
+  if (!need || need <= 0) return false
+  const quotaDeficit = stageOver.reduce((s, v) => s + Math.max(0, v), 0)
+  return quotaDeficit > 0 && need * 3 < quotaDeficit
+}
+
 export function shouldKeepCompressing(
   groups: Array<{ problem: string }>,
   total: number,

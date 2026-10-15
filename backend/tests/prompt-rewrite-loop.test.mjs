@@ -13,11 +13,11 @@
  * 跑法：cd backend && node --test tests/prompt-rewrite-loop.test.mjs
  */
 import { test } from 'node:test'
-import assert from 'node:assert/strict'
+import assert from 'node:assert'
 import { readFileSync } from 'node:fs'
 
 // 纯判据函数：直接跑真代码（seg-compress-gate.ts 零依赖，node 能直接 import TS）
-const { shouldKeepCompressing, itemBudgetLines } = await import('../src/services/seg-compress-gate.ts')
+const { shouldKeepCompressing, itemBudgetLines, shouldTargetTotalOnly } = await import('../src/services/seg-compress-gate.ts')
 const src = readFileSync(new URL('../src/services/video-prompts.ts', import.meta.url), 'utf8')
 
 test('总量已达标 + 各组只是超自己的配额 → 收工（别磨）', () => {
@@ -64,6 +64,20 @@ test('连续两轮一个字符都没砍掉 → 早停（2026-10-15 实测 sb483 
   assert.match(src2, /if \(noopStreak >= 2\) \{/)
   assert.match(src2, /'segment-noop-stop'/)
   assert.match(src2, /\} else noopStreak = 0/)
+})
+
+test('只盯全文缺口（4.0.34）：全文差 43、组配额缺口合计 1051 → 必须放弃组配额（sb483 实测）', () => {
+  // 实测：全文只差 43，却要它把 summ 砍 349 + detail 砍 702 → 模型两轮一字不砍，稿子作废
+  assert.equal(shouldTargetTotalOnly(43, [349, 702]), true)
+  // 缺口真的大（900）时，组配额仍是有效指引 → 保持原样
+  assert.equal(shouldTargetTotalOnly(900, [349, 702]), false)
+  assert.equal(shouldTargetTotalOnly(0, [349, 702]), false)
+  assert.equal(shouldTargetTotalOnly(undefined, [349, 702]), false)
+  assert.equal(shouldTargetTotalOnly(43, []), false)
+  // 接线：prompt 里必须出现「各段不必单独达标」的释放语句
+  const src = readFileSync(new URL('../src/services/video-prompts.ts', import.meta.url), 'utf8')
+  assert.match(src, /shouldTargetTotalOnly\(/)
+  assert.match(src, /各组自己的配额这一轮不考核/)
 })
 
 test('逐项点名（4.0.32）：逐拍 / 逐主体给出目标字数', () => {
