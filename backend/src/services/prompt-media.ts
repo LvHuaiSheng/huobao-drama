@@ -52,7 +52,8 @@ export async function buildMediaRefs(storyboardId: number, slotLimit = 9): Promi
     if (!pr) continue
     refs.push({
       picture: picNo++, kind: 'prop', id: pr.id, name: pr.name,
-      assetText: [pr.description, pr.finalPrompt].filter(Boolean).join(' ｜ '),
+      // 只扫人工写的「描述」；`finalPrompt` 是生成的图片提示词，里面全是「…不再出现任何文字、图标或数字」这类排他句（2026-10-15 误报后去掉）
+      assetText: pr.description || '',
       hasImage: !!(pr.imageUrl || '').trim(),
       hasCard: fs.existsSync(refmodCardPath(refmodCardName('prop', pr.id))),
     })

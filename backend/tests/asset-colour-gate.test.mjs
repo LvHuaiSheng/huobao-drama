@@ -40,9 +40,22 @@ test('不查肤色与配饰（用户拍板：特殊肤色/无配饰不误报）'
   assert.deepEqual(assetColourGaps('外观：肤色靛蓝，无任何配饰').sort(), ['garment', 'hair'])
 })
 
-test('卡文字里的「或」要报出来（王梅样本）', () => {
-  assert.equal(ambiguousStyling('深蓝或灰褐色对襟布衫，外罩洗得发白的碎花围裙'), '或')
+test('卡文字里没写死的二选一要报出来（王梅样本）', () => {
+  const hit = ambiguousStyling('深蓝或灰褐色对襟布衫，外罩洗得发白的碎花围裙')
+  assert.equal(hit?.word, '或')
+  assert.match(hit.snippet, /深蓝或灰褐色对襟布衫/)
   assert.equal(ambiguousStyling('藏蓝色制式警服，黑色领带，黑色皮鞋；黑色短发，鬓角修净。'), null)
+})
+
+test('不误报：排他句 / 台词 / 语气词（2026-10-15 用户实跑命中的两条误报）', () => {
+  // 手机通知屏的「或」在排他句里
+  assert.equal(ambiguousStyling('除上述两行红字外不再出现任何其他文字、图标或数字。'), null, '排他句里的「或」不算')
+  assert.equal(ambiguousStyling('没有手、手指、手臂、人物、底座、包装或任何场景环境。'), null, '否定句里的「或」不算')
+  // 顾明轩的「可能」来自台词
+  assert.equal(ambiguousStyling('本集他冷傲外壳出现裂缝：大喊「不可能！她就只是个保洁！」，满脸不敢置信'), null, '台词里的词不算、而且「可能」已不在判据里')
+  assert.equal(ambiguousStyling('肤色偏白，下颌线利落，表情克制，可能戴眼镜'), null, '「可能」是语气词，不是二选一')
+  // 真二选一仍然要抓
+  assert.equal(ambiguousStyling('衣服可以是深蓝或者灰褐色')?.word, '或者')
 })
 
 test('findColourGaps：卡里有、提示词漏了 → 值得重写；卡里压根没有 → 只能补卡', () => {

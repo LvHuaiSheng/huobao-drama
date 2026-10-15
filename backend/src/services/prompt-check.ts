@@ -433,7 +433,8 @@ export function checkStoryboardPrompt(sb: StoryboardCheckInput, opts: CheckOptio
     if (amb) {
       out.push(mk({
         level: 'warn', code: 'asset-ambiguous-styling', location: `参考图 ${r.picture} ${r.name}`,
-        message: `${r.name} 的造型文字里有「${amb}」（没写死）→ 文字与定妆卡可能不一致，衣服/发色会保不住；先在角色卡里定死一个值`,
+        message: `${r.name} 的文字里有没写死的二选一「${amb}」→ 文字与定妆卡可能不一致，衣服/发色会保不住；先定死一个值。原句：…${amb.snippet}…`
+          + `（「不出现 A、B ${amb.word} C」这类排他句不算，已在检查里豁免）`,
         autoFixable: false,
       }))
     }

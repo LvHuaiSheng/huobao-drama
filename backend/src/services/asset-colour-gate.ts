@@ -44,10 +44,28 @@ export function hasHairColour(line: string): boolean { return near(line, HAIRWOR
 /** 写了服装颜色吗（`navy police uniform jacket` / 「深蓝或灰褐色对襟布衫」） */
 export function hasGarmentColour(line: string): boolean { return near(line, GARMENTS) }
 
-/** 资产文字里有「或 / 皆可 / 任选 / 可能 / either」→ 返回命中的词（造型没写死） */
-export function ambiguousStyling(text: string): string | null {
-  const m = String(text || '').match(/或|皆可|任选|可能|亦可|either|or the|二者/)
-  return m ? m[0] : null
+/** 引号里的台词不参与检查（实测：顾明轩的 `外观` 里写着台词「不可能！她就只是个保洁！」） */
+const DIALOGUE_SPAN = /「[^」]*」|“[^”]*”|"[^"]*"|<d>[\s\S]*?<\/d>/g
+/** 排他说明的否定词 —— 项目既有口径：排他句里的「或」不算（如「不出现任何文字、水印或签名」） */
+const NEGATION = /(不|无|没|未|禁|避免|不再|排除|除外|除[^，。;]{0,20}外|no |not |never|without|avoid|except)/i
+
+/**
+ * 资产文字里有没有**没写死的二选一**；有就返回命中的词 + 原句片段（片段是给人定位用的）。
+ *
+ * 豁免（2026-10-15 用户实跑体检命中两条误报后加的）：
+ *   - 含否定/排他词的整句跳过：「除上述两行红字外不再出现任何其他文字、图标**或**数字」✓ 不算；
+ *   - 引号/`<d>` 里的台词整段剥掉（台词里的「不可能」不是造型描述）；
+ *   - 「可能 / 二者」这类语气词已从判据里删除（它们是含糊，不是二选一）。
+ */
+export function ambiguousStyling(text: string): { word: string; snippet: string } | null {
+  const clean = String(text || '').replace(DIALOGUE_SPAN, ' ')
+  for (const clause of clean.split(/[。；;，,\n]/)) {
+    const m = clause.match(/或者|或|皆可|任选|亦可|either\s+\w+\s+or/)
+    if (!m) continue
+    if (NEGATION.test(clause)) continue
+    return { word: m[0].trim(), snippet: clause.trim().slice(0, 120) }
+  }
+  return null
 }
 
 /** 从 `subject_definitions` 段抽出 `<Subject N>` → 该行原文 */
