@@ -366,7 +366,7 @@ import { findDanglingPropRef } from './prop-text-gates.js'
 import { shouldKeepCompressing } from './seg-compress-gate.js'
 import { findChineseOutsideDialogue } from './en-cn-gate.js'
 import { findVoiceoverMouthAction, type VoiceoverMouthHit } from './voiceover-gates.js'
-import { findRetentionMismatch, type RetentionMismatch } from './retention-gate.js'
+import { findRetentionMismatch, findRetentionOutfitMismatch, type RetentionMismatch, type RetentionOutfitHit } from './retention-gate.js'
 import { findVoiceoverOnscreenLock, type VoiceoverLockGap } from './voiceover-onscreen-gate.js'
 export { findDanglingPropRef } from './prop-text-gates.js'
 export { findRetentionMismatch } from './retention-gate.js'
@@ -1050,19 +1050,31 @@ async function generateEnByStages(
   //      命中 → 带指令重写 1 轮；仍不达标只留痕放行；重写后顶破硬上限 → 回滚。
   {
     let rm: RetentionMismatch | null = findRetentionMismatch(text)
-    if (rm) {
-      logTaskProgress('VideoPrompt', 'retention-mismatch-detected', {
-        episodeId, storyboardId: sb.id,
-        defined: rm.defined.join(','), listed: rm.listed.join(','),
-        missing: rm.missing.join(','), extra: rm.extra.join(','),
-      })
+    let outfit = findRetentionOutfitMismatch(text)
+    if (rm || outfit.length) {
+      if (rm) {
+        logTaskProgress('VideoPrompt', 'retention-mismatch-detected', {
+          episodeId, storyboardId: sb.id,
+          defined: rm.defined.join(','), listed: rm.listed.join(','),
+          missing: rm.missing.join(','), extra: rm.extra.join(','),
+        })
+      }
+      if (outfit.length) {
+        // 2026-10-15 加：保留项写着**别人的衣服**（实测 sb472 出片两人互换）
+        logTaskProgress('VideoPrompt', 'retention-outfit-mismatch-detected', {
+          episodeId, storyboardId: sb.id,
+          subjects: outfit.map(h => `S${h.subject}(${h.reason} 重合${h.overlap} 定义=${h.defGarments.join('/')}${h.defColours.join('/')} 保留=${h.retGarments.join('/')}${h.retColours.join('/')})`).join(' | '),
+        })
+      }
       const snapshot = new Map(parts)
       const res = (await agent.generate(
-        [{ role: 'user', content: buildRetentionFixPrompt(sb, text, rm) }],
+        [{ role: 'user', content: buildRetentionFixPrompt(sb, text, rm, outfit) }],
         { maxSteps: 6, requestContext },
       )) as { text?: string } | undefined
       const raw = cleanSegText(res?.text || '')
-      debugLog(episodeId, sb.id, 'retention-fix-1', raw, { defined: rm.defined, listed: rm.listed })
+      debugLog(episodeId, sb.id, 'retention-fix-1', raw, {
+        defined: rm?.defined, listed: rm?.listed, outfit: outfit.map(h => h.subject),
+      })
       if (writeBack(raw, EN_SECTION_QUOTA.map(([k]) => k)).length) {
         text = assemble()
         if (text.length > budget.limit) {
@@ -1080,6 +1092,12 @@ async function generateEnByStages(
           episodeId, storyboardId: sb.id,
           defined: rm.defined.join(','), listed: rm.listed.join(','),
           missing: rm.missing.join(','), extra: rm.extra.join(','),
+        })
+      }
+      outfit = findRetentionOutfitMismatch(text)
+      if (outfit.length) {
+        logTaskProgress('VideoPrompt', 'retention-outfit-unresolved', {
+          episodeId, storyboardId: sb.id, subjects: outfit.map(h => `S${h.subject}`).join(','),
         })
       }
     }
@@ -1232,21 +1250,32 @@ ${current}`
 function buildRetentionFixPrompt(
   sb: { id: number; storyboardNumber: number | null },
   current: string,
-  rm: RetentionMismatch,
+  rm: RetentionMismatch | null,
+  outfit: RetentionOutfitHit[] = [],
 ): string {
-  const miss = rm.missing.length ? `<Subject ${rm.missing.join('> <Subject ')}>` : '（无）'
-  const extra = rm.extra.length ? `<Subject ${rm.extra.join('> <Subject ')}>` : '（无）'
-  return `分镜 #${sb.storyboardNumber}(ID:${sb.id}) 的 video_prompt_en 里，\`retention_analysis\` 与 \`subject_definitions\` 对不上：
+  const miss = rm && rm.missing.length ? `<Subject ${rm.missing.join('> <Subject ')}>` : '（无）'
+  const extra = rm && rm.extra.length ? `<Subject ${rm.extra.join('> <Subject ')}>` : '（无）'
+  const coverBlock = rm
+    ? `\`retention_analysis\` 与 \`subject_definitions\` 对不上：
 - \`subject_definitions\` 声明了 <Subject ${rm.defined.join('> <Subject ')}>
 - \`retention_analysis\` 只写了 <Subject ${rm.listed.join('> <Subject ')}>
 - **漏了**：${miss}
-- **多出**（定义里没有的编号）：${extra}
+- **多出**（定义里没有的编号）：${extra}` + '\n\n'
+    : ''
+  // 2026-10-15 加：保留项写着**别人的衣服**（实测 sb472 出片两人互换）
+  const outfitBlock = outfit.length
+    ? `\`retention_analysis\` 里这几个主体的**服装写错了人**（写着别人的衣服/别的颜色，与同号定义对不上）：\n`
+      + outfit.map(h => `- <Subject ${h.subject}>：\`subject_definitions\` 写的是 **${h.defColours.join('/')} ${h.defGarments.join('/')}**，`
+        + `retention 却写成 **${h.retColours.join('/')} ${h.retGarments.join('/')}**（${h.reason === 'colour' ? '颜色对不上' : '服装词对不上'}）`).join('\n')
+      + `\n\n⚠️ 为什么必须改：模型每拍会用\`<Subject N>, the woman in the …\`这种**服装名词**点人，保留项里的错服装会被抄进正文每一拍 → 视频模型按文字走，成片里两个人**身份/服装互换**（实测事故：第7集分镜8）。\n\n`
+    : ''
+  return `分镜 #${sb.storyboardNumber}(ID:${sb.id}) 的 video_prompt_en 里，\`retention_analysis\` 有问题（这一版的原样保留项**不许沿用**）：
 
-参考图和身份卡都已按 <Subject N> 序号接好，retention_analysis 是模型"保不保这个主体"的唯一声明 —— 漏掉的主体（尤其是道具）在成片里会**完全不参考参考图**（实测事故）。
+${coverBlock}${outfitBlock}参考图和身份卡都已按 <Subject N> 序号接好，retention_analysis 是模型"保不保这个主体、保成什么样"的唯一声明。
 
 **怎么改（只改 \`retention_analysis\` 这一段，其余五段一字不动）**：
-- **逐个补齐**：\`subject_definitions\` 里的每一个 <Subject N> 都要在 \`retention_analysis\` 里有一条，**一条不漏、一条不多**，编号与定义严格对应（宁可按定义逐条重写一遍，也不要沿用旧编号）。
-- **每条写什么**：\`<Subject N>: fully_preserved - <该主体在画面里必须保持不变的具体特征>\`；主体是人物时写它的脸/发型/服装基准，是场景时写空间与光线，是道具时写它的**结构特征**（纸张颜色与边缘、表格线位置、印章位置与油墨边缘、单张不重复）。
+- **逐个重写**：以**本版 \`subject_definitions\`** 为准，<Subject N> 一条不漏、一条不多，编号严格对应（不要沿用旧编号）。
+- **每条写什么**：\`<Subject N>: fully_preserved - <该主体在画面里必须保持不变的具体特征>\`；主体是人物时，**服装措辞必须取自同号定义那一句**（同一套衣服、同一个颜色，可以压缩但**不许换成别的衣服/别的颜色**），再带脸/发型基准；是场景时写空间与光线，是道具时写它的**结构特征**（纸张颜色与边缘、表格线位置、印章位置与油墨边缘、单张不重复）。
 - **不许**在 retention 里写它"出现于哪一拍"以外的剧情动作，也不许写文字内容本身。
 - 若定义里出现了 <Audio J>，保留原有的音频条目（\`<Audio J>: reference - ...\`）不动。
 **输出要求**：输出**完整六段**（subject_definitions: / summary: / retention_analysis: / detailed_description: / overall_soundscape: / non_diegetic_music:，段名与顺序不变）；不要解释、前言、结语；不要代码块围栏；**不要调用任何工具（包括 read_storyboard_context —— 原文已附在下面，直接输出结果，不要去查库里的旧稿）**。
