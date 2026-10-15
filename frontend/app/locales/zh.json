@@ -293,6 +293,8 @@
       "descHint": "颜色、款式、面料、配饰写清楚（如：黑色单排扣西装、白衬衫、黑西裤、黑皮鞋）",
       "ref": "参考图",
       "refDefault": "默认用原角色的定妆图",
+      "refPick": "参考图来源",
+      "refDefaultChip": "原角色定妆图",
       "refUpload": "上传参考图",
       "refDone": "参考图已上传",
       "generate": "生成换装定妆图",

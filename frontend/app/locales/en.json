@@ -293,6 +293,8 @@
       "descHint": "Colour, cut, fabric, accessories (e.g. black single-breasted suit, white shirt, black trousers, black shoes)",
       "ref": "Reference image",
       "refDefault": "Defaults to the original character's sheet",
+      "refPick": "Reference source",
+      "refDefaultChip": "Original character's sheet",
       "refUpload": "Upload reference",
       "refDone": "Reference image uploaded",
       "generate": "Generate costume sheet",

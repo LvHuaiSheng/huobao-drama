@@ -273,7 +273,6 @@
                         {{ t('episode.asset.upload') }}
                       </button>
                       <button
-                        v-if="!m.costume_label"
                         class="btn btn-sm"
                         type="button"
                         :title="t('detail.costume.makeTitle')"
@@ -663,6 +662,27 @@
           <div class="voice-row">
             <span class="voice-msg">{{ costumeDialog.refImage || t('detail.costume.refDefault') }}</span>
             <button class="btn btn-sm" type="button" @click="pickCostumeRef">{{ t('detail.costume.refUpload') }}</button>
+          </div>
+          <div class="voice-row costume-ref-pick">
+            <span class="voice-label">{{ t('detail.costume.refPick') }}</span>
+            <button
+              type="button"
+              class="costume-ref-chip"
+              :class="{ 'is-on': !costumeDialog.refImage }"
+              :title="t('detail.costume.refDefault')"
+              @click="costumeDialog.refImage = ''"
+            >{{ t('detail.costume.refDefaultChip') }}</button>
+            <button
+              v-for="c in costumeRefOptions"
+              :key="'cref-' + c.id"
+              type="button"
+              class="costume-ref-chip"
+              :class="{ 'is-on': !!costumeDialog.refImage && costumeDialog.refImage === matImage(c) }"
+              @click="costumeDialog.refImage = matImage(c)"
+            >
+              <img :src="thumbOf(assetSrc(c))" alt="" loading="lazy" @error="thumbFallback($event, assetSrc(c))" />
+              <span>{{ c.name }}</span>
+            </button>
           </div>
           <p v-if="costumeDialog.msg" class="voice-msg">{{ costumeDialog.msg }}</p>
         </div>
@@ -1088,11 +1108,19 @@ async function generateMaterial(m) {
 //    "Unexpected token"，2026-10-14 踩过）
 const costumeDialog = ref({ open: false, base: null, label: '', desc: '', refImage: '', busy: false, msg: '', existingText: '' })
 
+// 换装源图候选：本剧所有已有形象的角色（含造型卡）——换装编辑拿它当输入图，可勾选
+const costumeRefOptions = computed(() => {
+  const list = (drama.value && drama.value.characters) || []
+  return list.filter(c => matHasImage(c))
+})
+
 async function openCostumeDialog(m) {
-  costumeDialog.value = { open: true, base: m, label: '', desc: '', refImage: '', busy: false, msg: '', existingText: '' }
+  // 🔴 造型卡上也能点「换装造型」：这时以它的**基准角色**为基准（否则会套娃命名「A·正装·正装」）
+  const base = (m && m.variant_of && ((drama.value && drama.value.characters) || []).find(c => c.id === m.variant_of)) || m
+  costumeDialog.value = { open: true, base, label: '', desc: '', refImage: '', busy: false, msg: '', existingText: '' }
   // 列出该角色已有的造型（同名会复用，不重复建角色）
   try {
-    const res = await characterAPI.variants(m.id)
+    const res = await characterAPI.variants(base.id)
     const list = (res && res.variants) || []
     costumeDialog.value.existingText = list.map(v => v.costume_label || v.name).join('、')
   } catch (e) { /* 拉不到不影响建造型 */ }
@@ -2140,6 +2168,16 @@ onMounted(async () => { await load(); await loadRefmodStatus(); await loadVoiceB
 .voice-dialog { width: min(560px, 92vw); }
 .voice-body { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px 16px; }
 .voice-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+/* 换装源图候选：勾选本剧已有形象（默认=原角色定妆图） */
+.costume-ref-pick { margin-top: 2px; }
+.costume-ref-chip {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 148px; padding: 3px 8px 3px 3px;
+  border: 1px solid var(--border); border-radius: 999px; background: transparent; color: inherit;
+  font-size: 12px; cursor: pointer; overflow: hidden;
+}
+.costume-ref-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.costume-ref-chip img { width: 22px; height: 22px; flex: none; border-radius: 50%; object-fit: cover; }
+.costume-ref-chip.is-on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .voice-label { width: 56px; flex: 0 0 auto; color: var(--text-3); font-size: 12px; }
 .voice-sex { display: flex; gap: 4px; }
 .voice-hint { color: var(--text-3); font-size: 11px; }
