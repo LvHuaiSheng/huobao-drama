@@ -4,7 +4,6 @@ import { db, schema } from '../db/index.js'
 import { success, created, badRequest } from '../utils/response.js'
 import { generateImage, generateVideo, startChain } from '../services/generation.js'
 import { getActiveConfig, getConfigById } from '../services/ai.js'
-import { getDramaStylePrompt } from '../services/style-preset.js'
 import { logTaskError, logTaskPayload, logTaskStart, logTaskSuccess } from '../utils/task-logger.js'
 
 const app = new Hono()
@@ -169,13 +168,13 @@ app.post('/', async (c) => {
     })
     logTaskPayload('TaskAPI', 'request body', body)
 
-    // 视频生成时把项目视觉风格词注入提示词最前方（与图片侧的自动注入保持一致口径）
-    let videoPrompt = videoBody?.prompt
-    if (type === 'video' && String(videoPrompt || '').trim()) {
-      const dramaId = body.drama_id ?? storyboardDramaId ?? null
-      const stylePrompt = await getDramaStylePrompt(dramaId)
-      if (stylePrompt) videoPrompt = `${stylePrompt}，\n${videoPrompt}`
-    }
+    // 2026-10-16（用户拍板，4.0.38）：**视频提示词不再拼风格头**。
+    //   依据：① 本项目 2026-10-11 实测「风格头改不动画风（头/尾/夹击都试过，无差别）——只有正文用该画风的
+    //   介质语言才锁得住」；② 库里最新 6 条稿子（478~483）正文 100% 自带介质词（`Flat 2D cel animation look:
+    //   … flat colour blocks … closed black outlines`，由项目预设的「正文渲染语言」规范驱动，见 agents/index.ts）。
+    //   代价：风格头 768 字符原占 H3 7000 额度 → 现全额让给正文（上限 6200 → 6988），这类「差几十字」的
+    //   分镜从此不会因为我们的自留额被作废。**图片侧仍注入风格头（角色/道具/场景定妆图不受影响）。**
+    const videoPrompt = videoBody?.prompt
 
     const id = type === 'image'
       ? await generateImage({

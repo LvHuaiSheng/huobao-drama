@@ -66,17 +66,17 @@ test('连续两轮一个字符都没砍掉 → 早停（2026-10-15 实测 sb483 
   assert.match(src2, /\} else noopStreak = 0/)
 })
 
-test('长度边界（4.0.37）：余量 32→12 ⇒ 正文上限 6200→6220（sb483 实测差 8 字被旧余量判死）', () => {
+test('长度边界（4.0.38）：风格头不再进视频提示词 ⇒ 上限 6988（=7000−12），且不再随风格头伸缩', () => {
   assert.equal(H3_PROMPT_HARD_LIMIT, 7000)
   assert.equal(PROMPT_HEAD_RESERVE, 12)
-  assert.equal(PROMPT_EN_LIMIT, 6220)                 // 7000 − 768(anime 风格头) − 12
-  assert.equal(promptEnLimit(768), 6220)              // 本项目实际值
-  assert.equal(promptEnLimit(0), 6220)                // 风格头短 → 仍封顶 6220
-  assert.equal(promptEnLimit(1200), 5788)             // 风格头长 → 自动收紧
-  // 回归：实测那条稿子 6208 必须过线
+  assert.equal(PROMPT_EN_LIMIT, 6988)
+  assert.equal(promptEnLimit(768), 6988)
+  assert.equal(promptEnLimit(0), 6988)
+  assert.equal(promptEnLimit(5000), 6988)   // 风格头长短不再影响正文预算（它不进提示词了）
+  // 回归：差 8 字作废的那条（6208）现在有 ~780 字余量
   assert.ok(6208 <= promptEnLimit(768))
-  // 端到端余量：正文上限 + 风格头 ≤ H3 硬上限
-  assert.ok(promptEnLimit(768) + 768 <= H3_PROMPT_HARD_LIMIT)
+  // 端到端：正文 ≤ 6988 ⇒ 发送长度 ≤ 7000 硬上限
+  assert.ok(promptEnLimit(768) <= H3_PROMPT_HARD_LIMIT)
 })
 
 test('只盯全文缺口（4.0.34）：全文差 43、组配额缺口合计 1051 → 必须放弃组配额（sb483 实测）', () => {

@@ -458,9 +458,8 @@ const updateStoryboard = createTool({
     // 不经过 services/video-prompts.ts 的分段治理 —— 实测 Agent 写到 7746 字符仍以为没问题，
     // 拼上后端风格头就是 8337 > H3 的 7000 上限，视频根本发不出去。
     // 工具层是唯一能覆盖所有写入路径的位置（批量接口 / 单条聊天 / 人工）。
-    // 2026-10-11：上限由写死的 6200 改成**按项目实际风格头长度动态算** —— 风格头也是发送时
-    // 拼上去的、同样占 H3 的 7000 额度，而它的长度由用户在设置页改预设决定（anime 已 768 字符，
-    // 正是 7000−6200−32 的临界值）。风格头短时结果仍是 6200（行为不变）。
+    // 2026-10-16（4.0.38）：**风格头不再拼进视频提示词** ⇒ 上限不再扣风格头（6988 = 7000 − 12 余量）。
+    // 历史上的动态算法（扣 768 + 32）已废止 —— 它正是「差 8 字整条作废」的元凶。
     if ('video_prompt_en' in fields) {
       const en = String(fields.video_prompt_en || '')
       const styleHeadLen = (await getDramaStylePrompt(dramaId)).length
@@ -475,8 +474,8 @@ const updateStoryboard = createTool({
         return {
           error:
             `video_prompt_en 超长，已拒绝写入：当前 ${en.length} 字符，上限 ${limit} 字符。` +
-            `MiniMax H3 的 prompt 上限是 7000 字符（官方 hard limit、不可放宽），后端发送时还会拼 ${styleHeadLen} 字符本项目风格头，` +
-            `所以正文必须 ≤ ${limit}（这个数已经扣掉了风格头）。请按 video-prompt 技能「英文发送版」节的逐段配额压缩后重新调用本工具：` +
+            `MiniMax H3 的 prompt 上限是 7000 字符（官方 hard limit、不可放宽），本项目发送时**不再拼风格头**（画风由正文承载），` +
+            `所以正文必须 ≤ ${limit}（仅扣 12 字余量）。请按 video-prompt 技能「英文发送版」节的逐段配额压缩后重新调用本工具：` +
             `subject_definitions ≤1000（每主体 ≤250） / summary ≤340 / retention_analysis ≤760 / ` +
             `detailed_description ≤2500 / overall_soundscape ≤300 / non_diegetic_music ≤120（合计 5020，余量刻意留给模型 10~30% 的超配）。` +
             `不许为了压长度而砍 <d> 台词、retention_analysis 的 fully_preserved、<Picture N> 的 with 外观。`,
