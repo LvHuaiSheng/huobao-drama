@@ -24,6 +24,9 @@ test('shouldRegenerateDraft：六段不齐时禁止整稿重来；六段齐且�
   assert.equal(shouldRegenerateDraft(0, 800, 0), false, '刚好 800 不算超')
   assert.equal(shouldRegenerateDraft(0, 801, 0), true, '>800 算超')
   assert.equal(shouldRegenerateDraft(1, 5000, 0), false, '第二次不许再重来（最多一次）')
+  // 4.0.28：本轮补写过（filledCount>0）就不许重来 —— 否则刚补回来的段被丢掉重抽（实测 sb481 白烧约 50 秒）
+  assert.equal(shouldRegenerateDraft(0, 2000, 0, 1), false, '补写过的这轮不许重来')
+  assert.equal(shouldRegenerateDraft(0, 2000, 0, 0), true, '没补写过才允许')
 })
 
 test('rosterBlock：把中文工作版首行的主体清单拼进去（没有清单时不注入）', () => {
@@ -35,6 +38,9 @@ test('rosterBlock：把中文工作版首行的主体清单拼进去（没有清
   assert.match(b, /每一个角色、场景、道具各写一行/)
   assert.match(b, /一个都不许漏/)
   assert.equal(zhRosterLine(zh), roster, '首行即清单')
+  // 4.0.28：逐主体字数预算（实测补写一口气给 5 个主体写了 ~3000 字符，配额只有 1700）
+  assert.match(b, /本次共 4 个主体/)
+  assert.match(b, /每行 ≤ 420 字符/)
 })
 
 test('首稿与补写/压缩 prompt 都必须带主体清单（回归 sb481 的成因）', () => {
@@ -45,7 +51,7 @@ test('首稿与补写/压缩 prompt 都必须带主体清单（回归 sb481 的�
 })
 
 test('整稿重来条件走纯函数（不再写死 pass/over 判断）', () => {
-  assert.match(src, /if \(shouldRegenerateDraft\(pass, over, missingSegs\(\)\.length\)\) \{/)
+  assert.match(src, /if \(shouldRegenerateDraft\(pass, over, missingSegs\(\)\.length, filledCount\)\) \{/)
   assert.doesNotMatch(src, /if \(pass === 0 && over > DRAFT_OVER_LIMIT_RETRY\)/)
 })
 

@@ -662,6 +662,7 @@ async function generateEnByStages(
     //      缺段不是"超标"，压缩指令救不回来 → 单独一次「补写」请求；最多 2 轮。
     const missingSegs = () => EN_SECTION_QUOTA.map(([s]) => s).filter(s => !parts.get(s))
     const fillState = { round: 0, emptyStreak: 0 }
+    let filledCount = 0   // 本轮靠「补写」补回来的段数（>0 ⇒ 禁止整稿重来，见 shouldRegenerateDraft）
     while (missingSegs().length && fillState.round < MAX_SEG_FILL_RETRY) {
       onNote?.('en_fill', fillState.round + 1, MAX_SEG_FILL_RETRY)
       const miss = missingSegs()
@@ -676,6 +677,7 @@ async function generateEnByStages(
       const raw = cleanSegText(res?.text || '')
       debugLog(episodeId, sb.id, `write-missing-${fillState.round + 1}-${fillState.emptyStreak + 1}`, raw, { missing: miss })
       const written = writeBack(raw, miss)
+      filledCount += written.length
       // 2026-10-15（A 方案）：补写空转（模型只回前言/空文本，实测 sb423 两轮都是 0 字符）不消耗补写轮次
       const next = advanceRewriteState(fillState, written.length > 0)
       if (!next.consumed) {
@@ -691,7 +693,7 @@ async function generateEnByStages(
 
     // 首稿写飞 → 清空重来一次（pass 1）；没写飞（或已经重来过）就进 ② 压缩
     const over = draftLen() - budget.limit
-    if (shouldRegenerateDraft(pass, over, missingSegs().length)) {
+    if (shouldRegenerateDraft(pass, over, missingSegs().length, filledCount)) {
       logTaskProgress('VideoPrompt', 'en-full-regenerate', {
         episodeId, storyboardId: sb.id, draft: draftLen(), over, limit: budget.limit,
       })

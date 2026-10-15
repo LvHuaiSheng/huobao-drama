@@ -73,7 +73,7 @@ test('首稿写飞（超上限 >800、且六段齐）→ 整稿重来一次（4.
   assert.match(src3, /for \(let pass = 0; pass < 2; pass\+\+\)/)
   // 4.0.27：缺段时禁止重来（否则丢掉刚补好的段）→ 判据在 shouldRegenerateDraft 里，见
   //   tests/video-prompt-missing-section.test.mjs 的真值表
-  assert.match(src3, /if \(shouldRegenerateDraft\(pass, over, missingSegs\(\)\.length\)\) \{/)
+  assert.match(src3, /if \(shouldRegenerateDraft\(pass, over, missingSegs\(\)\.length, filledCount\)\) \{/)
   // 实测两条失败首稿超 2172 / 3418，成功首稿只超 0~313 → 阈值 800 落在两者之间
   assert.match(src3, /'en-full-regenerate'/)
 })

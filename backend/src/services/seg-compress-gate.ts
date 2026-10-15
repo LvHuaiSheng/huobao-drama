@@ -16,8 +16,12 @@
  * ⇒ 六段不齐时禁止整稿重来（缺段靠补写解决）；只有「六段齐但超限」才值得重采样一次。 */
 export const DRAFT_OVER_LIMIT_RETRY = 800
 
-export function shouldRegenerateDraft(pass: number, over: number, missingCount: number): boolean {
-  return pass === 0 && missingCount === 0 && over > DRAFT_OVER_LIMIT_RETRY
+/** `subject_definitions` 段配额（与 video-prompts.ts 的 EN_SECTION_QUOTA 保持一致） */
+export const SUBJECT_SECTION_QUOTA = 1700
+
+export function shouldRegenerateDraft(pass: number, over: number, missingCount: number, filledCount = 0): boolean {
+  // filledCount > 0 = 本轮刚靠「补写」把缺段补回来过 ⇒ 整稿重来会把这份成果丢掉再抽一次（实测 sb481 白烧约 50 秒）。
+  return pass === 0 && missingCount === 0 && filledCount === 0 && over > DRAFT_OVER_LIMIT_RETRY
 }
 
 /** 中文工作版首行 = 本次分镜的主体清单（「出场人物：@A、@B；场景：@C；道具：@D」）。
@@ -29,12 +33,17 @@ export function zhRosterLine(zhPrompt?: string): string {
 }
 
 /** 主体清单块（拼进英文版 prompt；没有中文工作版时返回空串） */
-export function rosterBlock(zhPrompt?: string): string {
+export function rosterBlock(zhPrompt?: string, sectionQuota = SUBJECT_SECTION_QUOTA): string {
   const roster = zhRosterLine(zhPrompt)
   if (!roster) return ''
+  // 主体数 = 清单里 @ 的个数（出场人物 + 场景 + 道具）。实测 sb481 补写时一口气给 5 个主体写了 ~3000 字符，
+  // 而这一段配额只有 1700 → 直接顶破全文上限、多烧一轮压缩。所以这里把逐主体预算写死给模型。
+  const n = Math.max(1, (roster.match(/@/g) || []).length)
+  const per = Math.max(120, Math.floor(sectionQuota / n / 10) * 10)
   return `
 🔴🔴 **本次主体清单（\`<Subject N>\` 的编号顺序以它为准）**：${roster}
 \`subject_definitions\` 必须把清单里的**每一个角色、场景、道具各写一行**（N 从 1 开始、按清单顺序），**一个都不许漏** —— 只写场景不写人物（或反过来）都会让正文引用到没有定义的编号，身份/服装绑定当场全废（2026-10-15 sb481 实测）。
+🔴 **每行字数预算**：本次共 ${n} 个主体、该段总额 ${sectionQuota} 字符 ⇒ **每个主体一行、每行 ≤ ${per} 字符**（脸型/发型/服装主色/关键道具为主，其余修饰词一律不要）。写超了后端会重发压缩，白等 20 多秒。
 `
 }
 
