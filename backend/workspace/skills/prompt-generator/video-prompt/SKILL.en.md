@@ -183,14 +183,14 @@ The MiniMax H3 prompt limit is **7000 characters — an official hard limit that
 **Going over means the request is rejected outright and no video is produced** (measured 2026-10-09: sb147 reached 7608 characters → 8403 after concatenation → error "prompt too long: MiniMax H3 limit 7000 characters, current 8403").
 
 **Per-section quotas (🔴 write straight to these numbers — going over is SLOWER)**: the backend **measures each section** and **sends any oversize section back for a rewrite** (one storyboard can then burn 2–9 extra model calls, multiplying your wait). **Hitting the quota on the first pass is the fastest path.** Reconfigured 2026-10-10 to official guidance:
-- `subject_definitions` ≤ 1700
+- `subject_definitions` ≤ 1000 (**≤250 per subject**: 4 subjects ⇒ 1000. Each subject line is exactly *who it is + hair colour + garment colour + the complete-head statement* — no plot, no mood, no camera wording, no repeated appearance prose)
 - `summary` ≤ 340 (official: one short English paragraph)
 - `retention_analysis` ≤ 760
 - `detailed_description` ≤ 2500 (official: 350–500 English words ≈ 1750–2500 characters)
 - `overall_soundscape` ≤ 300 (official: 1–4 sentences)
 - `non_diegetic_music` ≤ 120 (official: 1–3 sentences; write `N/A` when absent)
-- **Total 5720 (+5 newlines = 5725) ≤ 6200 = the whole-prompt hard limit**
-- 🔴 **Write to exactly these six numbers**: `subject_definitions` 1700 / `summary` 340 / `retention_analysis` 760 / `detailed_description` 2500 / `overall_soundscape` 300 / `non_diegetic_music` 120 — **these are the numbers the backend measures each section against**; do not redistribute the budget yourself.
+- **Total 5020 (+5 newlines = 5025) ≤ 6200 = the whole-prompt hard limit — the ~1180 slack is deliberate**: models overshoot any quota by 10–30%, and the slack is what keeps an overshoot compressible instead of fatal (measured 2026-10-16: identical storyboard, quota-sum 5720 with zero slack → 7666 draft → floor 7003 → discarded)
+- 🔴 **Write to exactly these six numbers**: `subject_definitions` 1000 / `summary` 340 / `retention_analysis` 760 / `detailed_description` 2500 / `overall_soundscape` 300 / `non_diegetic_music` 120 — **these are the numbers the backend measures each section against**; do not redistribute the budget yourself.
 **🔴 Per-shot cap inside `detailed_description` (measured 2026-10-15, multi-subject storyboards)**: the 2500 quota is for the whole section, so **each shot's block ≤ ⌊2500 ÷ number of shots⌋** (3 shots → ≤830 characters per shot; 2 shots → ≤1250). A shot block carries only: which subject (their `<Subject N>` number plus the garment noun, e.g. `<Subject 2>, the woman in the dark blue cloth jacket`), where, what happens, the camera/expression beat, and the mandatory lips-closed clause — nothing that another section already states. Measured: without this cap the section runs to **3400–3800 characters (+900~1300 over quota)** on storyboards with 3+ subjects, and that is exactly the class that cannot be compressed back under 6200 and gets bounced.
 **When over budget, cut in this order**: ① redundant clauses in `summary` ② `soundscape` effects already stated in the body ③ appearance modifiers in `subject_definitions` ④ filler action set-up duplicated in `detailed_description`.
 **Never cut**: `<d>` dialogue, any `fully_preserved` line in `retention_analysis`, `<Picture N>` and the `with` clause.

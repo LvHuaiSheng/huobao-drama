@@ -92,18 +92,18 @@ test('逐项点名（4.0.32）：逐拍 / 逐主体给出目标字数', () => {
   // 2500÷3 拍 = 830/拍；三拍都超（980/1500/1024）→ 三条都要点出来
   assert.equal(l1.length, 3, `三拍都该点名，实际 ${JSON.stringify(l1)}`)
   assert.match(l1[1], /\[Shot 2\] 现在 1500 字 → 目标 ≤830（砍 670）/)
-  // 逐主体：1700 ÷ 2 主体 = 850
+  // 逐主体：1000 ÷ 主体数（4.0.36 起定义段配额 1000）
   const defs = [
     'subject_definitions:',
     '<Subject 1> ' + 'a'.repeat(430),
     '<Subject 2> ' + 'b'.repeat(900),
     '<Subject 3> ' + 'c'.repeat(780),
   ].join('\n')
-  const l2 = itemBudgetLines(defs, 'subject', 1700)
-  // 1700÷3 主体 = 560/主体；430 的达标放过，900 / 780 两条点名
-  assert.equal(l2.length, 2, `只该点超 560 的两条，实际 ${JSON.stringify(l2)}`)
-  assert.match(l2[0], /<Subject 2> 现在 \d+ 字 → 目标 ≤560/)
-  assert.match(l2[1], /<Subject 3> 现在 \d+ 字 → 目标 ≤560/)
+  const l2 = itemBudgetLines(defs, 'subject', 1000)
+  // 1000÷3 主体 = 330/主体；三条都超 → 三条都点名
+  assert.equal(l2.length, 3, `1000÷3=330，三条都超 → 三条都点名，实际 ${JSON.stringify(l2)}`)
+  assert.ok(l2.every(x => /目标 ≤330/.test(x)), JSON.stringify(l2))
+  assert.match(l2.join('\n'), /<Subject 2> 现在 \d+ 字 → 目标 ≤330/)
   assert.deepEqual(itemBudgetLines('', 'shot', 2500), [])
 })
 

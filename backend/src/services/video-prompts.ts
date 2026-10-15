@@ -115,7 +115,7 @@ const EN_SECTION_QUOTA: Array<[string, number]> = [
   // 配额按官方口径重配：detailed_description 官方要 350–500 英文词（≈1750–2500 字符），
   // 原 1900 卡在下限偏少 → 提到 2500；non_diegetic_music 官方要 1–3 句，原 40 写不完 → 120。
   // 合计 5720（+ 5 个换行 = 5725）≤ 6200 = 全文硬上限。
-  ['subject_definitions:', 1700],
+  ['subject_definitions:', SUBJECT_SECTION_QUOTA],
   ['summary:', 340],
   ['retention_analysis:', 760],
   ['detailed_description:', 2500],
@@ -126,7 +126,7 @@ const EN_SECTION_QUOTA: Array<[string, number]> = [
 /** 核定/重写分组：相邻段一起处理，limit = 组内配额之和。
  *  六段配额相加 = 5720；全部达标后拼接总长 ≤ 5725 < 6200 = PROMPT_EN_LIMIT。 */
 const EN_STAGES: Array<{ key: string; label: string; segs: string[]; limit: number }> = [
-  { key: 'subj', label: 'subject_definitions 段', limit: 1700, segs: ['subject_definitions:'] },
+  { key: 'subj', label: 'subject_definitions 段', limit: SUBJECT_SECTION_QUOTA, segs: ['subject_definitions:'] },
   { key: 'summ', label: 'summary 和 retention_analysis 两段', limit: 1100, segs: ['summary:', 'retention_analysis:'] },
   {
     key: 'detail',
@@ -366,7 +366,7 @@ function groupProblem(text: string, stage: { segs: string[]; limit: number }): s
  * 道具锁不住的真正差异见 video-prompt 技能「道具镜必须绝对静止」一节。
  */
 import { findDanglingPropRef } from './prop-text-gates.js'
-import { shouldKeepCompressing, shouldRegenerateDraft, rosterBlock, itemBudgetLines, shouldTargetTotalOnly } from './seg-compress-gate.js'
+import { shouldKeepCompressing, shouldRegenerateDraft, rosterBlock, itemBudgetLines, shouldTargetTotalOnly, SUBJECT_SECTION_QUOTA } from './seg-compress-gate.js'
 import { findChineseOutsideDialogue } from './en-cn-gate.js'
 import { findVoiceoverMouthAction, type VoiceoverMouthHit } from './voiceover-gates.js'
 import { findRetentionMismatch, findRetentionOutfitMismatch, type RetentionMismatch, type RetentionOutfitHit } from './retention-gate.js'
@@ -578,7 +578,7 @@ ${(() => {
   const lines: string[] = []
   for (const it of items) {
     if (it.stage.segs.includes('detailed_description:')) lines.push(...itemBudgetLines(it.current, 'shot', 2500))
-    if (it.stage.segs.includes('subject_definitions:')) lines.push(...itemBudgetLines(it.current, 'subject', 1700))
+    if (it.stage.segs.includes('subject_definitions:')) lines.push(...itemBudgetLines(it.current, 'subject', SUBJECT_SECTION_QUOTA))
   }
   return lines.length
     ? `\n🔴 **逐项点名（每一项自己数一遍字数，别只看整段）**：\n${lines.join('\n')}\n（这些是**优先下手处**：${totalOnly ? '不必每项都到目标，全文总量达标即可' : '每一项都要压到目标以内，别只压整段总量'}；压不下来就先删氛围补充与重复复述。）\n`

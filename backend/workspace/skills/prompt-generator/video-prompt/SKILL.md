@@ -173,14 +173,14 @@ MiniMax H3 的 prompt 上限是 **7000 字符，官方 hard limit、不可放宽
 **超限直接被拒、整段生成不出来**（2026-10-09 实测：sb147 写到 7608 字符 → 拼接后 8403 → 报「提示词超长：MiniMax H3 上限 7000 字符，当前 8403」）。
 
 **各段配额（🔴 动笔就按这个数写，别写完再回头砍 —— 超了更慢）**：后端会**逐段实测字符数**，哪一段超了就把那一段**打回重写**（一条分镜可能因此多跑 2~9 次模型，你等的时间翻几倍）。**第一遍就写到配额内 = 最快**。2026-10-10 晚按官方口径重配：
-- `subject_definitions` ≤ 1700
+- `subject_definitions` ≤ 1000（**每主体 ≤250**：4 个主体就是 1000。每行只写「是谁 + 发色 + 服装色 + 完整头部声明」——不写剧情、不写氛围、不写镜头措辞、不复述外观）
 - `summary` ≤ 340（官方：一段短英文）
 - `retention_analysis` ≤ 760
 - `detailed_description` ≤ 2500（**官方要求 350–500 英文词 ≈ 1750–2500 字符**）
 - `overall_soundscape` ≤ 300（官方：1–4 句）
 - `non_diegetic_music` ≤ 120（官方：1–3 句；没有配乐写 `N/A`）
-- **合计 5720（+ 5 个换行 = 5725）≤ 6200 全文硬上限**
-- 🔴 **就按这六个数字写死**：`subject_definitions` 1700 / `summary` 340 / `retention_analysis` 760 / `detailed_description` 2500 / `overall_soundscape` 300 / `non_diegetic_music` 120 —— **后端正是按这六个数字逐段核定的**，别自己重新分配额度。
+- **合计 5020（+ 5 个换行 = 5025）≤ 6200 全文硬上限 —— 这 ~1180 的余量是刻意留的**：模型对任何配额都会超 10~30%，余量就是「超了还能压回来」和「超了直接作废」的分界（2026-10-16 实测：同一分镜，配额合计 5720 零余量 → 首稿 7666 → 地板 7003 → 作废）
+- 🔴 **就按这六个数字写死**：`subject_definitions` 1000 / `summary` 340 / `retention_analysis` 760 / `detailed_description` 2500 / `overall_soundscape` 300 / `non_diegetic_music` 120 —— **后端正是按这六个数字逐段核定的**，别自己重新分配额度。
 **超了就砍，顺序**：① `summary` 冗余从句 ② `soundscape` 与正文重复的音效 ③ `subject_definitions` 的外观修饰词 ④ `detailed_description` 里重复的动作铺垫。
 **绝不许砍**：`<d>` 台词、`retention_analysis` 每条 `fully_preserved`、`<Picture N>` 与 `with` 外观。
 
@@ -247,6 +247,7 @@ non_diegetic_music:
    - `<Audio N>` 用 `reference`：
      - 有旁白时：`<Audio 1>: reference - its vocal timbre guides <Subject N>'s off-screen narration without copying the original signal.`
      - 全是在场对白时：`<Audio 1>: reference - its vocal timbre guides the dialogue delivery of <Subject N> without copying the original signal.`
+   - **🔴🔴 保留段只写「出场 + 颜色 + 数量」，绝不复述外观（2026-10-16 立）**：这一行要写清衣物具体名词（外套 / 内搭 / 下装 / 鞋，来自卡面 `styling`）—— 但**不许**再复述发型、脸、眼睛、肤色、痣、配饰或道具表面：那些只写在 `subject_definitions` 里。复述是这一段冲破 760 配额的主因，也是整条压不回 6200 的元凶（实测同分镜：复述版 860~1346 字符 vs 不复述 640~760）。
    - **本段严禁出现 `(S1)` 这类说话人编号**（官方：*Do not write `(Sx)` in `retention_analysis`.*）
 4. **`detailed_description`** — 正文
    - **`[Shot 1]` 不加时间戳**，后续镜头 `[Shot 2] At 00:06.000, ...`

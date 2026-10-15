@@ -17,7 +17,10 @@
 export const DRAFT_OVER_LIMIT_RETRY = 800
 
 /** `subject_definitions` 段配额（与 video-prompts.ts 的 EN_SECTION_QUOTA 保持一致） */
-export const SUBJECT_SECTION_QUOTA = 1700
+// 2026-10-16（4.0.36 用户拍板 A）：1700 → 1000（每主体 ≤250）。
+//   实测 sb483：模型自己写定义段时写 1988 字，六段配额合计 5720 却零余量（模型每段超 10~30% 是常态）
+//   → 全文 7666 → 压到地板 7003（超 803）整条作废。收紧必写内容才是根因解，加轮数/改措辞都无效。
+export const SUBJECT_SECTION_QUOTA = 1000
 
 export function shouldRegenerateDraft(pass: number, over: number, missingCount: number, filledCount = 0): boolean {
   // filledCount > 0 = 本轮刚靠「补写」把缺段补回来过 ⇒ 整稿重来会把这份成果丢掉再抽一次（实测 sb481 白烧约 50 秒）。
