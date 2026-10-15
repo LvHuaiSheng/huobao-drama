@@ -8,6 +8,10 @@
  * 判据全部对齐本仓生成侧约束；不做任何内容改写、不写库。
  */
 
+// 台词判据与生成侧闸（services/video-prompts.ts 的 zhEnConsistency）共用同一个纯函数 ——
+// 两边用不同谓词会给出相反结论（2026-10-15 实测 sb466/467）。zh-lang 零依赖，本文件「纯函数、零依赖」的性质不变。
+import { zhDialogueLines } from './zh-lang.js'
+
 export type CheckLevel = 'error' | 'warn'
 
 export interface CheckIssue {
@@ -73,7 +77,6 @@ const EN_SECTIONS = [
 const RE_CN_CHAR = /[\u4e00-\u9fff]/g
 const RE_SHOT_HEADER = /^[ \t]*\[Shot \d+\]/gm
 const RE_ZH_BEAT = /^[ \t]*(\d+)[ \t]*-[ \t]*(\d+)[ \t]*秒[ \t]*[：:]/gm
-const RE_ZH_LINE = /[：:][ \t]*「([^」]*)」/g
 const RE_EN_AT = /\[Shot (\d+)\][^\n]*?\bAt[ \t]+(\d{1,2}):(\d{2})\.(\d{3})/g
 const RE_EN_D = /<d>[ \t]*\[Chinese\][ \t]*([\s\S]*?)[ \t]*<\/d>/g
 // 只匹配真正会让「画外音被念出来」的机位写法（真数据实测：「chin lifted」「jaw-level shot」这类正常描写必须放过）
@@ -253,7 +256,7 @@ export function checkStoryboardPrompt(sb: StoryboardCheckInput, opts: CheckOptio
   // 中文工作版末尾常有「（两句旁白逐字取自…）」这类自标注，里面的引号会被误当台词 → 先剥掉全角括号
   const zhBody = zh.replace(/（[^）]*）/g, '')
   const enLines = [...en.matchAll(RE_EN_D)].map(m => m[1].trim()).filter(Boolean)
-  const zhLines = [...zhBody.matchAll(RE_ZH_LINE)].map(m => m[1].trim()).filter(Boolean)
+  const zhLines = zhDialogueLines(zhBody)
   if (zhLines.length && enLines.length !== zhLines.length) {
     out.push(mk({
       level: 'error', code: 'dialogue-count', location: 'detailed_description',

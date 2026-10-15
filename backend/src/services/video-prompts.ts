@@ -19,7 +19,7 @@ import fs from 'fs'
 import path from 'path'
 import { eq } from 'drizzle-orm'
 import { db, schema } from '../db/index.js'
-import { looksLikeChinese } from './zh-lang.js'
+import { looksLikeChinese, stripZhPreamble, zhDialogueLines } from './zh-lang.js'
 import { mastra } from '../mastra/index.js'
 import { buildAgentRequestContext } from '../agents/context.js'
 import { getDramaStylePrompt } from './style-preset.js'
@@ -420,7 +420,7 @@ function zhEnConsistency(enText: string, zhPrompt?: string): string | null {
   }
   // ③ 台词条数一致：中文「旁白/X说：「…」」句数 = 英文 <d> 条数
   // 2026-10-10 修：补「画外音」，此前三种合法写法里漏了一种 → 中文有画外音、英文漏 <d> 也能过检
-  const zhLines = (zhPrompt.match(/(?:旁白|画外音|说)[^「\n]{0,30}「/g) || []).length
+  const zhLines = zhDialogueLines(zhPrompt).length
   const enLines = (enText.match(/<d>/g) || []).length
   if (zhLines !== enLines) {
     return `中英台词条数不一致：中文工作版 ${zhLines} 句，英文版 <d> ${enLines} 条（必须逐条对应，一句不多一句不少）`
@@ -1332,7 +1332,9 @@ async function generateZhPrompt(
       ],
       { maxSteps: 6, requestContext },
     )) as { text?: string } | undefined
-    last = cleanSegText(res?.text || '')
+    // 2026-10-15：先砍掉模型写在正文前的思考过程/前言（英文闲聊；cleanSegText 只认英文六段段名，
+    //   对中文工作版无效 —— 实测 sb466/467 中文提示词开头有 507 个英文字符）
+    last = stripZhPreamble(cleanSegText(res?.text || ''))
     if (!last) continue
     // 语言闸（2026-10-15）：整篇不是中文 ⇒ 这一份写错了语言，拍数校验对它没意义（英文拍数恒为 0）
     if (!looksLikeChinese(last)) {

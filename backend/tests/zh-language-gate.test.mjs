@@ -21,7 +21,31 @@ const root = new URL('..', import.meta.url)
 const read = (path) => readFileSync(new URL(path, root), 'utf8')
 
 // ── ① 纯判据函数：直接跑真代码（zh-lang.ts 零依赖，node 能直接 import TS） ──────
-const { looksLikeChinese, countChinese } = await import('../src/services/zh-lang.ts')
+const { looksLikeChinese, countChinese, zhDialogueLines, stripZhPreamble } = await import('../src/services/zh-lang.ts')
+
+test('zhDialogueLines / stripZhPreamble：与体检同口径 + 砍掉模型前言', () => {
+  // 内容侧：模型把台词写成「…吐字平稳：「台词」」（没有「说」字）也要数出来（实测 sb466/467 形态）
+  const zh466 = '0-4秒：她脖子定、吐字平稳：「所有人都以为那是意外。」\n6-9秒：声音发颤但字字咬实：「可我查清楚了——有人蓄意策划那场车祸。」'
+  assert.equal(zhDialogueLines(zh466).length, 2)
+  // 画面内文字用双引号，不会被当台词（本管线约定）
+  assert.equal(zhDialogueLines('画面左侧木质招牌上写着"老张面馆"四个字').length, 0)
+  // 生成侧闸与体检必须共用同一个谓词
+  const gate = read('src/services/video-prompts.ts')
+  const check = read('src/services/prompt-check.ts')
+  assert.match(gate, /const zhLines = zhDialogueLines\(zhPrompt\)\.length/)
+  assert.match(check, /const zhLines = zhDialogueLines\(zhBody\)/)
+  assert.doesNotMatch(check, /RE_ZH_LINE/)
+
+  // 前言：整段英文闲聊 + 正文 → 砍到「出场人物：」；只有正文时原样返回
+  const withPre = 'I\'ll start by reading the storyboard context for shot #2. I have the context — 4 【镜头N】 → exactly 4 beats.\n\n出场人物：@苏清禾；场景：@宴会厅中央。\n\n0-4秒：@宴会厅中央，中景机位静止。'
+  const cut = stripZhPreamble(withPre)
+  assert.ok(cut.startsWith('出场人物：'), cut.slice(0, 30))
+  assert.ok(!cut.includes('storyboard context'))
+  const clean = '出场人物：@苏清禾；场景：@宴会厅中央。\n\n0-4秒：中景机位静止。'
+  assert.equal(stripZhPreamble(clean), clean)
+  // 没有「出场人物」时兜底认第一拍
+  assert.ok(stripZhPreamble('前言前言前言。0-4秒：中景机位静止。').startsWith('0-4秒：'))
+})
 
 test('looksLikeChinese 认中文工作版、挡整篇英文', () => {
   // 真实中文工作版（含 @角色名 / 秒数这类 ASCII，中文仍占多数）

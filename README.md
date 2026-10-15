@@ -5,7 +5,7 @@
 A self-maintained fork of [chatfire-AI/huobao-drama](https://github.com/chatfire-AI/huobao-drama) — an AI short-drama production pipeline (script → assets → storyboards → video), shipped as an Electron desktop app with a Nuxt front end and a TypeScript back end.
 
 > **This is a personal fork.** All of my changes live on the **`chain`** branch; **`master`** is kept exactly as upstream delivered it, which makes diffing easy. I do not chase upstream updates, and I do not offer support for this fork.
-> App version `desktop 4.0.15` · last update 2026-10-15 · 229 own commits since 2026-10-07.
+> App version `desktop 4.0.16` · last update 2026-10-15 · 230 own commits since 2026-10-07.
 
 ## What this fork adds
 
@@ -20,6 +20,7 @@ A self-maintained fork of [chatfire-AI/huobao-drama](https://github.com/chatfire
 
 | Date | Tag | Highlights |
 | --- | --- | --- |
+| 2026-10-15 | `v4.0.16-zdz1` | Two more repair-pipeline fixes: the Chinese working prompt now has the model's English "thinking out loud" preamble stripped (it used to be saved as the first ~500 characters of the prompt); the dialogue-count predicate is now shared between the generation gate and the health check (the gate used a narrower pattern, so a couple of storyboards were flagged as 「Chinese/English dialogue mismatch」 and burned two repair rounds each for nothing — measured on 102 live prompts: 5 false alarms down to 3, none of them false). |
 | 2026-10-15 | `v4.0.15-zdz1` | Two repair-pipeline bugs found while investigating a failed one-click repair: (1) the compression request sent the literal `undefined` instead of the original prompt text — a caller/builder field-name mismatch that made every compression round a no-op, so an over-length English prompt was saved anyway; (2) the Chinese working prompt is now language-gated — an English reply can no longer be written into it, which is what had turned one storyboard's Chinese prompt into English. Regression tests added for both. |
 | 2026-10-15 | `v4.0.14-zdz1` | Costume fixes: the image-edit call no longer doubles the `/v1` prefix (it used to fail with a 404); the costume dialog no longer wraps its long field label, its description box is taller, and opening it from a costume card pre-fills that costume's name and description; the AI-written outfit description now honours the costume name and the character's existing styling; costume generation shows up in the task list; one-click repair shows the same detailed progress as batch prompt generation (current storyboard, stage, elapsed, ETA, recent results) |
 | 2026-10-15 | `v4.0.13-zdz1` | Costume: pick any existing look as the source image · AI-written outfit description · a costume character can reuse the original character's voice · costume cards can be costumed again; fix for a wasted prompt-compression round; batch progress messages coloured by result |
