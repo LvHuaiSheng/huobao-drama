@@ -11,6 +11,7 @@
 // 台词判据与生成侧闸（services/video-prompts.ts 的 zhEnConsistency）共用同一个纯函数 ——
 // 两边用不同谓词会给出相反结论（2026-10-15 实测 sb466/467）。zh-lang 零依赖，本文件「纯函数、零依赖」的性质不变。
 import { zhDialogueLines } from './zh-lang.js'
+import { ambiguousStyling, assetColourGaps, WHAT_ZH } from './asset-colour-gate.js'
 
 export type CheckLevel = 'error' | 'warn'
 
@@ -39,6 +40,8 @@ export interface MediaRef {
   hasCard: boolean
   /** 仅角色：声音卡是否已抽好 */
   hasVoiceCard?: boolean
+  /** 资产文字（角色 = 外观+造型；道具 = 描述）—— 发色/服装颜色闸的判据（2026-10-15 加） */
+  assetText?: string
 }
 
 export interface MediaContext {
@@ -416,6 +419,33 @@ export function checkStoryboardPrompt(sb: StoryboardCheckInput, opts: CheckOptio
         //      （2026-10-15 ep21 实测 6 条）。
         //   ③ 真正的 `<Audio j>` 由中转注入、索引由它自己算（j = 音频槽位；App 只发一条 wav ⇒ j=1），
         //      比让模型猜编号可靠 ⇒ 不再作为告警。`hasVoiceCard` 字段保留（数据还在，只是不报警）。
+      }
+    }
+  }
+
+  // ㊳ 资产卡文字体检（2026-10-15 加，实测第 8 集分镜 8：脸保住、警察发色与王梅衣色没保住）
+  //    根因不在提示词而在卡：警察卡面是黑发但字段里没写发色（写提示词的模型看不到图，颜色从没进过提示词）；
+  //    王梅字段写「深蓝**或**灰褐色」而卡面是灰褐 → 文字与参考图打架。这两条只能改卡，故 autoFixable=false。
+  for (const r of opts.media?.refs || []) {
+    const text = (r.assetText || '').trim()
+    if (!text) continue
+    const amb = ambiguousStyling(text)
+    if (amb) {
+      out.push(mk({
+        level: 'warn', code: 'asset-ambiguous-styling', location: `参考图 ${r.picture} ${r.name}`,
+        message: `${r.name} 的造型文字里有「${amb}」（没写死）→ 文字与定妆卡可能不一致，衣服/发色会保不住；先在角色卡里定死一个值`,
+        autoFixable: false,
+      }))
+    }
+    if (r.kind === 'character') {
+      // 发色 / 肤色 / 服装色 / 配饰色 —— 卡里没有，提示词就写不出来（模型看不到图），H3 会自己猜
+      const lack = assetColourGaps(text)
+      if (lack.length) {
+        out.push(mk({
+          level: 'warn', code: 'asset-missing-colour', location: `参考图 ${r.picture} ${r.name}`,
+          message: `${r.name} 的卡里没写这些颜色：${lack.map(w => WHAT_ZH[w]).join('、')} → 提示词写不出颜色（生成提示词的模型看不到图），成片会自己猜；请在角色的「外观/造型」里补全，并在角色卡提示词阶段就写死`,
+          autoFixable: false,
+        }))
       }
     }
   }

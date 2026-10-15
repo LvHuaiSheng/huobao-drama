@@ -39,6 +39,8 @@ export async function buildMediaRefs(storyboardId: number, slotLimit = 9): Promi
     if (!ch) continue
     refs.push({
       picture: picNo++, kind: 'character', id: ch.id, name: ch.name,
+      // 发色/服装颜色闸的判据：只有「卡里的文字」能被写提示词的模型看到（2026-10-15 加）
+      assetText: [ch.appearance, ch.styling, ch.costumeLabel].filter(Boolean).join(' ｜ '),
       hasImage: !!(ch.imageUrl || '').trim(),
       hasCard: fs.existsSync(refmodCardPath(refmodCardName('character', ch.id))),
       // 判据是**源 wav 在不在**（.safetensors 声音卡 2026-10-11 已废）；换装变体沿用原角色时解析到原角色那份
@@ -50,6 +52,7 @@ export async function buildMediaRefs(storyboardId: number, slotLimit = 9): Promi
     if (!pr) continue
     refs.push({
       picture: picNo++, kind: 'prop', id: pr.id, name: pr.name,
+      assetText: [pr.description, pr.finalPrompt].filter(Boolean).join(' ｜ '),
       hasImage: !!(pr.imageUrl || '').trim(),
       hasCard: fs.existsSync(refmodCardPath(refmodCardName('prop', pr.id))),
     })

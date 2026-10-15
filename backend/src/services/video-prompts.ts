@@ -367,6 +367,7 @@ import { shouldKeepCompressing, shouldRegenerateDraft, rosterBlock } from './seg
 import { findChineseOutsideDialogue } from './en-cn-gate.js'
 import { findVoiceoverMouthAction, type VoiceoverMouthHit } from './voiceover-gates.js'
 import { findRetentionMismatch, findRetentionOutfitMismatch, type RetentionMismatch, type RetentionOutfitHit } from './retention-gate.js'
+import { findColourGaps, shouldRewriteForColour, colourRewriteNote } from './asset-colour-gate.js'
 import { findVoiceoverOnscreenLock, type VoiceoverLockGap } from './voiceover-onscreen-gate.js'
 export { findDanglingPropRef } from './prop-text-gates.js'
 export { findRetentionMismatch } from './retention-gate.js'
@@ -1170,6 +1171,53 @@ async function generateEnByStages(
           shots: vg.map(h => `${h.shot} onscreen=${h.onscreen.join('/')}`).join(' | '),
         })
       }
+    }
+  }
+
+  // ③.12 发色 / 服装颜色闸（2026-10-15 加，实测第 8 集分镜 8：脸保住了、警察发色与王梅衣色没保住）
+  //   两个成因：① 警察两位卡面是黑发，但资产字段里从没写发色（写提示词的模型看不到图 ⇒ 颜色从没进过提示词，
+  //   H3 自己猜）；② 王梅字段写「深蓝**或**灰褐色」而卡面是灰褐 ⇒ 文字与参考图打架。
+  //   判据：定义段每个角色主体必须写出发色与服装色。资产文字里有的（assetHasIt）打回重写一轮；
+  //   资产文字里压根没有的只留一条 warning —— 那种重写也变不出来，得先去补卡（体检里也会报）。
+  {
+    const refs = (await buildMediaRefs(sb.id)).refs
+    const assets = refs.map(r => ({ picture: r.picture, kind: r.kind, name: r.name, assetText: r.assetText || '' }))
+    const defsOf = () => parts.get('subject_definitions:') || ''
+    let gaps = findColourGaps(defsOf(), assets)
+    const assetSide = gaps.filter(g => !g.assetHasIt)
+    if (assetSide.length) {
+      logTaskProgress('VideoPrompt', 'asset-colour-missing', {
+        episodeId, storyboardId: sb.id,
+        subjects: assetSide.map(g => `S${g.picture}:${g.what}`).join(','),
+      })
+    }
+    if (shouldRewriteForColour(gaps)) {
+      const snapshot = new Map(parts)
+      const res = (await agent.generate(
+        [{ role: 'user', content: buildRewriteMultiPrompt(sb, [{
+          stage: EN_STAGES[0],
+          current: defsOf(),
+          problem: `缺少这些颜色（必须写进 subject_definitions；颜色只能取自下面给的资产文字，不许自己编）:\n${colourRewriteNote(gaps)}`,
+        }], 1, extra, zhPrompt) }],
+        { maxSteps: 6, requestContext },
+      )) as { text?: string } | undefined
+      const raw = cleanSegText(res?.text || '')
+      debugLog(episodeId, sb.id, 'colour-fix-1', raw, { gaps: gaps.length })
+      if (writeBack(raw, ['subject_definitions:']).length) {
+        const next = assemble()
+        if (next.length > budget.limit) {
+          for (const k of parts.keys()) parts.delete(k)
+          for (const [k, v] of snapshot) parts.set(k, v)
+          logTaskProgress('VideoPrompt', 'colour-rollback-over-limit', { episodeId, storyboardId: sb.id, limit: budget.limit })
+        } else {
+          text = next
+        }
+      }
+      gaps = findColourGaps(defsOf(), assets)
+      logTaskProgress('VideoPrompt', 'colour-after-fix', {
+        episodeId, storyboardId: sb.id, remaining: gaps.length,
+        left: gaps.map(g => `S${g.picture}:${g.what}`).join(','),
+      })
     }
   }
 

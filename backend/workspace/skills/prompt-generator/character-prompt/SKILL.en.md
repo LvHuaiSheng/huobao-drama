@@ -38,9 +38,12 @@ Put the **most recognizable features first**, covering every key element of `app
 1. Identity anchors: age impression (e.g. "early twenties"), gender impression, physique (height and build, posture habits)
 2. Ethnicity lock (first anti-face-mixing rule): for Chinese stories write "East Asian face" plus East Asian features (e.g. single or inner-double eyelid, wide nose bridge, black eyes, yellow skin). Never use "deep-set eyes, high nose bridge, strongly sculpted features" — the model defaults to Western faces and will drift if not locked
 3. Facial features: face shape, eyes, other notable features (scars, moles, glasses, etc.) — the face close-up depends on this part especially
-4. Hairstyle: colour, length, style (**only the face close-up panel shows hair** — describe the fringe, temples and whatever is visible; the three headless panels show no hair at all, so do not write "shape of the ends" or "back-of-head hairstyle", which would need the side or back panel to check)
-5. Clothing: style, colour, material, condition (e.g. "a wrinkled work uniform with solder marks on the cuffs")
-6. Accessories: write only the recognizable ones; do not pile them on
+4. Hairstyle: **its colour is mandatory** (e.g. `lank straw-dyed hair with dark roots`), length, style (**only the face close-up panel shows hair** — describe the fringe, temples and whatever is visible; the three headless panels show no hair at all, so do not write "shape of the ends" or "back-of-head hairstyle", which would need the side or back panel to check)
+5. Clothing: style, **colour — every separate garment needs its own colour, never a vague word like `dark`**, material, condition (e.g. "a wrinkled work uniform with solder marks on the cuffs")
+6. Accessories: write only the recognizable ones; do not pile them on — **any accessory you name must carry its colour or material** (e.g. `one tarnished silver bangle`)
+7. **Skin tone: its shade and light/dark must be written** (e.g. `sallow coarse skin`, `healthy tanned skin with a tan line on the neck`) — without it the later storyboard prompts have nothing to copy and the on-screen skin tone drifts
+
+🔴 **All four colours are mandatory (added 2026-10-15; measured on episode 8 shot 8 — the face held but the hair and clothing colours did not)**: **hair colour, skin tone, garment colour and accessory colour** are the only colour source for every later storyboard prompt — the prompt-writing model **cannot see your image and reads only this text**. Leave one out and the video guesses.
 
 Convert the character's personality traits into outward bearing and expression descriptions (e.g. "haggard" → "weary eyes, slightly slumped shoulders"); personality words must not appear directly.
 
