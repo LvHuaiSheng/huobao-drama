@@ -66,11 +66,14 @@ test('连续两轮一个字符都没砍掉 → 早停（2026-10-15 实测 sb483 
   assert.match(src2, /\} else noopStreak = 0/)
 })
 
-test('首稿写飞（超上限 >800）→ 整稿重来一次（用户 2026-10-15 拍板 B）', () => {
+test('首稿写飞（超上限 >800、且六段齐）→ 整稿重来一次（4.0.27 起判据挪进纯函数）', () => {
   const src3 = readFileSync(new URL('../src/services/video-prompts.ts', import.meta.url), 'utf8')
-  assert.match(src3, /const DRAFT_OVER_LIMIT_RETRY = 800/)
+  const gate = readFileSync(new URL('../src/services/seg-compress-gate.ts', import.meta.url), 'utf8')
+  assert.match(gate, /export const DRAFT_OVER_LIMIT_RETRY = 800/)
   assert.match(src3, /for \(let pass = 0; pass < 2; pass\+\+\)/)
-  assert.match(src3, /if \(pass === 0 && over > DRAFT_OVER_LIMIT_RETRY\)/)
+  // 4.0.27：缺段时禁止重来（否则丢掉刚补好的段）→ 判据在 shouldRegenerateDraft 里，见
+  //   tests/video-prompt-missing-section.test.mjs 的真值表
+  assert.match(src3, /if \(shouldRegenerateDraft\(pass, over, missingSegs\(\)\.length\)\) \{/)
   // 实测两条失败首稿超 2172 / 3418，成功首稿只超 0~313 → 阈值 800 落在两者之间
   assert.match(src3, /'en-full-regenerate'/)
 })

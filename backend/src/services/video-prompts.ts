@@ -363,7 +363,7 @@ function groupProblem(text: string, stage: { segs: string[]; limit: number }): s
  * 道具锁不住的真正差异见 video-prompt 技能「道具镜必须绝对静止」一节。
  */
 import { findDanglingPropRef } from './prop-text-gates.js'
-import { shouldKeepCompressing } from './seg-compress-gate.js'
+import { shouldKeepCompressing, shouldRegenerateDraft, rosterBlock } from './seg-compress-gate.js'
 import { findChineseOutsideDialogue } from './en-cn-gate.js'
 import { findVoiceoverMouthAction, type VoiceoverMouthHit } from './voiceover-gates.js'
 import { findRetentionMismatch, findRetentionOutfitMismatch, type RetentionMismatch, type RetentionOutfitHit } from './retention-gate.js'
@@ -453,6 +453,7 @@ function buildFullPrompt(
   const zhTimeline = zhPrompt
     ? (zhPrompt.match(/^\s*\d+\s*-\s*\d+\s*秒[：:].*$/gm) || []).join('\n')
     : ''
+  // 主体清单块（rosterBlock）见 ./seg-compress-gate.ts —— 首稿/补写都会带上它，4.0.27 实测 sb481 起的修复
   return `请为分镜 #${sb.storyboardNumber}(ID:${sb.id})生成视频提示词 video_prompt_en（H3 官方 Ref2VA 六段式）。视频模型:${videoLabel}。
 
 请先调用 read_storyboard_context 获取该分镜的画面描述(含【镜头N】子镜头与台词/旁白)、氛围及时长；格式与规则见 video-prompt 技能「英文发送版」节。
@@ -464,6 +465,7 @@ function buildFullPrompt(
 - **宁可精炼**：每段只说必要的，形容词能省则省，但必须保住下面这些不许砍的内容。
 
 绝不许为了压长度而砍：<d> 台词、retention_analysis 的 fully_preserved、<Picture N> 的 with 外观。
+${rosterBlock(zhPrompt)}
 ${zhTimeline ? `
 🔴🔴 **时间轴基准（本次中文工作版已定，必须逐拍对齐，绝不许自己另算）**：
 中文工作版每一拍的起止秒数如下 —— 英文版第 N 拍的 \`[Shot N] At MM:SS.mmm\` **起始秒数必须与中文第 N 拍的起点逐拍一致**（例：中文第 2 拍 \`6-10秒\` → 英文 \`[Shot 2] At 00:06.000\`）。第 1 拍不带时间戳。**中文版改了时间轴，英文版就必须跟着改。**
@@ -554,6 +556,7 @@ ${quotaLines}
 ${hard ? `
 🔴 **本轮是硬欠账**：全文现在 **${hard.len}** 字符，硬上限 **${hard.limit}**，**本轮至少砍掉 ${hard.need} 字符**。砍不够这轮就算白跑（后端会重发、你等更久，最后可能整条作废）。**别逐词微调**——直接删整句：氛围补充（光线/气氛/明暗描写）、重复复述的外观与保留句、"stays identical to the reference" 类尾句、形容词堆叠。英文一个句子通常就是 60~120 字符，删 5~8 句就够了。
 ` : ''}
+${rosterBlock(zhPrompt)}
 **怎么压（照做，这些都是安全的）**：
 1. 删修饰性形容词与程度词：\`wind-and-oil weathered wheat-toned skin\` → \`weathered skin\`；\`slightly\` / \`very\` / \`gently\` / \`faintly\` 一律删
 2. 同一件事只说一遍：retention_analysis 说过的保留项，detailed_description 里不再复述外观细节；画面里同一动作只写一次
@@ -617,8 +620,11 @@ async function generateEnByStages(
   //   而同批成功的首稿只超 0~313 → 用「超 800」当分界：超太多就别磨，直接重采样一次
   //   （重来的一次若同样写飞，照旧走压缩/失败路径，**不再第三次**，避免无限重试）。
   const draftLen = () => EN_SECTION_QUOTA.map(([s]) => parts.get(s) || '').filter(Boolean).join('\n').length
-  const DRAFT_OVER_LIMIT_RETRY = 800
+  // DRAFT_OVER_LIMIT_RETRY 已挪到 ./seg-compress-gate.ts（连同 shouldRegenerateDraft 一起单测）
   let parts = new Map<string, string>()
+  // 2026-10-15（4.0.27）：retention_analysis 与 subject_definitions 对不上（编号/服装）时，
+  //   重写一轮仍不达标的**不许静默落库**（实测 sb481 缺段补写把定义段削成 1 行后照样落库，稿子表面合格、身份绑定全废）。
+  let retentionBlocked = false
   /** 容错写回：Agent 若又输出全文，只取需要的段 —— 逐段写回（见 writeBackSections 的注释）。 */
   const writeBack = (raw: string, segs: string[]): string[] => writeBackSections(parts, raw, segs)
   for (let pass = 0; pass < 2; pass++) {
@@ -685,7 +691,7 @@ async function generateEnByStages(
 
     // 首稿写飞 → 清空重来一次（pass 1）；没写飞（或已经重来过）就进 ② 压缩
     const over = draftLen() - budget.limit
-    if (pass === 0 && over > DRAFT_OVER_LIMIT_RETRY) {
+    if (shouldRegenerateDraft(pass, over, missingSegs().length)) {
       logTaskProgress('VideoPrompt', 'en-full-regenerate', {
         episodeId, storyboardId: sb.id, draft: draftLen(), over, limit: budget.limit,
       })
@@ -1108,6 +1114,7 @@ async function generateEnByStages(
       }
       rm = findRetentionMismatch(text)
       if (rm) {
+        retentionBlocked = true
         logTaskProgress('VideoPrompt', 'retention-mismatch-unresolved', {
           episodeId, storyboardId: sb.id,
           defined: rm.defined.join(','), listed: rm.listed.join(','),
@@ -1116,6 +1123,7 @@ async function generateEnByStages(
       }
       outfit = findRetentionOutfitMismatch(text)
       if (outfit.length) {
+        retentionBlocked = true
         logTaskProgress('VideoPrompt', 'retention-outfit-unresolved', {
           episodeId, storyboardId: sb.id, subjects: outfit.map(h => `S${h.subject}`).join(','),
         })
@@ -1186,6 +1194,15 @@ async function generateEnByStages(
       episodeId, storyboardId: sb.id, len: text.length,
       stages: failedStages.map(f => `${f.key}: ${f.problem}`),
     })
+  }
+  if (retentionBlocked) {
+    // 编号/服装对不上 = 稿子会把角色/服装绑错（实测第 7 集分镜 8 两人互换）。宁可不落库、让用户重跑，
+    // 也绝不把这种稿子送去出片（失败时不写库 ⇒ 旧稿原样保留）。
+    logTaskError('VideoPrompt', 'retention-blocked-not-saved', {
+      episodeId, storyboardId: sb.id,
+      error: 'retention_analysis 与 subject_definitions 编号/服装对不上，重写一轮仍未达标 → 本条不落库（旧稿保留）',
+    })
+    return { text: '', ok: false }
   }
   return { text, ok: true }
 }
