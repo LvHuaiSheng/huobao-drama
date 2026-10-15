@@ -550,6 +550,12 @@
                 <span class="pb-kicker">{{ t('episode.sb.pbFailedItems') }}</span>
                 <span class="pb-fail">{{ vpbFailSummary }}</span>
               </div>
+              <!-- 正在跑的是**别的集**：进度照常显示，但要说清是哪一集 + 一键跳过去（2026-10-15 加） -->
+              <div v-if="vpbOtherRef && vpbIsOther" class="pb-line">
+                <span class="pb-kicker">{{ t('episode.sb.pbOtherEp', { n: vpbOtherRef.num }) }}</span>
+                <span class="pb-dim">{{ t('episode.sb.pbOtherEpHint') }}</span>
+                <button class="btn btn-sm" @click="gotoVpbEpisode">{{ t('episode.sb.pbOtherEpGo') }}</button>
+              </div>
               <div v-if="vpbRecentItems.length" class="pb-line pb-line-wrap pb-recent">
                 <span class="pb-kicker">{{ t('episode.sb.pbRecent') }}</span>
                 <span
@@ -3165,13 +3171,19 @@ async function syncExtractStatus() {
     }
   } catch {}
   try {
+    // ① 先恢复「有批量在跑的那一集」的进度（可能不是当前这一集）—— 2026-10-15：
+    //    任务归属集记在 localStorage，切页/刷新/熄屏回来后都能把进度条找回来。
+    if (vpbEpId.value && vpbEpId.value !== epId.value) {
+      const st0 = await episodeAPI.videoPromptsStatus(vpbEpId.value)
+      if (st0?.status === 'running') { applyVideoPromptStatus(st0); pollVideoPromptBatch() }
+      else markVpbEpisode(0)
+    }
     const vp = await episodeAPI.videoPromptsStatus(epId.value)
-    if (vp?.status === 'running' && !videoPromptBatch.value.running) {
-      applyVideoPromptStatus(vp)
-      pollVideoPromptBatch()
-    } else if (vp && !vpbDismissed.value) {
-      // 本集最近一次「已结束」的批量：刷新/切回来后仍然能看到结果（成没成、哪几条失败、耗时）。
-      // 用户明确要求「跑完别让结果消失」；看过点 ✕ 隐藏后本次会话内不再自动弹回。
+    if (vp?.status === 'running') {
+      if (!vpbEpId.value) markVpbEpisode(epId.value)
+      if (!videoPromptBatch.value.running) { applyVideoPromptStatus(vp); pollVideoPromptBatch() }
+    } else if (vp && !vpbDismissed.value && !videoPromptBatch.value.running) {
+      // 有批量在跑时**不许**用当前集的「已结束」状态把面板顶掉（旧行为：切页后面板消失）
       applyVideoPromptStatus(vp)
     }
   } catch {}
@@ -3211,6 +3223,38 @@ const vpbDismissed = ref(false)
 function dismissVideoPromptResult() {
   vpbDismissed.value = true
   videoPromptBatch.value = emptyVideoPromptBatch()
+}
+
+// ─── 批量任务「绑在发起它的那一集」+ 跨页面/跨熄屏存活（2026-10-15 修）─────────────
+// 旧行为（用户报「批量生成还没完成，提示条就消失了；熄屏后再开屏没了」）：
+//   ① 进度面板与轮询都用**当前浏览的集** `epId` → 切到别的集 / 页面重挂后，轮询改去问那一集
+//      （那边是「已结束」）→ 面板被那一集的旧结果顶掉、轮询链自己 return 结束；
+//   ② 轮询只有 240 次（× 2.5 秒 = **10 分钟**），用尽就 `emptyVideoPromptBatch()` **静默清空** ——
+//      而 10 条分镜的批量实测要跑 20~30 分钟（ep22 实测 13:13:31 开始，13:34 还在第 7 条）。
+//      熄屏时 Chromium 会冻结渲染进程的定时器，恢复后最后那一次 tick 才执行 → 用户看到的就是
+//      「开屏回来提示条就没了」。
+// 现在：任务归属集落 localStorage；轮询问归属集；上限放宽到 100 分钟且用尽只提示、不清空。
+const VPB_RUN_KEY = 'hb.vpb.runningEpisode'
+const vpbEpId = ref(0)
+const vpbOtherRef = ref(null)
+try {
+  const raw = localStorage.getItem(VPB_RUN_KEY)
+  if (raw) { const o = JSON.parse(raw); vpbEpId.value = Number(o?.ep) || 0; if (vpbEpId.value) vpbOtherRef.value = o }
+} catch { /* 隐私模式：内存态照常工作 */ }
+function markVpbEpisode(id) {
+  vpbEpId.value = Number(id) || 0
+  if (!vpbEpId.value) {
+    vpbOtherRef.value = null
+    try { localStorage.removeItem(VPB_RUN_KEY) } catch { /* 忽略 */ }
+    return
+  }
+  vpbOtherRef.value = { ep: vpbEpId.value, num: episodeNumber, drama: dramaId }
+  try { localStorage.setItem(VPB_RUN_KEY, JSON.stringify(vpbOtherRef.value)) } catch { /* 忽略 */ }
+}
+const vpbIsOther = computed(() => !!vpbEpId.value && vpbEpId.value !== epId.value)
+function gotoVpbEpisode() {
+  const o = vpbOtherRef.value
+  if (o) navigateTo(`/drama/${o.drama}/episode/${o.num}`)
 }
 
 // 进度面板的秒表（只在批量提示词任务在跑时每秒走一格；和后端 2.5s 轮询互补）
@@ -3320,6 +3364,7 @@ async function batchVideoPrompts() {
   const ids = (videoSelectMode.value && selectedVideoSbIds.value.length) ? [...selectedVideoSbIds.value] : undefined
   try {
     const res = await episodeAPI.generateVideoPrompts(epId.value, chatModelOverride(), chatConfigId(), ids)
+    markVpbEpisode(epId.value)
     if (!res?.total) {
       if (res?.already_running) {
         videoPromptBatch.value = { ...emptyVideoPromptBatch(), running: true }
@@ -3338,14 +3383,19 @@ async function batchVideoPrompts() {
   }
 }
 
-function pollVideoPromptBatch(attempts = 240) {
+function pollVideoPromptBatch(attempts = 2400) {
+  // 2400 × 2.5 秒 = 100 分钟（旧值 240 = 10 分钟，实测 10 条分镜的批量要跑 20~30 分钟 →
+  // 用尽后原来会静默清空面板，用户看到「还没跑完提示条就没了」）。用尽也不再清空，只提示。
   const tick = async (left) => {
+    // 轮询**任务归属集**，不是当前浏览的集（切页后旧代码会去问新集 → 被那边的「已结束」顶掉）
+    const qid = vpbEpId.value || epId.value
     try {
-      const st = await episodeAPI.videoPromptsStatus(epId.value)
+      const st = await episodeAPI.videoPromptsStatus(qid)
       if (st && st.status !== 'running') {
         // 结束后保留最终快照（finished=true）—— 面板改成结果汇总（成功/失败/失败清单），
         // 直到用户下次点生成或刷新页面才清掉。
         applyVideoPromptStatus(st)
+        if (qid === vpbEpId.value) markVpbEpisode(0)
         await refresh()
         if (st.status === 'done') {
           toast.success(st.failed ? t('episode.sb.batchDoneFailed', { n: st.failed }) : t('episode.sb.batchDone'))
@@ -3361,7 +3411,12 @@ function pollVideoPromptBatch(attempts = 240) {
       }
     } catch {}
     if (left > 0) setTimeout(() => tick(left - 1), 2500)
-    else videoPromptBatch.value = emptyVideoPromptBatch()
+    else {
+      // 轮数用尽：任务**可能还在跑**（后端才是权威）→ 保留面板 + 明确提示，
+      // 不再静默清空（旧行为让用户以为任务没了）。
+      videoPromptBatch.value = { ...videoPromptBatch.value, running: false, finished: true, stageNote: t('episode.sb.pbStale') }
+      toast.info(t('episode.sb.pbStale'))
+    }
   }
   setTimeout(() => tick(attempts), 2500)
 }
@@ -3429,11 +3484,13 @@ async function runPromptRepair() {
   try {
     const res = await episodeAPI.generateVideoPrompts(epId.value, chatModelOverride(), chatConfigId(), [promptCheck.sb.id], promptCheck.repairNotes)
     if (res && res.already_running) { toast.info(t('episode.check.busy')); return }
+    markVpbEpisode(epId.value)
     for (let i = 0; i < 120; i++) {
       await new Promise(resolve => setTimeout(resolve, 3000))
-      const st = await episodeAPI.videoPromptsStatus(epId.value)
+      const st = await episodeAPI.videoPromptsStatus(vpbEpId.value || epId.value)
       if (st && st.status !== 'running') break
     }
+    markVpbEpisode(0)
     await refresh()
     await runPromptCheck(promptCheck.sb)
     toast.success(t('episode.check.repairDone'))
@@ -3525,6 +3582,7 @@ async function fixAllChecked() {
   try {
     const res = await episodeAPI.generateVideoPrompts(epId.value, chatModelOverride(), chatConfigId(), ids, notes)
     if (res && res.already_running) { toast.info(t('episode.check.busy')); return }
+    markVpbEpisode(epId.value)
     if (res && res.total) batchCheck.fixTotal = res.total
     vpbDismissed.value = false
     // 2026-10-15：一键修复与「批量补齐提示词」跑的是同一个后端任务 → 把它的富进度喂给同一个状态对象，
@@ -3534,7 +3592,7 @@ async function fixAllChecked() {
     // 轮询期间把「已完成/总数」喂给界面（逐条刷新，提示词边写边出现）
     for (let i = 0; i < 300; i++) {
       await new Promise(resolve => setTimeout(resolve, 3000))
-      const st = await episodeAPI.videoPromptsStatus(epId.value)
+      const st = await episodeAPI.videoPromptsStatus(vpbEpId.value || epId.value)
       if (st) {
         applyVideoPromptStatus(st)
         if (typeof st.total === 'number' && st.total) batchCheck.fixTotal = st.total
@@ -3610,6 +3668,7 @@ async function genVideoPrompt(sb) {
     // 超标的那一组（每组最多 2 次），并落诊断日志。
     const extra = (videoPromptExtra.value || '').trim()
     const res = await episodeAPI.generateVideoPrompts(epId.value, chatModelOverride(), chatConfigId(), [sb.id], extra || undefined)
+    markVpbEpisode(epId.value)
     if (!res?.total) {
       if (res?.already_running) {
         videoPromptBatch.value = { running: true, total: 0, completed: 0 }
