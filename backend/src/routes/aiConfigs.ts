@@ -290,32 +290,34 @@ app.put('/:id', async (c) => {
   if ('model' in body) updates.model = JSON.stringify(body.model)
   if ('priority' in body) updates.priority = body.priority
   if ('is_active' in body) updates.isActive = body.is_active
+  // 🔴 2026-10-15 修（用户报「温度改了自动回到 0.7」）：原来 temperature 与 enable_thinking
+  //    **各自**从 `existing.settings` 重新解析并**各自**写 `updates.settings` → 后执行的那个
+  //    （enable_thinking）会用**旧值**把前一个刚写好的 temperature 覆盖掉 ✗。
+  //    实测：前端每次保存都把两个字段一起发（body: {"temperature":0.2,"enable_thinking":false}），
+  //    后端两次写 settings → temperature 永远回到旧值 0.7（DB 核对：PUT 200 但值没变）。
+  //    现在两个字段先在内存里合并好，**只写一次** settings。
+  const settingsPatch: Record<string, number | boolean | null> = {}
   if ('temperature' in body) {
-    let temperature: number | null
     try {
-      temperature = normalizeTemperature(body.temperature)
+      settingsPatch.temperature = normalizeTemperature(body.temperature)
     } catch {
       return badRequest(c, 'temperature 须为 0 到 2 之间的数字')
     }
-    // 与已有 settings 合并，清空的 temperature 从 JSON 中移除
-    let settings: Record<string, any> = {}
-    try { settings = existing.settings ? JSON.parse(existing.settings) : {} } catch { settings = {} }
-    if (temperature === null) delete settings.temperature
-    else settings.temperature = temperature
-    updates.settings = Object.keys(settings).length ? JSON.stringify(settings) : null
   }
   if ('enable_thinking' in body) {
-    let enableThinking: boolean | null
     try {
-      enableThinking = normalizeEnableThinking(body.enable_thinking)
+      settingsPatch.enable_thinking = normalizeEnableThinking(body.enable_thinking)
     } catch {
       return badRequest(c, 'enable_thinking 须为 true / false')
     }
-    // 与已有 settings 合并（temperature 等其它键保留），清空则移除
+  }
+  if (Object.keys(settingsPatch).length) {
     let settings: Record<string, any> = {}
     try { settings = existing.settings ? JSON.parse(existing.settings) : {} } catch { settings = {} }
-    if (enableThinking === null) delete settings.enable_thinking
-    else settings.enable_thinking = enableThinking
+    for (const [key, value] of Object.entries(settingsPatch)) {
+      if (value === null) delete settings[key]   // 清空 = 从 JSON 里移除该项
+      else settings[key] = value
+    }
     updates.settings = Object.keys(settings).length ? JSON.stringify(settings) : null
   }
 
