@@ -391,12 +391,17 @@ export function checkStoryboardPrompt(sb: StoryboardCheckInput, opts: CheckOptio
             autoFixable: false,
           }))
         }
-        if (r.hasVoiceCard && !/<Audio \d+>/.test(en)) {
-          out.push(mk({
-            level: 'warn', code: 'media-no-audio-decl', location: 'subject_definitions',
-            message: `${label}已有声音卡，但正文没有 <Audio N> 声明 —— 模型可能把参考音频当素材自己发挥`,
-          }))
-        }
+        // 2026-10-15 去掉 `media-no-audio-decl`（原来是「有声音卡但正文没写 <Audio N>」的告警）：
+        //   ① 声音卡（.safetensors）2026-10-11 已废 —— 中转侧改成「App 直发 wav → 按落盘 wav 名接线
+        //      + 反查图片卡槽位自动补 `<Audio j>` 声明」，且补之前先 `have = set(re.findall(r"<Audio (\d+)>"))`
+        //      去重 ⇒ 正文不写也保证有声明、写了也不会重复（已读线上 shim 源码确认）。
+        //   ② 生成侧 `has_voice_card`（`agents/tools/storyboard-tools.ts` 的 readVoiceCardInfo）判据是
+        //      **旧声音卡文件在不在** → 自 10-11 起恒为 false，模型本来就不会写；而体检按「源 wav 在不在」
+        //      判断 → 两边口径相反 ⇒ 一键修复带着「必须写 <Audio N>」的修法清单去修，模型的上下文却写着
+        //      `has_voice_card: false`（实测 sb466 的自述原文）→ **每条白烧修复轮次、告警永不消失**
+        //      （2026-10-15 ep21 实测 6 条）。
+        //   ③ 真正的 `<Audio j>` 由中转注入、索引由它自己算（j = 音频槽位；App 只发一条 wav ⇒ j=1），
+        //      比让模型猜编号可靠 ⇒ 不再作为告警。`hasVoiceCard` 字段保留（数据还在，只是不报警）。
       }
     }
   }
@@ -462,7 +467,6 @@ const REPAIR_TEXT: Record<string, string> = {
   'media-picture-out-of-range': '「<Picture N>」的编号不得超过该分镜实际参考图的数量。',
   'media-subject-out-of-range': '`<Subject N>` 的编号不得超过该分镜实际参考图的数量；没被提取成道具资产的东西（抹布、餐具、手机架、食物等）只许当画面元素用普通名词写，禁止编号、禁止写 `<Subject N>` / `<Picture N>`。',
   'media-missing-subject': '每一张参考图都要在正文里有对应的 <Subject N> 声明（场景→角色→道具按编号顺序），不许漏。',
-  'media-no-audio-decl': '已有声音卡的角色必须写 <Audio N> 声明（绑到对应的 <Subject N>）。',
 }
 
 /** 把体检问题翻成「补充说明」文本（同一 code 只写一次；素材类问题不会进来） */
