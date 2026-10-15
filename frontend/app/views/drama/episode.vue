@@ -1555,9 +1555,35 @@
               <span v-if="!batchBadItems.length" class="check-ok">{{ t('episode.check.batchAllOk', { n: batchCheck.summary.total }) }}</span>
               <span v-else>{{ t('episode.check.batchSummary', { total: batchCheck.summary.total, bad: batchBadItems.length, block: batchCheck.summary.blocking, err: batchCheck.summary.err, warn: batchCheck.summary.warn }) }}<template v-if="batchNoEnCount">{{ t('episode.check.batchNoEn', { n: batchNoEnCount }) }}</template></span>
             </p>
-            <div v-if="batchCheck.fixing || batchCheck.fixDone" class="check-progress">
-              <div class="check-progress-bar"><span :style="{ width: progressPct + '%' }" /></div>
-              <span class="check-progress-text">{{ t('episode.check.fixProgress', { done: batchCheck.fixDone, total: batchCheck.fixTotal, pct: progressPct }) }}</span>
+            <div v-if="batchCheck.fixing || batchCheck.fixDone" class="check-progress-wrap">
+              <div class="check-progress">
+                <div class="check-progress-bar"><span :style="{ width: progressPct + '%' }" /></div>
+                <span class="check-progress-text">{{ t('episode.check.fixProgress', { done: batchCheck.fixDone, total: batchCheck.fixTotal, pct: progressPct }) }}</span>
+              </div>
+              <!-- 2026-10-15：一键修复跑的就是「批量补齐提示词」那同一个后端任务 → 复用它的富进度
+                   （当前这条 / 三步点位 / 阶段细类 / 本条已用 / 总体已用 / 预计剩余 / 最近几条） -->
+              <div v-if="batchCheck.fixing" class="pb-line">
+                <span class="pb-kicker">{{ t('episode.sb.pbCurrent') }}</span>
+                <span class="pb-steps">
+                  <span v-for="s in vpbStageDots" :key="'fx-' + s.key" :class="['pb-dot', s.state]" :title="s.label"></span>
+                </span>
+                <span v-if="vpbCurrentLabel" class="pb-count">{{ vpbCurrentLabel }}</span>
+                <span v-if="vpbStageText" class="pb-dim">{{ vpbStageText }}</span>
+                <span class="pb-dim">{{ t('episode.sb.pbItemElapsed', { dur: vpbItemElapsed }) }}</span>
+              </div>
+              <div v-if="batchCheck.fixing" class="pb-line pb-line-wrap">
+                <span class="pb-dim">{{ t('episode.sb.pbElapsed', { dur: vpbElapsed }) }}</span>
+                <span class="pb-dim">{{ vpbEta ? t('episode.sb.pbEta', { dur: vpbEta }) : t('episode.sb.pbEtaUnknown') }}</span>
+              </div>
+              <div v-if="batchCheck.fixing && vpbRecentItems.length" class="pb-line pb-line-wrap pb-recent">
+                <span class="pb-kicker">{{ t('episode.sb.pbRecent') }}</span>
+                <span
+                  v-for="it in vpbRecentItems"
+                  :key="'fxr-' + it.key"
+                  :class="['pb-item', it.ok ? 'is-ok' : 'is-bad']"
+                  :title="it.error"
+                >{{ it.ok ? '✓' : '✗' }} {{ it.label }} · {{ it.dur }}</span>
+              </div>
             </div>
             <div class="check-list">
               <div
@@ -3500,12 +3526,17 @@ async function fixAllChecked() {
     const res = await episodeAPI.generateVideoPrompts(epId.value, chatModelOverride(), chatConfigId(), ids, notes)
     if (res && res.already_running) { toast.info(t('episode.check.busy')); return }
     if (res && res.total) batchCheck.fixTotal = res.total
+    vpbDismissed.value = false
+    // 2026-10-15：一键修复与「批量补齐提示词」跑的是同一个后端任务 → 把它的富进度喂给同一个状态对象，
+    //   弹窗里就能看到「当前这条 / 三步点位 / 阶段细类 / 本条已用 / 预计剩余」（原来只有一格百分比）
+    videoPromptBatch.value = { ...emptyVideoPromptBatch(), running: true }
     let prev = -1
     // 轮询期间把「已完成/总数」喂给界面（逐条刷新，提示词边写边出现）
     for (let i = 0; i < 300; i++) {
       await new Promise(resolve => setTimeout(resolve, 3000))
       const st = await episodeAPI.videoPromptsStatus(epId.value)
       if (st) {
+        applyVideoPromptStatus(st)
         if (typeof st.total === 'number' && st.total) batchCheck.fixTotal = st.total
         if (typeof st.completed === 'number') batchCheck.fixDone = st.completed
         if (batchCheck.fixDone !== prev) { prev = batchCheck.fixDone; await refresh() }
@@ -3517,6 +3548,8 @@ async function fixAllChecked() {
     await runBatchCheck()
     toast.success(t('episode.check.repairAllDone', { n: ids.length }))
   } catch (e) {
+    // 出错时别把「正在跑」的假象留在进度面板上（表停在那一刻、面板还在走秒）
+    videoPromptBatch.value = emptyVideoPromptBatch()
     toastError(e)
   } finally {
     batchCheck.fixing = false
@@ -7079,6 +7112,7 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); }
 .batch-row { cursor: pointer; }
 .batch-row:hover { background: var(--surface-2, rgba(255, 255, 255, .06)); }
 .batch-go { margin-left: auto; flex: none; font-size: 11px; color: var(--text-3, #8a8a92); white-space: nowrap; }
+.check-progress-wrap { display: flex; flex-direction: column; gap: 5px; }
 .check-progress { display: flex; align-items: center; gap: 10px; }
 .check-progress-bar { flex: 1; height: 4px; border-radius: 3px; background: var(--surface-2, rgba(255, 255, 255, .1)); overflow: hidden; }
 .check-progress-bar span { display: block; height: 100%; background: var(--accent); transition: width .3s ease; }

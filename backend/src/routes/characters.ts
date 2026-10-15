@@ -4,6 +4,7 @@ import { db, getInsertId, schema } from '../db/index.js'
 import { success, created, badRequest, now } from '../utils/response.js'
 import { toSnakeCase } from '../utils/transform.js'
 import { generateImage } from '../services/generation.js'
+import { getActiveConfig } from '../services/ai.js'
 import { getDramaStylePrompt } from '../services/style-preset.js'
 import { ensureCharacterFinalPrompt } from '../services/final-prompt.js'
 import { ensureVoiceDesc } from '../services/voice-prompt.js'
@@ -234,12 +235,38 @@ app.post('/:id/costume-variant', async (c) => {
 
   const model = String(body.model || '').trim() || COSTUME_EDIT_MODEL
   const prompt = costumeEditPrompt(label, desc)
+
+  // 任务列表可见（2026-10-15 用户报「任务里没有这条信息」）：换装出图是**同步**请求，不走
+  //   generation.ts 的 createTask/processTask 通道 → sys_task 里没有行，App 的「任务」面板
+  //   （taskAPI.listByEpisode）自然看不到。这里自己落一行，跑完/失败就地更新状态。
+  const imgCfg = await getActiveConfig('image').catch(() => null)
+  const taskId = getInsertId(await db.insert(schema.sysTask).values({
+    type: 'image',
+    dramaId: base.dramaId,
+    characterId: variant.id,
+    provider: imgCfg?.provider || 'openai',
+    prompt,
+    model,
+    params: JSON.stringify({
+      kind: 'costume',
+      costume_label: label,
+      base_character_id: baseId,
+      reference_image: refPath,
+    }),
+    status: 'processing',
+    createdAt: now(),
+    updatedAt: now(),
+  }))
+
   try {
-    logTaskStart('CostumeVariant', 'generate', { baseId, variantId: variant.id, label, model, refPath })
+    logTaskStart('CostumeVariant', 'generate', { baseId, variantId: variant.id, label, model, refPath, taskId })
     const { relativePath, bytes } = await generateCostumeBoard({ referenceImage: refPath, prompt, model })
     await db.update(schema.characters)
       .set({ imageUrl: relativePath, localPath: relativePath, updatedAt: now() })
       .where(eq(schema.characters.id, variant.id))
+    await db.update(schema.sysTask)
+      .set({ resultUrl: relativePath, localPath: relativePath, status: 'completed', completedAt: now(), updatedAt: now() })
+      .where(eq(schema.sysTask.id, taskId))
     await generateImageThumb(relativePath).catch(() => null)
     logTaskSuccess('CostumeVariant', 'done', { baseId, variantId: variant.id, imageUrl: relativePath, bytes })
 
@@ -261,7 +288,11 @@ app.post('/:id/costume-variant', async (c) => {
       card: cardName,
     })
   } catch (err: any) {
-    logTaskError('CostumeVariant', 'generate', { baseId, variantId: variant.id, error: err.message })
+    logTaskError('CostumeVariant', 'generate', { baseId, variantId: variant.id, error: err.message, taskId })
+    await db.update(schema.sysTask)
+      .set({ status: 'failed', errorMsg: String(err?.message || err).slice(0, 300), completedAt: now(), updatedAt: now() })
+      .where(eq(schema.sysTask.id, taskId))
+      .catch(() => null)
     return badRequest(c, `换装图生成失败：${err.message}`)
   }
 })

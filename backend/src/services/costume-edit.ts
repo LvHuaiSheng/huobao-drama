@@ -54,7 +54,10 @@ export async function generateCostumeBoard(opts: {
   model?: string
 }): Promise<CostumeBoardResult> {
   const cfg = await getActiveConfig('image')
-  const base = String(cfg?.baseUrl || '').trim().replace(/\/+$/, '')
+  // ⚠️ 配置里的 baseUrl 常常带 OpenAI 风格的 `/v1`（图片/文本服务都这么存），而中转的编辑端点是
+  //    `/v1/images/edits` —— 不去掉尾部版本号就会拼成 `/v1/v1/images/edits`，中转直接 404「未知路径」
+  //    （2026-10-15 实测踩：换装图生成失败 HTTP 404 {"error":"未知路径"}）
+  const base = String(cfg?.baseUrl || '').trim().replace(/\/+$/, '').replace(/\/(v1|v2)$/i, '')
   if (!base) throw new Error('没有可用的图片服务配置，拿不到中转地址')
 
   const raw = String(opts.referenceImage || '').trim()

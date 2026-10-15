@@ -5,7 +5,7 @@
 A self-maintained fork of [chatfire-AI/huobao-drama](https://github.com/chatfire-AI/huobao-drama) — an AI short-drama production pipeline (script → assets → storyboards → video), shipped as an Electron desktop app with a Nuxt front end and a TypeScript back end.
 
 > **This is a personal fork.** All of my changes live on the **`chain`** branch; **`master`** is kept exactly as upstream delivered it, which makes diffing easy. I do not chase upstream updates, and I do not offer support for this fork.
-> App version `desktop 4.0.13` · last update 2026-10-15 · 224 own commits since 2026-10-07.
+> App version `desktop 4.0.14` · last update 2026-10-15 · 228 own commits since 2026-10-07.
 
 ## What this fork adds
 
@@ -20,6 +20,7 @@ A self-maintained fork of [chatfire-AI/huobao-drama](https://github.com/chatfire
 
 | Date | Tag | Highlights |
 | --- | --- | --- |
+| 2026-10-15 | `v4.0.14-zdz1` | Costume fixes: the image-edit call no longer doubles the `/v1` prefix (it used to fail with a 404); the costume dialog no longer wraps its long field label, its description box is taller, and opening it from a costume card pre-fills that costume's name and description; the AI-written outfit description now honours the costume name and the character's existing styling; costume generation shows up in the task list; one-click repair shows the same detailed progress as batch prompt generation (current storyboard, stage, elapsed, ETA, recent results) |
 | 2026-10-15 | `v4.0.13-zdz1` | Costume: pick any existing look as the source image · AI-written outfit description · a costume character can reuse the original character's voice · costume cards can be costumed again; fix for a wasted prompt-compression round; batch progress messages coloured by result |
 | 2026-10-14 | | Costume variants end to end; voice-over lip lock must lock the on-screen character; appearance fields may not offer either/or choices; extraction no longer overwrites hand-edited styling; project settings dialog; the task list shows real generation time; running tasks are no longer failed unconditionally after a crash |
 | 2026-10-13 | | Prompt inspection (single storyboard and whole episode) with one-click repair; source-level fix for Chinese leaking into the English prompt; mechanical cleanup of out-of-range reference indices; ad-hoc signed macOS build |

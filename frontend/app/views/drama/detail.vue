@@ -657,7 +657,7 @@
     </Teleport>
     <!-- 换装造型变体（2026-10-14）：新建独立角色 + 图像编辑出图，基准角色不动 -->
     <div v-if="costumeDialog.open" class="overlay" @click.self="closeCostumeDialog">
-      <section class="dialog voice-dialog">
+      <section class="dialog voice-dialog costume-dialog">
         <header class="dialog-head">
           <div class="dialog-title">{{ t('detail.costume.title') }}{{ costumeDialog.base ? ' · ' + costumeDialog.base.name : '' }}</div>
           <button class="btn btn-icon btn-sm btn-ghost" type="button" @click="closeCostumeDialog">✕</button>
@@ -668,7 +668,7 @@
           <label class="voice-label">{{ t('detail.costume.label') }}</label>
           <input v-model="costumeDialog.label" class="voice-input" :placeholder="t('detail.costume.labelHint')" maxlength="12" />
           <label class="voice-label">{{ t('detail.costume.desc') }}</label>
-          <textarea v-model="costumeDialog.desc" class="voice-input" rows="3" :placeholder="t('detail.costume.descHint')"></textarea>
+          <textarea v-model="costumeDialog.desc" class="voice-input costume-desc" rows="4" :placeholder="t('detail.costume.descHint')"></textarea>
           <div class="voice-row">
             <button
               class="btn btn-sm"
@@ -1203,7 +1203,10 @@ async function genCostumeDesc() {
 async function openCostumeDialog(m) {
   // 🔴 造型卡上也能点「换装造型」：这时以它的**基准角色**为基准（否则会套娃命名「A·正装·正装」）
   const base = (m && m.variant_of && ((drama.value && drama.value.characters) || []).find(c => c.id === m.variant_of)) || m
-  costumeDialog.value = { open: true, base, label: '', desc: '', refImage: '', busy: false, msg: '', existingText: '' }
+  // 从造型卡进来时把「造型名 / 这套衣服的描述」带上：默认就是改这一套，不用重新打一遍
+  const preLabel = String((m && m.costume_label) || '').trim()
+  const preDesc = preLabel ? String(m.styling || '').trim() : ''
+  costumeDialog.value = { open: true, base, label: preLabel, desc: preDesc, refImage: '', busy: false, msg: '', existingText: '' }
   // 列出该角色已有的造型（同名会复用，不重复建角色）
   try {
     const res = await characterAPI.variants(base.id)
@@ -2256,6 +2259,10 @@ onMounted(async () => { await load(); await loadRefmodStatus(); await loadVoiceB
 .voice-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 /* 换装源图候选：勾选本剧已有形象（默认=原角色定妆图） */
 .costume-ref-pick { margin-top: 2px; }
+/* 换装弹窗：标签不固定 56px 宽 —— 否则「这套衣服的完整描述」会被折成两行（2026-10-15 用户报） */
+.costume-dialog .voice-label { width: auto; color: var(--text-2); }
+/* 描述框给足高度与行距，AI 写的那段要能一眼读完 */
+.costume-desc { flex: none; width: 100%; min-height: 104px; line-height: 1.55; font-size: 13.5px; resize: vertical; }
 .costume-ref-chip {
   display: inline-flex; align-items: center; gap: 6px; max-width: 148px; padding: 3px 8px 3px 3px;
   border: 1px solid var(--border); border-radius: 999px; background: transparent; color: inherit;
