@@ -19,3 +19,24 @@ export function findChineseOutsideDialogue(en: string): { count: number; sample:
   const i = body.search(/[\u4e00-\u9fff]/)
   return { count: hits.length, sample: body.slice(Math.max(0, i - 40), i + 40).replace(/\n/g, ' ') }
 }
+
+/** 删掉「我们要求的结构回声」（2026-10-16，用户报「10集分镜4 英文版本里混入中文」）。
+ *
+ * 模型会把压缩指令里的**中文分组标题**和反引号围栏照抄回正文 —— 实测 sb493 落库的英文稿里夹着
+ *   ```` ``` ```` 围栏 + 「组二：summary / retention_analysis」+「组三：detailed_description / …」，
+ * 写回时这些行被并进**上一段**末尾 ⇒ 英文版混进中文。
+ * 语言闸（③.4）确实抓到那几个汉字，但走 AI 重写要么再被照抄、要么改完变长被回滚（源码里记着 sb432 那次）
+ * ⇒ 这类行**只可能是要求本身的回声、不可能是稿子内容**，机械删除最可靠。
+ * 安全性：只认「行首围栏 / 行首 组N：/ 行首 ORIGINAL」三种形态 —— `<d>` 台词里的中文、
+ *   引号里的画面内中文文字都不满足，不会被误伤。
+ */
+export function stripRequestEcho(text: string): string {
+  return String(text || '').split('\n').filter(line => {
+    const t = line.trim()
+    if (/^```/.test(t)) return false                                    // 代码块围栏
+    if (/^组[一二三四五六七八九十\d]+\s*[:：]/.test(t)) return false        // 中文分组标题回声
+    if (/^[一二三四五六七八九\d]+\s*[.、]\s*(?:组|分组)\s*[:：]/.test(t)) return false
+    if (/^(?:===+\s*)?(?:ORIGINAL|原文)\b/i.test(t)) return false          // ORIGINAL 回声
+    return true
+  }).join('\n')
+}

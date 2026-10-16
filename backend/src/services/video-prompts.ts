@@ -140,7 +140,7 @@ const SEG_MARKERS = EN_SECTION_QUOTA.map(([s]) => s).join('|')
  *  是 63 字符 → 没被清掉、落库成中文（吃播第4集分镜1 实测）。现在放宽到 300 并支持「标题+段名同一行」。
  *  英文版正文里不该出现整行 【…】 —— 一律清掉。 */
 export function sanitizeEnPrompt(t: string): string {
-  const cleaned = String(t || '')
+  const cleaned = stripRequestEcho(String(t || ''))
     .replace(/^[ \t]*【[^】]{1,300}】[ \t]*$/gm, '')
     .replace(/^[ \t]*【[^】]{1,300}】[ \t]*(?=[a-z_]+:)/gm, '')
     .replace(/\n{3,}/g, '\n\n')
@@ -258,8 +258,8 @@ export function stripOutOfRangeRefs(t: string, refCount: number): { text: string
 
 /** 清洗 Agent 输出：去代码块围栏、去段名之前的废话、去尾部结语。循环跑到稳定
  *  （围栏与前言同时出现时单趟清理会残留尾部围栏）。 */
-function cleanSegText(raw: string): string {
-  let s = String(raw || '').trim()
+export function cleanSegText(raw: string): string {
+  let s = stripRequestEcho(String(raw || '').trim())
   for (let i = 0; i < 4; i++) {
     const before = s
     s = s.replace(/^\s*```[a-zA-Z]*\s*\n?/, '')
@@ -363,7 +363,7 @@ function groupProblem(text: string, stage: { segs: string[]; limit: number }): s
  */
 import { findDanglingPropRef } from './prop-text-gates.js'
 import { shouldKeepCompressing, shouldRegenerateDraft, rosterBlock, itemBudgetLines, shouldTargetTotalOnly, SUBJECT_SECTION_QUOTA } from './seg-compress-gate.js'
-import { findChineseOutsideDialogue } from './en-cn-gate.js'
+import { findChineseOutsideDialogue, stripRequestEcho } from './en-cn-gate.js'
 import { findVoiceoverMouthAction, type VoiceoverMouthHit } from './voiceover-gates.js'
 import { findRetentionMismatch, findRetentionOutfitMismatch, type RetentionMismatch, type RetentionOutfitHit } from './retention-gate.js'
 import { findColourGaps, shouldRewriteForColour, colourRewriteNote, findColourMismatchInPrompt, garmentColourNote } from './asset-colour-gate.js'
