@@ -866,6 +866,9 @@
       "confirmBreakTitle": "カットを再分解しますか？",
       "confirmBreakMessage": "現在の脚本から全カットを再分解します：既存の {n} カットとその動画プロンプトは消去されて再生成されます（生成済みの動画は影響を受けません）。この操作は取り消せません。",
       "confirmBreakOk": "再分解",
+      "confirmBreakFirstTitle": "カットの分解を開始しますか？",
+      "confirmBreakFirstMessage": "現在の脚本からカットを分解します（カット割りと画面描写のみ。各カットの動画プロンプトは後で個別に生成します）。約1〜3分かかり、AI利用枠を消費しますので、実行中は再度クリックしないでください。",
+      "confirmBreakFirstOk": "開始",
       "confirmBatchPromptsTitle": "動画プロンプトを一括作成しますか？",
       "confirmBatchPromptsMessage": "{n} 件のカットについて英語プロンプトを1件ずつ生成（または再生成）します：**既存の英語版は上書きされます**。1件あたり約1〜3分・AI利用枠を消費しますので、実行中は再度クリックしないでください。生成済みの動画は影響を受けません。",
       "confirmBatchPromptsOk": "開始"

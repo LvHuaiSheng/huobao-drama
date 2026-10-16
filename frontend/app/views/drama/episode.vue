@@ -577,7 +577,7 @@
               <div class="empty-title">{{ t('episode.sb.emptyTitle') }}</div>
               <div class="empty-desc">{{ t('episode.sb.emptyDesc') }}</div>
               <div class="locked-config-banner">{{ t('episode.vid.lockedModel') }}{{ effectiveVideoModelLabel }}</div>
-              <button class="btn btn-primary" :disabled="rn" @click="doBreakdown">
+              <button class="btn btn-primary" :disabled="rn" @click="breakdownConfirm = true">
                 <Loader2 v-if="rt === 'storyboard_breaker'" :size="13" class="animate-spin" />
                 <svg v-else width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
                 {{ t('episode.sb.startBreak') }}
@@ -1542,11 +1542,13 @@
         @confirm="confirmBatchPrompts"
         @cancel="batchPromptsConfirm = false"
       />
+      <!-- 2026-10-16（用户要求）：**两个拆分入口都要确认** —— 有旧分镜=「重新拆分」（会清空重建），
+           无分镜=「首次拆分」（一开始没拦，但它同样跑一次 LLM、同样要花时间与额度）⇒ 文案分开。 -->
       <ConfirmDialog
         :open="breakdownConfirm"
-        :title="t('episode.sb.confirmBreakTitle')"
-        :message="t('episode.sb.confirmBreakMessage', { n: sbs.length })"
-        :confirm-text="t('episode.sb.confirmBreakOk')"
+        :title="sbs.length ? t('episode.sb.confirmBreakTitle') : t('episode.sb.confirmBreakFirstTitle')"
+        :message="sbs.length ? t('episode.sb.confirmBreakMessage', { n: sbs.length }) : t('episode.sb.confirmBreakFirstMessage')"
+        :confirm-text="sbs.length ? t('episode.sb.confirmBreakOk') : t('episode.sb.confirmBreakFirstOk')"
         @confirm="confirmBreakdown"
         @cancel="breakdownConfirm = false"
       />
