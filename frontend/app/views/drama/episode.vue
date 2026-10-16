@@ -3395,9 +3395,14 @@ async function batchVideoPrompts() {
   }
 }
 
-function pollVideoPromptBatch(attempts = 2400) {
+function pollVideoPromptBatch(attempts = 2400, silent = false) {
   // 2400 × 2.5 秒 = 100 分钟（旧值 240 = 10 分钟，实测 10 条分镜的批量要跑 20~30 分钟 →
   // 用尽后原来会静默清空面板，用户看到「还没跑完提示条就没了」）。用尽也不再清空，只提示。
+  //
+  // 2026-10-16（4.0.56）：返回 Promise —— 单条「一键修复」要 await 它，才能既拿到**同一条富进度**
+  //   （总进度 / 本条进度 / 阶段点 / 最近一条），又能在结束后接着重新体检。
+  //   silent=true 时不弹批量口径的 toast（单条修复自己有文案）。批量那条路不 await，行为不变。
+  return new Promise(resolve => {
   const tick = async (left) => {
     // 轮询**任务归属集**，不是当前浏览的集（切页后旧代码会去问新集 → 被那边的「已结束」顶掉）
     const qid = vpbEpId.value || epId.value
@@ -3409,11 +3414,14 @@ function pollVideoPromptBatch(attempts = 2400) {
         applyVideoPromptStatus(st)
         if (qid === vpbEpId.value) markVpbEpisode(0)
         await refresh()
-        if (st.status === 'done') {
-          toast.success(st.failed ? t('episode.sb.batchDoneFailed', { n: st.failed }) : t('episode.sb.batchDone'))
-        } else {
-          toastError(st.error, { fallback: 'episode.sb.batchFailed' })
+        if (!silent) {
+          if (st.status === 'done') {
+            toast.success(st.failed ? t('episode.sb.batchDoneFailed', { n: st.failed }) : t('episode.sb.batchDone'))
+          } else {
+            toastError(st.error, { fallback: 'episode.sb.batchFailed' })
+          }
         }
+        resolve()
         return
       }
       if (st) {
@@ -3428,9 +3436,11 @@ function pollVideoPromptBatch(attempts = 2400) {
       // 不再静默清空（旧行为让用户以为任务没了）。
       videoPromptBatch.value = { ...videoPromptBatch.value, running: false, finished: true, stageNote: t('episode.sb.pbStale') }
       toast.info(t('episode.sb.pbStale'))
+      resolve()
     }
   }
   setTimeout(() => tick(attempts), 2500)
+  })
 }
 // 2026-10-10 用户要求：重新拆分一点就执行（且会 replace_existing 清空旧分镜）不安全 → 加确认弹窗。
 // 首次拆分（无旧分镜）不拦，有旧分镜才弹。
@@ -3506,13 +3516,13 @@ async function runPromptRepair() {
     //   闸与修法现在都在代码侧自动做，清单对生成模型没有用处。
     const res = await episodeAPI.generateVideoPrompts(epId.value, chatModelOverride(), chatConfigId(), [promptCheck.sb.id], '')
     if (res && res.already_running) { toast.info(t('episode.check.busy')); return }
+    // 2026-10-16（4.0.56 用户要求）：**和「生成视频提示词」用同一条进度条**。
+    //   原来这里是自己写的一套「睡 3 秒 × 120 次」傻等，既不填进度也不显示阶段点 ⇒ 用户只看到按钮转圈。
+    //   修复跑的本就是同一个后端任务，直接复用批量的轮询：总进度 / 本条进度 / 三步点位 / 最近一条全都有。
     markVpbEpisode(epId.value)
-    for (let i = 0; i < 120; i++) {
-      await new Promise(resolve => setTimeout(resolve, 3000))
-      const st = await episodeAPI.videoPromptsStatus(vpbEpId.value || epId.value)
-      if (st && st.status !== 'running') break
-    }
-    markVpbEpisode(0)
+    const st0 = await episodeAPI.videoPromptsStatus(epId.value).catch(() => null)
+    if (st0) applyVideoPromptStatus(st0)
+    await pollVideoPromptBatch(2400, true)   // silent：单条修复用自己的 toast 文案
     await refresh()
     await runPromptCheck(promptCheck.sb)
     toast.success(t('episode.check.repairDone'))
