@@ -114,3 +114,16 @@ test('画外音拍里不许写下颌/下巴动作（2026-10-16 实测 sb519：�
   assert.equal(findVoiceoverMouthAction(jaw).length, 1, 'jaw tightens 要命中')
 })
 
+// 2026-10-17 实测（12集分镜9 / sb550）：旁白者写成角色短语 ⇒ H3 无从判断音色，用了画面里苏晚卿的音色
+test('旁白者写成角色短语必须被拦（sb550 真实形状），点名写法不许误报', async () => {
+  const { findNarratorRolePhrase } = await import('../src/services/voiceover-onscreen-gate.ts')
+  const bad = 'A young adult female voice speaks as an off-screen narrator (S1): <d>[Chinese] 她心虚了。</d> '
+    + "while <Subject 2>'s lips remain completely closed."
+  const r = findNarratorRolePhrase(bad)
+  assert.ok(r, '必须报错')
+  assert.match(r, /off-screen narrator/i, '要报出抓到的那段短语')
+  const good = "<Subject 3> (S1) says in an off-screen voiceover: <d>[Chinese] 她心虚了。</d> "
+    + "while <Subject 2>'s lips remain completely closed."
+  assert.equal(findNarratorRolePhrase(good), null, '点名写法必须放过')
+})
+

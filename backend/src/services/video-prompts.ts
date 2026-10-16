@@ -367,7 +367,7 @@ import { findChineseOutsideDialogue, stripRequestEcho } from './en-cn-gate.js'
 import { findVoiceoverMouthAction, type VoiceoverMouthHit } from './voiceover-gates.js'
 import { findRetentionMismatch, findRetentionOutfitMismatch, type RetentionMismatch, type RetentionOutfitHit } from './retention-gate.js'
 import { findColourGaps, shouldRewriteForColour, colourRewriteNote, findColourMismatchInPrompt, garmentColourNote } from './asset-colour-gate.js'
-import { findVoiceoverOnscreenLock, OFFICIAL_LIP_LOCK, type VoiceoverLockGap } from './voiceover-onscreen-gate.js'
+import { OFFICIAL_LIP_LOCK, findNarratorRolePhrase, findVoiceoverOnscreenLock, type VoiceoverLockGap } from './voiceover-onscreen-gate.js'
 import { findDeviceScreenBody, deviceScreenNote } from './device-screen-gate.js'
 export { findDanglingPropRef } from './prop-text-gates.js'
 export { findRetentionMismatch } from './retention-gate.js'
@@ -401,6 +401,15 @@ function zhEnConsistency(enText: string, zhPrompt?: string): string | null {
   )
   if (selfMade) {
     return `旁白锁嘴句用了自造写法「${selfMade[0]}」：锁嘴句只许逐字用官方原句「while her/his/its lips remain completely closed.」`
+  }
+  // 2026-10-17（实测 12集分镜9）：旁白者被写成了**角色短语**（`as an off-screen narrator`）而不是 `<Subject K>`，
+  //   H3 认不出该用谁的音色 ⇒ 成片用了画面里那个人的音色（用户报「现在是苏晚卿读了旁白」）。
+  //   那句里还缺官方固定短语 `says in an off-screen voiceover`，所以下面那个循环根本没扫到它 —— 必须单独判。
+  const rolePhrase = findNarratorRolePhrase(enText)
+  if (rolePhrase) {
+    return `旁白者写成了角色短语「${rolePhrase[0]}」—— H3 无法据此确定音色，会改按画面里的人配：`
+      + `必须**点名**写成「<Subject K> (Sx) says in an off-screen voiceover: <d>…</d> while …lips remain completely closed.」，`
+      + `K 取本分镜**出场角色**里的那一位（按剧情视角选，一般就是主角）。实测：写成 narrator 短语后成片用了画面里另一个角色的音色。`
   }
   for (const m of enText.matchAll(/says\s+in\s+an\s+off-?screen\s+voiceover/gi)) {
     const at = m.index ?? 0

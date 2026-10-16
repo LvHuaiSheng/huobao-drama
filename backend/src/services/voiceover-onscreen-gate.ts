@@ -79,3 +79,15 @@ export function findVoiceoverOnscreenLock(en: string, charSubjects: number[]): V
   }
   return hits
 }
+
+/**
+ * 旁白者被写成了**角色短语**而不是 `<Subject K>`（2026-10-17 实测 12集分镜9 / sb550）。
+ * 短语写法 = 没告诉 H3 用谁的音色 ⇒ 它退回用**画面里那个人**的音色：
+ * 该拍画面只有苏晚卿、念的却是苏清禾的内心话 ⇒ 用户报「现在是苏晚卿读了旁白」。
+ * 正确写法：`<Subject K> (Sx) says in an off-screen voiceover: <d>…</d>`，K 取本分镜出场角色里的那一位。
+ */
+export function findNarratorRolePhrase(enText: string): string | null {
+  const m = enText.match(/(?:as\s+an\s+off-?screen\s+narrator|off-?screen\s+narrator\s*\(S\d+\)|the\s+narrator\s*\(S\d+\))/i)
+  return m ? m[0] : null
+}
+
