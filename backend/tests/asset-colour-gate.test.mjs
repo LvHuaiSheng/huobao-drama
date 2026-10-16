@@ -13,10 +13,12 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
 const gate = await import('../src/services/asset-colour-gate.ts')
 const { hasHairColour, hasGarmentColour, ambiguousStyling, subjectLines,
-  findColourGaps, shouldRewriteForColour, colourRewriteNote, assetColourGaps } = gate
+  findColourGaps, shouldRewriteForColour, colourRewriteNote, assetColourGaps, hairColours,
+  findColourMismatchInPrompt, findGarmentColourMismatch, subjectLinesByPicture, subjectToPicture, subjectLineForPicture } = gate
 
 test('发色：中英都认，只写「short cropped hair」不算', () => {
   assert.equal(hasHairColour('<Subject 3>, with a long square jaw, short cropped hair, navy police uniform jacket'), false)
@@ -94,3 +96,38 @@ test('subjectLines：能按编号取回定义行', () => {
   assert.equal(m.get(1), '<Subject 1> is the scene')
   assert.equal(m.get(2), '<Subject 2> is the woman')
 })
+
+test('角色卡缺发色会被判别出来（2026-10-16 实测：宾客丙当天新建的卡只有「发型短而整齐」）', () => {
+  const guestC = '深藏青色商务西装，白衬衫，深色领带，黑色皮鞋；发型短而整齐，鬓角修剪干净；妆面素净日常。整体造型大众化，不与主要角色争视觉焦点。'
+  assert.deepEqual(assetColourGaps(guestC), ['hair'], '有服装色、没有发色 → 只报缺发色')
+  // 补上发色（背景龙套给最普通的具体值）后必须干净
+  assert.deepEqual(assetColourGaps('纯黑色短发，鬓角修剪干净。' + guestC), [])
+  // 服装色也缺时两条都要报
+  assert.deepEqual(assetColourGaps('普通中年男子，发型短而整齐。').sort(), ['garment', 'hair'])
+})
+
+test('提取保存工具在写入前拦住缺色的新卡（源码级接线断言）', () => {
+  const src = readFileSync(new URL('../src/agents/tools/extract-tools.ts', import.meta.url), 'utf8')
+  assert.match(src, /assetColourGaps\(/, '保存角色必须调用 assetColourGaps 校验')
+  assert.match(src, /save-characters-reject-colourless/, '拒绝入库要留日志，便于事后核对')
+  assert.match(src, /已被拒绝入库/, '要把「缺什么」回给模型让它补齐，而不是静默写进去')
+})
+
+test('整身装束的说法要认（2026-10-16 实测：工装/休闲装/便装/中山装判不出服装色）', () => {
+  assert.equal(hasGarmentColour('深蓝色工装，袖口磨旧，脖子上搭条灰汗巾，脚穿旧解放鞋。'), true, '深蓝色工装')
+  assert.equal(hasGarmentColour('中档宴会蓝色商务休闲装，面料普通，配饰简单。'), true, '蓝色商务休闲装')
+  assert.equal(hasGarmentColour('得体的浅灰色宴会便装，色调沉稳。'), true, '浅灰色宴会便装')
+  assert.equal(hasGarmentColour('花白背头，穿深灰色中山装，扣子扣到领口。'), true, '深灰色中山装')
+})
+
+test('肤色/唇色不算发色（2026-10-16 实测：宾客乙「面色发白」掩盖了真缺的发色）', () => {
+  const y = '二十多岁至三十出头的都市青年形象，面容圆润无害，眼神易显慌乱。权限封禁爆发后声音发虚、面色发白。得体的浅灰色宴会便装；发型整洁朴素；妆面清淡。'
+  assert.equal(hasHairColour(y), false, '「面色发白」不是发色；「发型整洁朴素」没写颜色 ⇒ 应判缺发色')
+  assert.deepEqual(assetColourGaps(y), ['hair'])
+  // 真写了发色仍要认
+  assert.equal(hasHairColour('面色发白，头发花白。'), true, '紧邻的肤色描写不许把真发色一起剥掉')
+  assert.equal(hasHairColour('一头纯黑短发，面色发白。'), true)
+  // 「艳粉唇色」不是服装色/发色
+  assert.deepEqual(hairColours('艳粉唇色，粉感厚重的妆面。'), [])
+})
+

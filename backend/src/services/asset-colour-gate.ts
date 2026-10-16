@@ -47,6 +47,9 @@ const GARMENTS = ['jacket', 'coat', 'shirt', 'blouse', 'dress', 'uniform', 'apro
   //   漏掉它就会把提示词里正确的 `black elastic` 判成「服装颜色不符」（实测 10集分镜3 苏清禾误报）。
   'elastic', 'hair tie', 'hairband', 'hair band', 'ribbon', 'gloves', 'socks',
   '衫', '衣', '外套', '制服', '警服', '裙', '裤', '鞋', '围裙', '夹克', '西装', '衬衫', '大衣', '背心', '毛衣', '领带', '腰带', '帽', '褂',
+  // 2026-10-16（4.0.61）：整身装束的说法漏了 —— 「深蓝色**工装**」「蓝色商务**休闲装**」「浅灰色宴会**便装**」「深灰色**中山装**」
+  //   全都判不出服装色（实测工人乙/宾客甲/宾客乙），体检会喊「缺服装颜色」而卡里明明写着。
+  '工装', '便装', '休闲装', '中山装', '礼服', '旗袍', '正装', '戏服',
   '皮筋', '发圈', '发卡', '发带', '头绳', '手套', '袜'].join('|')
 
 /** 颜色词与目标词相距 ≤40 字符（任一侧）就算「写出来了」 */
@@ -56,8 +59,14 @@ function near(line: string, targets: string): boolean {
     || new RegExp(`(?:${targets})[^。；;,.，]{0,40}(?:${COLOURS})`, 'i').test(t)
 }
 
+/**
+ * **肤色/唇色描写不是发色** —— 先剥掉再判（2026-10-16 实测：宾客乙的 `appearance` 写「面色发白」，
+ * 而同一段里有「发型整洁朴素」，色词「白」落在发词的 40 字窗口内 ⇒ 被判成「写了发色」，
+ * 于是真正缺的发色被掩盖。同理「艳粉唇色」「肤色黑红」都不该算发色。
+ */
+const SKIN_SPAN = () => new RegExp(`(?:面色|脸色|肤色|皮肤|脸上|面容|眼底|唇色|唇)[^。；;,.，]{0,12}(?:${COLOURS})`, 'gi')
 /** 写了发色吗（`black short hair` / `lank straw-dyed hair` / 「染成枯黄后长出黑根」） */
-export function hasHairColour(line: string): boolean { return near(line, HAIRWORDS) }
+export function hasHairColour(line: string): boolean { return near(String(line || '').replace(SKIN_SPAN(), ''), HAIRWORDS) }
 /** 写了服装颜色吗（`navy police uniform jacket` / 「深蓝或灰褐色对襟布衫」） */
 export function hasGarmentColour(line: string): boolean { return near(line, GARMENTS) }
 
@@ -321,7 +330,7 @@ function coloursInClausesWith(text: string, targets: string): string[] {
 /** 服装从句里的颜色（`grey-blue janitor work jacket` / 「灰褐色对襟布衫」） */
 export const garmentColours = (text: string): string[] => coloursInClausesWith(text, GARMENTS)
 /** 发型从句里的颜色（`lank straw-dyed hair` / 「头发染成枯黄后长出黑根」）——4.0.51 一并纳入校色 */
-export const hairColours = (text: string): string[] => coloursInClausesWith(text, HAIRWORDS)
+export const hairColours = (text: string): string[] => coloursInClausesWith(String(text || '').replace(SKIN_SPAN(), ''), HAIRWORDS)
 /** 颜色写法 → 概念（认不出返回 null）。卡面常写「灰棕**色**对襟布衫」 ⇒ 去掉尾部「色」再查。 */
 export const colourConcept = (token: string): string | null => {
   const raw = String(token || '').trim()

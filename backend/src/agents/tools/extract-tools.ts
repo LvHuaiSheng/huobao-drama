@@ -11,6 +11,7 @@ import { createTool } from '@mastra/core/tools'
 import type { ToolExecutionContext } from '@mastra/core/tools'
 import { z } from 'zod'
 import { db, getInsertId, schema } from '../../db/index.js'
+import { assetColourGaps, WHAT_ZH } from '../../services/asset-colour-gate.js'
 import { eq, and } from 'drizzle-orm'
 
 /**
@@ -212,6 +213,11 @@ const saveDedupCharacters = createTool({
     const { episodeId, dramaId } = ids
     const ts = now()
     const results = { created: 0, merged: 0, variants: 0 }
+    // 🔴 新卡写入前必须写全「发色 / 服装颜色」（2026-10-16 加，实测：技能里 10-15 就写了这条规则，
+    //   模型对**背景龙套/群像**照样跳过 —— 宾客丙这张卡当天新建、`styling` 只有「发型短而整齐」没有发色，
+    //   而卡面是后面所有分镜提示词唯一的颜色来源 ⇒ 成片只能靠猜。工具层的反馈比技能里的长文有效得多，
+    //   所以缺色的**不写库**、把缺什么直接回给模型让它补齐重存（不是让它自己去看技能）。
+    const deficient: string[] = []
     logTaskProgress('ExtractTool', 'save-characters-begin', {
       episodeId,
       dramaId,
@@ -268,7 +274,15 @@ const saveDedupCharacters = createTool({
         if (isVariant) results.variants++
         results.merged++
       } else {
-        // 新增角色
+        // 新增角色 —— 缺发色/服装色的先不写，回给模型补齐（变体只查 styling：脸照抄基准角色）
+        const gaps = assetColourGaps(isVariant ? (char.styling || '') : `${char.appearance || ''} ${char.styling || char.description || ''}`)
+        if (gaps.length) {
+          deficient.push(`${char.name}（缺${gaps.map(w => WHAT_ZH[w]).join('、')}）`)
+          logTaskProgress('ExtractTool', 'save-characters-reject-colourless', {
+            episodeId, dramaId, name: char.name, missing: gaps.join(','),
+          })
+          continue
+        }
         const res = await db.insert(schema.characters).values({
           name: char.name,
           role: char.role || '',
@@ -288,8 +302,16 @@ const saveDedupCharacters = createTool({
     }
 
     const payload = {
-      message: `角色保存完成：新增 ${results.created}，合并更新 ${results.merged}（其中换装造型变体 ${results.variants}）`,
+      message: deficient.length
+        ? `角色保存完成：新增 ${results.created}，合并更新 ${results.merged}（其中换装造型变体 ${results.variants}）。`
+          + `\n⚠️ 以下角色**没有写全颜色、已被拒绝入库**：${deficient.join('；')}。`
+          + `\n请**立即**补齐后连同本条一起再调用一次 save_dedup_characters（其余已保存的角色不要重复提交）：`
+          + `\n- 发色写死一个具体值（背景/龙套/群像同样要写，普通人写「纯黑色短发」这种最普通的即可，年长者可写「花白」）；`
+          + `\n- 服装写清主色（上衣/裤/鞋各是什么颜色），配饰给颜色或材质；`
+          + `\n- 不许出现「或 / 皆可 / 任选」这类二选一。`
+        : `角色保存完成：新增 ${results.created}，合并更新 ${results.merged}（其中换装造型变体 ${results.variants}）`,
       ...results,
+      ...(deficient.length ? { rejected: deficient } : {}),
     }
     logTaskSuccess('ExtractTool', 'save-characters-complete', { episodeId, ...results })
     return payload
