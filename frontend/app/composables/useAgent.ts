@@ -24,6 +24,14 @@ const progress = ref<{ elapsedSeconds: number; saved: number; expected: number |
 /** 本次 POST 还在飞（此时完成通知由 run() 负责，轮询只更新进度，避免双 toast） */
 let postInFlight = false
 let poller: ReturnType<typeof setInterval> | null = null
+/**
+ * ⚠️ 2026-10-16 事故（用户报「点重新改写按钮不会有变化，然后还会报错」）：
+ *   `run()` 是先开轮询、再发 POST，而轮询的**第一次 tick 是立刻跑的** ——
+ *   那一瞬间后端还没登记好这次运行，轮询把「后端没在跑」当成「已经跑完了」⇒
+ *   状态被瞬间清掉（按钮看不出变化）⇒ 按钮又能点 ⇒ 第二次点击撞上后端「同集只许跑一个」的守卫 ⇒ 报错。
+ *   修法：**必须先在后端看到它在跑，才允许判定「跑完了」**（`sawRunning`）。
+ */
+let sawRunning = false
 
 function stopPolling() {
   if (poller) { clearInterval(poller); poller = null }
@@ -31,6 +39,7 @@ function stopPolling() {
 
 function applyStatus(st: any) {
   if (!st || !st.running) return false
+  sawRunning = true
   progress.value = {
     elapsedSeconds: Number(st.elapsedSeconds ?? st.elapsed_seconds ?? 0),
     saved: Number(st.saved ?? 0),
@@ -47,7 +56,9 @@ function startPolling(type: string, episodeId: number, onDone?: () => void) {
     try {
       const st = await api.get<any>(`/agent/${type}/status?episode_id=${episodeId}`)
       if (applyStatus(st)) return
-      // 后端已无这次运行 ⇒ 结束了
+      // 还没在后端看到这次运行（POST 可能仍在路上）⇒ 不许当成「跑完了」，继续等
+      if (!sawRunning) return
+      // 看到过它在跑、现在没了 ⇒ 真的结束了
       stopPolling()
       const mine = runningType.value === type
       running.value = false
@@ -76,6 +87,7 @@ async function resume(type: string, episodeId: number, onDone?: () => void) {
     runningType.value = type
     // 这次不是本组件发起的 POST（切页回来的），跑完要提示 + 刷新
     postInFlight = false
+    sawRunning = true
     startPolling(type, episodeId, onDone)
     return true
   } catch {
@@ -90,6 +102,7 @@ export function useAgent() {
     runningType.value = type
     progress.value = null
     postInFlight = true
+    sawRunning = false
     startPolling(type, episodeId)
     try {
       const data = await api.post<any>(`/agent/${type}/chat`, {

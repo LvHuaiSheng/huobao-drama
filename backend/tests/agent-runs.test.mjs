@@ -41,6 +41,13 @@ test('失败路径也必须放行（否则该 Agent 被自己永久挡住）', (
   assert.ok(beginRun('storyboard_breaker', 25), '放行后必须能重新起')
 })
 
+test('前端轮询不许在「还没看到它在跑」时就判定跑完（2026-10-16 事故：按钮看不出变化 + 再点报错）', () => {
+  const src = readFileSync(new URL('../../frontend/app/composables/useAgent.ts', import.meta.url), 'utf8')
+  assert.match(src, /if \(!sawRunning\) return/, '第一次 tick 时后端可能还没登记 ⇒ 不许当成跑完')
+  assert.match(src, /sawRunning = false/, '每次发起新任务都要复位')
+  assert.match(src, /sawRunning = true/, 'resume / 看到 running 时要置位')
+})
+
 test('接线断言：路由登记/放行/查询三件套齐，保存工具喂进度', () => {
   const route = readFileSync(new URL('../src/routes/agent.ts', import.meta.url), 'utf8')
   const tool = readFileSync(new URL('../src/agents/tools/storyboard-tools.ts', import.meta.url), 'utf8')

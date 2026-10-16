@@ -89,7 +89,7 @@ app.post('/:type/chat', async (c) => {
   if (!run) {
     const cur = getRun(agentType, Number(episode_id))
     logTaskError('Agent', agentType, { reason: 'already-running', episodeId: episode_id, elapsedSeconds: cur?.elapsedSeconds })
-    return badRequest(c, `${agentType} 正在跑这一集（已 ${cur?.elapsedSeconds ?? 0} 秒），等它结束再试`)
+    return badRequest(c, `这个 AI 任务正在跑这一集（已 ${cur?.elapsedSeconds ?? 0} 秒），等它结束再试`)
   }
 
   try {
