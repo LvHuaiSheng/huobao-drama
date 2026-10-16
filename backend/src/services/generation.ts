@@ -13,6 +13,7 @@ import path from 'path'
 import { extractVideoPoster } from '../utils/video-poster.js'
 import { getImageAdapter, getVideoAdapter } from './adapters/registry'
 import { voiceCardsForCharacters } from './voice.js' // 2026-10-08 声音卡下发
+import { runLimited } from './task-limit.js' // 2026-10-16 并发闸（一次点多了生成卡会卡）
 import type { AIConfig } from './adapters/types'
 import { logTaskError, logTaskPayload, logTaskProgress, logTaskStart, logTaskSuccess, logTaskWarn, redactUrl } from '../utils/task-logger.js'
 import { decideRecoveryAction, type RecoveryProbe } from './recovery-policy.js'
@@ -428,10 +429,12 @@ async function createTask(
   })
 
   const id = getInsertId(res)
-  processTask(id, config).catch(err => {
+  // 2026-10-16（4.0.63）：改走并发闸 —— 原来是 fire-and-forget 直接跑，
+  //   一次点 8 张卡就是 8 个请求同时发、8 张图同时下载落盘，把 App 自己的事件循环挤爆（用户报卡顿）。
+  runLimited(type, () => processTask(id, config).catch(err => {
     logTaskError(taskLabel(type), 'process', { id, error: err.message })
     console.error(`${taskLabel(type)} ${id} failed:`, err)
-  })
+  }))
   return id
 }
 
