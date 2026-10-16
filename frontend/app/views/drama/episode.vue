@@ -513,6 +513,17 @@
                 </template>
                 <button v-else class="pb-close" :title="t('common.close')" @click="dismissVideoPromptResult">✕</button>
               </span>
+              <!-- 2026-10-16（4.0.45 用户要求）：完成后的「最近 ✓ 分镜 #10 · 3m23s」不再单独占一格，
+                   跟进度读数同一套换行逻辑 —— flex-basis 100% 让它固定落在**视频制作这一行的第二行** -->
+              <span v-if="vpbRecentItems.length" class="pb-recent-inline pb-inline">
+                <span class="pb-kicker">{{ t('episode.sb.pbRecent') }}</span>
+                <span
+                  v-for="it in vpbRecentItems"
+                  :key="it.key"
+                  :class="['pb-item', it.ok ? 'is-ok' : 'is-bad']"
+                  :title="it.error"
+                >{{ it.ok ? '✓' : '✗' }} {{ it.label }} · {{ it.dur }}<template v-if="it.error"> · {{ it.error }}</template></span>
+              </span>
               </div>
               <div class="ml-auto flex gap-1 prod-bar-actions">
                 <button class="btn btn-sm" :disabled="rn" @click="sbs.length ? (breakdownConfirm = true) : doBreakdown()">
@@ -553,7 +564,7 @@
             <!-- 2026-10-14：批量提示词进度面板 —— 总进度（绿=成功/红=失败）、本条进度、逐条流水与结果汇总 -->
             <!-- 2026-10-16（4.0.40）：总进度/本条已内联到顶行 ⇒ 本面板只在**还有额外内容**时才出现
                  （失败明细 / 正在跑别的集 / 逐条流水），没有额外内容时整块不占行。 -->
-            <div v-if="(videoPromptBatch.finished && vpbFailSummary) || (vpbOtherRef && vpbIsOther) || vpbRecentItems.length" class="pb-panel">
+            <div v-if="(videoPromptBatch.finished && vpbFailSummary) || (vpbOtherRef && vpbIsOther)" class="pb-panel">
               <div v-if="videoPromptBatch.finished && vpbFailSummary" class="pb-line pb-line-wrap">
                 <span class="pb-kicker">{{ t('episode.sb.pbFailedItems') }}</span>
                 <span class="pb-fail">{{ vpbFailSummary }}</span>
@@ -563,15 +574,6 @@
                 <span class="pb-kicker">{{ t('episode.sb.pbOtherEp', { n: vpbOtherRef.num }) }}</span>
                 <span class="pb-dim">{{ t('episode.sb.pbOtherEpHint') }}</span>
                 <button class="btn btn-sm" @click="gotoVpbEpisode">{{ t('episode.sb.pbOtherEpGo') }}</button>
-              </div>
-              <div v-if="vpbRecentItems.length" class="pb-line pb-line-wrap pb-recent">
-                <span class="pb-kicker">{{ t('episode.sb.pbRecent') }}</span>
-                <span
-                  v-for="it in vpbRecentItems"
-                  :key="it.key"
-                  :class="['pb-item', it.ok ? 'is-ok' : 'is-bad']"
-                  :title="it.error"
-                >{{ it.ok ? '✓' : '✗' }} {{ it.label }} · {{ it.dur }}<template v-if="it.error"> · {{ it.error }}</template></span>
               </div>
             </div>
             <div v-if="!sbs.length" class="step-empty video-task-empty-state">
@@ -6014,6 +6016,9 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); }
   font-size: 11px;
 }
 .pb-inline > * { white-space: nowrap; }
+/* 「最近 …」整块固定占满一行 ⇒ 永远排在视频制作那一行的第二行（与进度读数同块、自己不占独立分格） */
+.pb-recent-inline { flex: 1 1 100%; }
+.pb-recent-inline > * { white-space: nowrap; }
 .pb-sep { color: var(--text-3); flex: none; }
 .pb-inline .pb-steps { display: inline-flex; gap: 3px; flex: none; }
 .pb-inline .pb-dot { width: 6px; height: 6px; border-radius: 50%; }
