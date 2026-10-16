@@ -298,6 +298,62 @@ export function findGarmentColourMismatch(defs: string, assets: CommunityAsset[]
   return out
 }
 
+/* ── 全文校色（4.0.53）─────────────────────────────────────────────
+ * 事故（用户第二次报同一个问题）：「8集分镜7 衣服还是蓝色」。日志显示闸**每次都触发**、
+ *   `garment-colour-after-fix remaining=0` —— 但它只查/只改 `subject_definitions` 一段，
+ *   同一件衣服的颜色在另外两处原样留着：
+ *     retention_analysis: <Subject 2> … fully_preserved - **dark blue** front-opening cloth jacket
+ *     detailed_description: … the stooped woman in the **dark blue** cloth jacket …
+ *   H3 读的是全文 ⇒ 成片照样全蓝。教训：**闸的覆盖面必须等于模型的读入面（全文）**，
+ *   否则「修好了」只是自己骗自己（`remaining=0` 只看了一段）。
+ */
+const STOP = new Set(['the', 'and', 'with', 'that', 'this', 'her', 'his', 'its', 'for', 'from', 'only', 'left', 'right', 'side', 'who', 'has', 'have', 'are', 'was', 'she', 'he', 'him', 'them', 'their', 'into', 'over', 'under', 'same', 'each', 'when', 'while', 'than', 'then', 'them', 'very', 'still', 'both', 'does', 'holds', 'kept', 'keeps'])
+/** 一行里的「非颜色实词」（衣物/款式/部位词）—— 用来判断正文某句在说**同一个人的同一件衣服** */
+
+/** 从句里出现的颜色（服装从句 + 发型从句都算） */
+
+function permitted(line: string, text: string, kind: ColourWhat): boolean {
+  const pick = kind === 'garment' ? garmentColours : hairColours
+  const want = pick(text).map(colourConcept).filter((c): c is string => !!c)
+  const got = pick(line).map(colourConcept).filter((c): c is string => !!c)
+  if (!want.length || !got.length) return true            // 任一边没颜色 → 交给缺色闸
+  return !got.some(g => !want.some(w => sameColour(g, w)))
+}
+
+/**
+ * 全文校色：定义段（按 `<Subject N>`）+ 保留段（同样带编号）+ **正文/概述里没有编号的散句**。
+ *
+ * 正文散句的归属判据（第二版，第一版用「身份线索词」误报严重 —— 实测把已知正确的 sb484 也抓了 2 条）：
+ *   该从句必须与某主体的定义行**共享 ≥2 个非颜色实词**（如 `cloth`+`jacket`）才算同一个人的同一件衣服。
+ *   实测对照：`the stooped woman in the dark blue cloth jacket` ↔ 王梅定义行共享 {cloth, jacket} ⇒ 命中 ✓；
+ *   警察那句 `navy police uniform jacket` 只共享 {jacket} ⇒ 跳过 ✓（卡面颜色不同也不再误报）。
+ * @param fullText 英文提示词全文（H3 实际读的那份）
+ * @param assets   本分镜的参考资产（含角色卡文字）
+ */
+export function findColourMismatchInPrompt(fullText: string, assets: CommunityAsset[]): GarmentColourMismatch[] {
+  const text = String(fullText || '')
+  const out: GarmentColourMismatch[] = []
+  // **逐段**扫带宽度的行（定义段 / 概述+保留段 / 正文段里的 `<Subject N>` 行）。
+  //   ⚠️ 不能把全文合成一份 `<Subject N>` → 行 的 Map：同一主体在定义段和 retention_analysis 里各有一行，
+  //   后出现的会覆盖前面的（4.0.51/52 的漏网正是这样：定义段被修好了，保留段那行「dark blue」没人看，
+  //   而 H3 读全文 ⇒ 成片照样全蓝）。
+  //   ⚠️ 也**不猜**没有编号的散文散句：试过「按身份线索词归属」和「按共享实词归属」两版，
+  //   都会把已知正确的稿子误报（实测 sb484 两次被抓）⇒ 宁可漏报，只查可归属的行。
+  //   只扫 `subject_definitions` 与 `retention_analysis` 两段：这两段里 `<Subject N>` 那行**只讲该主体**
+  //   （一人一行）。正文段的行即使是 `<Subject N>` 打头也常混着群演/别的角色的颜色（实测 sb484 因此误报），
+  //   正文的复述由重写指令覆盖（4.0.53 起重写会把三段一起交给模型改）。
+  //   ⚠️ 切块要按**全部六个段名**切，否则「retention_analysis」那块会一路吃到正文段结尾，
+  //   里面的 `<Subject N>` 行又变成最后一行说了算（第一次改成逐段查时正是这个 bug）。
+  const SECTION = 'subject_definitions|summary|retention_analysis|detailed_description|overall_soundscape|non_diegetic_music'
+  for (const block of text.split(new RegExp(`(?=^\\s*(?:${SECTION})\\s*:)`, 'm'))) {
+    const head = (block.match(/^\s*([a-z_]+)\s*:/) || [])[1]
+    if (head !== 'subject_definitions' && head !== 'retention_analysis') continue
+    if (!/<Subject \d+>/.test(block)) continue
+    out.push(...findGarmentColourMismatch(block, assets))
+  }
+  return out
+}
+
 /** 给重写 prompt 用：把「卡面是什么色」直接塞给模型 */
 export function garmentColourNote(hits: GarmentColourMismatch[]): string {
   return hits

@@ -12,7 +12,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-const { findGarmentColourMismatch, garmentColours, colourConcept } =
+const { findGarmentColourMismatch, findColourMismatchInPrompt, garmentColours, colourConcept } =
   await import('../src/services/asset-colour-gate.ts')
 
 const WANGMEI = '九十年代至千禧年初风格的佣人打扮：灰褐色对襟布衫，外罩洗得发白的碎花围裙，头发染成枯黄后长出黑根，梳成低矮松散的半扎发；脚穿黑色老式布鞋，腕上一只细银镯已氧化发暗。'
@@ -80,6 +80,33 @@ test('发色也查：卡面「染成枯黄后长出黑根」，稿子写 brown h
 test('发色写对就不报：卡面枯黄+黑根 ↔ straw-dyed hair with dark roots', () => {
   const line = '<Subject 2> is the woman in <Picture 2>, lank straw-dyed hair with dark roots, grey-brown front-opening cloth jacket.'
   assert.deepEqual(findGarmentColourMismatch(defs(line), ASSETS), [])
+})
+
+test('保留段的颜色也查（4.0.53）：定义段改对了、保留段还写 dark blue → 成片照样全蓝', () => {
+  // 实测 sb480：日志里 garment-colour-after-fix remaining=0（只统计定义段），
+  // 而 retention_analysis 那行 `<Subject 2> … fully_preserved - dark blue front-opening cloth jacket`
+  // 原样留着 → H3 读全文 → 出片全蓝。闸的覆盖面必须等于模型的读入面。
+  const en = [
+    'subject_definitions:',
+    '<Subject 2> is the stooped middle-aged Chinese woman in <Picture 2>, lank straw-dyed hair with dark roots, grey-brown front-opening cloth jacket over a white small-floral apron.',
+    '',
+    'summary:',
+    'A nine-second sequence.',
+    '',
+    'retention_analysis:',
+    '<Subject 2> (appears in every shot): fully_preserved - dark blue front-opening cloth jacket, white small-floral apron, black cloth shoes.',
+    '',
+    'detailed_description:',
+    '[Shot 1] the stooped woman in the grey-brown cloth jacket.',
+  ].join('\n')
+  const hits = findColourMismatchInPrompt(en, ASSETS)
+  assert.equal(hits.length, 1, '保留段那条必须被抓到')
+  assert.match(hits[0].found, /蓝/)
+  assert.match(hits[0].line, /fully_preserved/)
+  // 同一条稿子把保留段也改成 grey-brown 后 → 0 命中（不许误报）
+  const ok = en.replace('dark blue front-opening cloth jacket, white small-floral apron, black cloth shoes',
+                        'grey-brown front-opening cloth jacket, white small-floral apron, black cloth shoes')
+  assert.deepEqual(findColourMismatchInPrompt(ok, ASSETS), [])
 })
 
 test('提取器本身：只认紧挨服装词的颜色；中英概念映射正确', () => {

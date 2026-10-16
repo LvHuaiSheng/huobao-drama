@@ -366,7 +366,7 @@ import { shouldKeepCompressing, shouldRegenerateDraft, rosterBlock, itemBudgetLi
 import { findChineseOutsideDialogue } from './en-cn-gate.js'
 import { findVoiceoverMouthAction, type VoiceoverMouthHit } from './voiceover-gates.js'
 import { findRetentionMismatch, findRetentionOutfitMismatch, type RetentionMismatch, type RetentionOutfitHit } from './retention-gate.js'
-import { findColourGaps, shouldRewriteForColour, colourRewriteNote, findGarmentColourMismatch, garmentColourNote } from './asset-colour-gate.js'
+import { findColourGaps, shouldRewriteForColour, colourRewriteNote, findColourMismatchInPrompt, garmentColourNote } from './asset-colour-gate.js'
 import { findVoiceoverOnscreenLock, OFFICIAL_LIP_LOCK, type VoiceoverLockGap } from './voiceover-onscreen-gate.js'
 export { findDanglingPropRef } from './prop-text-gates.js'
 export { findRetentionMismatch } from './retention-gate.js'
@@ -1304,24 +1304,32 @@ async function generateEnByStages(
     //   `dark blue front-opening cloth jacket over a faded small-floral apron`（分镜8/10），
     //   分镜9 甚至编成 `deep red sleeveless evening dress`；库里角色数据是干净的 ⇒ 只能是模型换的色。
     //   ⇒ 比对卡面服装颜色，不一致即打回重写一轮（与缺色闸同构，超限则回滚）。
-    const mism = findGarmentColourMismatch(defsOf(), assets)
+    // 4.0.53：查**全文**（定义段 + 保留段 + 正文散句）—— 4.0.51/52 只查定义段，
+    //   于是「保留段 / 正文里的同一件衣服还写着深蓝」这种漏网让成片照样全蓝（实测 sb480 两轮）：
+    //   `garment-colour-after-fix remaining=0` 只说明**那一段**干净了。
+    const mism = findColourMismatchInPrompt(text, assets)
     if (mism.length) {
       logTaskProgress('VideoPrompt', 'garment-colour-mismatch', {
         episodeId, storyboardId: sb.id,
-        hits: mism.map(h => `S${h.picture}:${h.found}≠${h.expected}`).join(','),
+        hits: mism.map(h => `S${h.picture}:${h.what}:${h.found}≠${h.expected}`).join(','),
       })
       const snapshot2 = new Map(parts)
+      // 重写**覆盖全部三段**：同一件衣服的颜色会同时出现在定义段、保留段、正文里，
+      //   只让模型改定义段 = 剩下的原样留着（就是上面那次漏网的成因）。
+      const scope = EN_STAGES.filter(st => mism.some(() => true) && st.segs.some(sg => (parts.get(sg) || '').trim()))
       const res2 = (await agent.generate(
-        [{ role: 'user', content: buildRewriteMultiPrompt(sb, [{
-          stage: EN_STAGES[0],
-          current: defsOf(),
-          problem: `颜色与角色卡面文字不符（**必须逐字改成卡面的颜色**，不许借同场其他角色/群演的颜色，也不许改成别的款式）:\n${garmentColourNote(mism)}`,
-        }], 1, extra, zhPrompt) }],
+        [{ role: 'user', content: buildRewriteMultiPrompt(sb, scope.map(st => ({
+          stage: st,
+          current: st.segs.map(sg => parts.get(sg) || '').filter(Boolean).join('\n'),
+          problem: `颜色与角色卡面文字不符 —— **必须把下面列到的角色服装/发色在「所有段」里统一改成卡面的颜色**`
+            + `（定义段、retention_analysis、detailed_description 正文里都要改；正文里像 “the woman in the dark blue cloth jacket” 这种复述也要一起改）。`
+            + `不许借同场其他角色/群演的颜色，也不许改成别的款式:\n${garmentColourNote(mism)}`,
+        })), 1, extra, zhPrompt) }],
         { maxSteps: 6, requestContext },
       )) as { text?: string } | undefined
       const rawG = cleanSegText(res2?.text || '')
-      debugLog(episodeId, sb.id, 'colour-mismatch-fix-1', rawG, { hits: mism.length })
-      if (writeBack(rawG, ['subject_definitions:']).length) {
+      debugLog(episodeId, sb.id, 'colour-mismatch-fix-1', rawG, { hits: mism.length, sections: scope.length })
+      if (writeBack(rawG, scope.flatMap(st => st.segs)).length) {
         const next2 = assemble()
         if (next2.length > budget.limit) {
           for (const k of parts.keys()) parts.delete(k)
@@ -1333,7 +1341,7 @@ async function generateEnByStages(
       }
       logTaskProgress('VideoPrompt', 'garment-colour-after-fix', {
         episodeId, storyboardId: sb.id,
-        remaining: findGarmentColourMismatch(defsOf(), assets).length,
+        remaining: findColourMismatchInPrompt(text, assets).length,
       })
     }
   }
