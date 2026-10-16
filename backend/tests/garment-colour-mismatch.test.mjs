@@ -124,6 +124,35 @@ test('误报回归：配饰颜色（发圈）+ 英文子串（whitened/blurred�
   assert.deepEqual(findColourMismatchInPrompt(defs(luLine), [{ picture: 3, kind: 'character', name: '陆沉渊', assetText: lu }]), [])
 })
 
+test('主体号 ≠ 图号（换位）时不许张冠李戴（10集分镜8 实测）', () => {
+  // 实测稿子：<Subject 2> …in <Picture 3>（年轻女性，绿丝绒）；<Subject 3> …in <Picture 2>（壮汉保镖，黑西装）
+  // 旧实现假设「<Subject K> 就是第 K 张图」⇒ 把女性的绿裙拿去对保镖的黑西装卡，报出「保镖写绿、卡面黑白」。
+  const bodyguard = '统一黑色西装，白衬衫，黑领带，墨镜，黑色皮鞋；黑色发型极短利落。'
+  const woman = '墨绿色丝绒旗袍式内搭正装，立领斜襟盘扣；下配同色墨绿高腰直筒长裤，脚穿黑色尖头细跟皮鞋。'
+  const assets = [
+    { picture: 2, kind: 'character', name: '黑衣保镖', assetText: bodyguard },
+    { picture: 3, kind: 'character', name: '苏清禾·内搭正装', assetText: woman },
+  ]
+  const en = [
+    'subject_definitions:',
+    '<Subject 1> is the ballroom scene in <Picture 1>, flat colour blocks.',
+    '<Subject 2> is the young Chinese woman in <Picture 3>, neat black hair; whose outfit comes from <Picture 3> only: green velvet mandarin-collar top, matching high-waist straight trousers, black pointed heels.',
+    '<Subject 3> is the burly male bodyguard in <Picture 2>, very short black hair; whose outfit comes from <Picture 2> only: black suit jacket, white shirt, black tie, dark sunglasses.',
+    '',
+    'summary:',
+    '[reference generation] A ten-second sequence.',
+    '',
+    'retention_analysis:',
+    '<Subject 2>: fully_preserved - green velvet mandarin-collar top, black pointed heels.',
+    '<Subject 3>: fully_preserved - black suit jacket, white shirt, black tie.',
+    '',
+    'detailed_description:',
+    '[Shot 1] <Subject 2>, the young woman in the green velvet top, stands still.',
+  ].join('\n')
+  assert.deepEqual(findColourMismatchInPrompt(en, assets), [],
+    '稿子与卡面完全一致（女性=墨绿/黑、保镖=黑/白），不该报 —— 报出来就是主体号当图号用了')
+})
+
 test('英文颜色词必须按词边界匹配（whitened 里不许出 white、blurred 里不许出 red）', () => {
   assert.deepEqual(garmentColours('frayed whitened cuffs on the jacket'), [])
   assert.deepEqual(garmentColours('blurred chest logo on the uniform'), [])

@@ -21,6 +21,9 @@
 const COLOURS = [
   // ① 多词英文（先长后短）
   'grey-brown', 'gray-brown', 'greyish brown', 'brownish grey', 'salmon pink', 'steel grey', 'steel gray',
+  // 2026-10-16（4.0.60）：玫红系 —— 卡面写「玫红」，稿子写 `rose-pink` 是同一个颜色（rose = 玫）。
+  //   不许被 pink 抢先匹配（实测 10集分镜7 张莉：卡面玫红被抽成「红」、稿子 rose-pink 抽成「粉」⇒ 误报）。
+  'rose-pink', 'rose red', 'rose', 'magenta', 'fuchsia',
   'dark blue', 'deep blue', 'midnight blue', 'navy blue', 'light blue', 'pale blue', 'dark green',
   'dark red', 'wine-red', 'off-white', 'salt-and-pepper',
   // ② 单字英文
@@ -28,7 +31,7 @@ const COLOURS = [
   'auburn', 'ginger', 'red', 'maroon', 'wine', 'navy', 'blue', 'beige', 'cream', 'ivory', 'pink',
   'orange', 'yellow', 'green', 'purple', 'tan', 'bronze', 'copper', 'greige', 'taupe',
   // ③ 中文复合色（必须先于单字：灰棕 > 灰、枯黄 > 黄、米白 > 白）
-  '灰褐色', '灰棕色', '灰褐', '灰棕', '米白色', '米色', '奶油色', '花白', '灰白', '酒红色', '藏蓝色',
+  '灰褐色', '灰棕色', '灰褐', '灰棕', '米白色', '米色', '奶油色', '花白', '灰白', '酒红色', '玫红色', '玫红', '藏蓝色',
   '深蓝色', '浅蓝色', '墨绿色', '藏青色', '蜡黄', '枯黄', '古铜', '银灰',
   // ④ 中文单字
   '黑', '白', '灰', '银', '金', '棕', '褐', '栗', '黄', '红', '蓝', '粉', '橙', '绿', '紫', '铜', '驼',
@@ -82,6 +85,70 @@ export function ambiguousStyling(text: string): { word: string; snippet: string 
   return null
 }
 
+/**
+ * `subject_definitions` → 「**参考图号** → 该主体的定义行」。
+ *
+ * ⚠️ 绝不能用「`<Subject K>` 就是第 K 张图」这种假设（2026-10-16 实测 10集分镜8）：
+ *   稿子里 `<Subject 2> is the young Chinese woman in <Picture 3>`、`<Subject 3> is the burly male bodyguard in <Picture 2>`
+ *   —— 主体号与图号是**错位**的，按位置取会把一个人的颜色拿去和另一个人的卡面对比，
+ *   报出「保镖写绿、卡面黑白」这种张冠李戴的警报（用户当场看出对不上）。
+ *   正解：每行里的 `<Picture N>` 才是绑定的参考图号。
+ */
+export function subjectLinesByPicture(defs: string): { byPic: Map<number, string>; bySubject: Map<number, string> } {
+  const byPic = new Map<number, string>()
+  const bySubject = new Map<number, string>()
+  for (const line of String(defs || '').split('\n')) {
+    const sub = line.match(/<Subject (\d+)>/)
+    const pic = line.match(/<Picture (\d+)>/)
+    if (pic && sub) {
+      const n = parseInt(pic[1], 10)
+      if (!byPic.has(n)) byPic.set(n, line)          // 有图号的：图号才是真绑定
+    } else if (sub && !pic) {
+      // ⚠️ 没有 `<Picture N>` 的行（典型：`retention_analysis` 里的 `<Subject 2>: fully_preserved - …`）
+      //    只能退回按主体号取，否则这些行整段查不到（4.0.60 一次改动曾把王梅那条该报的变成不报）。
+      //    这类行只当**兜底**：有图号的行优先，避免把「图号与主体号错位」重新引进来。
+      const n = parseInt(sub[1], 10)
+      if (!bySubject.has(n)) bySubject.set(n, line)
+    }
+  }
+  return { byPic, bySubject }
+}
+
+/** 主体号 → 图号（只从**带图号**的行学；定义段就是干这个用的） */
+export function subjectToPicture(defs: string): Map<number, number> {
+  const out = new Map<number, number>()
+  for (const line of String(defs || '').split('\n')) {
+    const sub = line.match(/<Subject (\d+)>/)
+    const pic = line.match(/<Picture (\d+)>/)
+    if (sub && pic) out.set(parseInt(sub[1], 10), parseInt(pic[1], 10))
+  }
+  return out
+}
+
+/**
+ * 取「第 picture 张参考图那个主体」的定义/保留行。三级：
+ *  ① 行里有 `<Picture N>` ⇒ 直接按图号（**这是唯一的真绑定**）；
+ *  ② 行里没有图号（典型：`retention_analysis` 的 `<Subject K>: fully_preserved - …`）
+ *     ⇒ 用**定义段学到的「主体号→图号」**映射去查（不能直接拿主体号当图号！实测 10集分镜8：
+ *     主体2=图3、主体3=图2，直接当图号会把女性的绿裙拿去对保镖的黑西装卡，报出「保镖写绿」）；
+ *  ③ 再退一步（拿不到映射时）才按主体号取，避免整段查不到（王梅 8集分镜7 那次）。
+ */
+export function subjectLineForPicture(
+  defs: string, picture: number, subjToPic?: Map<number, number>,
+): string {
+  const { byPic, bySubject } = subjectLinesByPicture(defs)
+  const direct = byPic.get(picture)
+  if (direct) return direct
+  if (subjToPic?.size) {
+    for (const [sub, pic] of subjToPic) {
+      if (pic !== picture) continue
+      const line = bySubject.get(sub)
+      if (line) return line
+    }
+  }
+  return bySubject.get(picture) || ''
+}
+
 /** 从 `subject_definitions` 段抽出 `<Subject N>` → 该行原文 */
 export function subjectLines(defs: string): Map<number, string> {
   const out = new Map<number, string>()
@@ -111,11 +178,10 @@ const CHECKERS: Record<ColourWhat, (s: string) => boolean> = { hair: hasHairColo
 
 /** 定义段 vs 资产文字：逐角色比对「发色 / 服装颜色」 */
 export function findColourGaps(defs: string, assets: CommunityAsset[]): ColourGap[] {
-  const lines = subjectLines(defs)
   const gaps: ColourGap[] = []
   for (const a of assets) {
     if (a.kind !== 'character') continue
-    const line = lines.get(a.picture) || ''
+    const line = subjectLineForPicture(defs, a.picture)
     if (!line) continue
     const text = a.assetText || ''
     for (const what of ['hair', 'garment'] as ColourWhat[]) {
@@ -169,6 +235,7 @@ const CONCEPTS: Array<[string, string[]]> = [
   ['墨绿', ['dark green', 'deep green']],
   ['绿', ['green']],
   ['酒红', ['wine', 'wine-red', 'burgundy', 'maroon', 'oxblood', 'deep red', 'dark red']],
+  ['玫红', ['rose', 'rose-pink', 'rose red', 'magenta', 'fuchsia', 'raspberry', 'deep pink', 'cerise']],   // 玫红系（含 rose）
   ['红', ['red', 'crimson', 'scarlet']],
   ['米白', ['cream', 'ivory', 'off-white', 'bone']],
   ['米色', ['beige', 'sand']],
@@ -214,6 +281,7 @@ const FAMILIES: string[][] = [
   ['深蓝', '藏蓝', '藏青'],        // 卡面「深蓝色警服」↔ 稿子 `navy police uniform`（实测 sb481 警察）
   ['花白', '灰白', '灰'],          // 「花白短发」↔ `grey hair`
   ['黄', '枯黄', '蜡黄'],          // 「染成枯黄后长出黑根」↔ `straw-dyed hair`（同一个黄系）
+  ['玫红', '红'],                  // 玫红是红的一种（卡面「玫红」↔ 稿子 `rose-pink` / `red`）；不含「粉」——粉与红不互认
 ]
 for (const fam of FAMILIES) for (const c of fam) COMPONENTS.set(c, fam)
 /** 颜色概念 → 写提示词时该用的英文（重写指令里直接给模型，避免它自己缩成 grey） */
@@ -278,12 +346,13 @@ export interface GarmentColourMismatch {
 }
 
 /** 定义段 vs 资产文字：**颜色写得对不对**（只查服装；发色同理但事故仅见于服装，先只做服装） */
-export function findGarmentColourMismatch(defs: string, assets: CommunityAsset[]): GarmentColourMismatch[] {
-  const lines = subjectLines(defs)
+export function findGarmentColourMismatch(
+  defs: string, assets: CommunityAsset[], subjToPic?: Map<number, number>,
+): GarmentColourMismatch[] {
   const out: GarmentColourMismatch[] = []
   for (const a of assets) {
     if (a.kind !== 'character') continue
-    const line = lines.get(a.picture) || ''
+    const line = subjectLineForPicture(defs, a.picture, subjToPic)
     const text = a.assetText || ''
     if (!line || !text) continue
     // 服装与发色都查（发色同类事故：分镜9 稿子写 `short dark hair`，卡面是「染成枯黄后长出黑根」）
@@ -355,11 +424,15 @@ export function findColourMismatchInPrompt(fullText: string, assets: CommunityAs
   //   ⚠️ 切块要按**全部六个段名**切，否则「retention_analysis」那块会一路吃到正文段结尾，
   //   里面的 `<Subject N>` 行又变成最后一行说了算（第一次改成逐段查时正是这个 bug）。
   const SECTION = 'subject_definitions|summary|retention_analysis|detailed_description|overall_soundscape|non_diegetic_music'
+  // 先从定义段学「主体号 → 图号」，保留段那种不带图号的行要靠它（见 subjectLineForPicture ②）。
+  const defsBlock = text.split(new RegExp(`(?=^\\s*(?:${SECTION})\\s*:)`, 'm'))
+    .find(b => /^\s*subject_definitions\s*:/.test(b)) || ''
+  const subjToPic = subjectToPicture(defsBlock)
   for (const block of text.split(new RegExp(`(?=^\\s*(?:${SECTION})\\s*:)`, 'm'))) {
     const head = (block.match(/^\s*([a-z_]+)\s*:/) || [])[1]
     if (head !== 'subject_definitions' && head !== 'retention_analysis') continue
     if (!/<Subject \d+>/.test(block)) continue
-    out.push(...findGarmentColourMismatch(block, assets))
+    out.push(...findGarmentColourMismatch(block, assets, subjToPic))
   }
   return out
 }
