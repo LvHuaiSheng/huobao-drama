@@ -487,15 +487,29 @@
               <span class="dim" style="font-size:12px">{{ t('episode.prod.videos') }}</span>
               <span class="tag mono">{{ t('episode.sb.segmentStat', { n: sbs.length, dur: totalDuration }) }}</span>
               <span class="tag mono" :title="t('episode.vid.aspectRatio')">{{ dramaAspectRatio }}</span>
-              <!-- 2026-10-16（4.0.39）：批量提示词进度条**内联到 9:16 右侧**并缩短（原来在下方面板里整行铺开太长）。
-                   可伸缩（flex:0 1 auto + max-width），右侧按钮组 flex:none ⇒ 永远不会重叠或被挤扁。 -->
-              <span v-if="videoPromptBatch.running" class="pb-inline" :title="t('episode.sb.pbOverall')">
+              <!-- 2026-10-16（4.0.39/4.0.40）：批量提示词的**总进度 + 本条**全部内联在 9:16 右侧这一行
+                   （用户要求：上方还有空间就别再占下一行）。可伸缩、有上限，右侧按钮组 flex:none ⇒ 永不重叠。 -->
+              <span v-if="videoPromptBatch.running || videoPromptBatch.finished" class="pb-inline">
+                <span class="pb-kicker">{{ videoPromptBatch.finished ? t('episode.sb.pbResult') : t('episode.sb.pbOverall') }}</span>
                 <span class="pb-bar">
                   <span class="pb-bar-ok" :style="{ width: vpbOkPct + '%' }"></span>
                   <span class="pb-bar-fail" :style="{ width: vpbFailPct + '%' }"></span>
                 </span>
-                <span class="pb-count is-ok">{{ videoPromptBatch.completed }}/{{ videoPromptBatch.total }}</span>
-                <span v-if="videoPromptBatch.failed" class="pb-fail">✗{{ videoPromptBatch.failed }}</span>
+                <span class="pb-count is-ok">{{ t('episode.sb.pbOk', { n: videoPromptBatch.completed }) }}</span>
+                <span v-if="videoPromptBatch.failed" class="pb-fail">{{ t('episode.sb.pbFailed', { n: videoPromptBatch.failed }) }}</span>
+                <span class="pb-dim">{{ t('episode.sb.pbElapsed', { dur: vpbElapsed }) }}</span>
+                <span v-if="videoPromptBatch.running" class="pb-dim">{{ vpbEta ? t('episode.sb.pbEta', { dur: vpbEta }) : t('episode.sb.pbEtaUnknown') }}</span>
+                <template v-if="videoPromptBatch.running">
+                  <span class="pb-sep">·</span>
+                  <span class="pb-kicker">{{ t('episode.sb.pbCurrent') }}</span>
+                  <span class="pb-steps">
+                    <span v-for="s in vpbStageDots" :key="s.key" :class="['pb-dot', s.state]" :title="s.label"></span>
+                  </span>
+                  <span v-if="vpbCurrentLabel" class="pb-count">{{ vpbCurrentLabel }}</span>
+                  <span class="pb-dim">{{ vpbStageText }}</span>
+                  <span class="pb-dim">{{ t('episode.sb.pbItemElapsed', { dur: vpbItemElapsed }) }}</span>
+                </template>
+                <button v-else class="pb-close" :title="t('common.close')" @click="dismissVideoPromptResult">✕</button>
               </span>
               <div class="ml-auto flex gap-1 prod-bar-actions">
                 <button class="btn btn-sm" :disabled="rn" @click="sbs.length ? (breakdownConfirm = true) : doBreakdown()">
@@ -534,26 +548,10 @@
               </div>
             </div>
             <!-- 2026-10-14：批量提示词进度面板 —— 总进度（绿=成功/红=失败）、本条进度、逐条流水与结果汇总 -->
-            <div v-if="videoPromptBatch.running || videoPromptBatch.finished" class="pb-panel">
-              <div class="pb-line">
-                <span class="pb-kicker">{{ videoPromptBatch.finished ? t('episode.sb.pbResult') : t('episode.sb.pbOverall') }}</span>
-                <!-- 进度条已内联到上方 9:16 右侧（4.0.39），这里只留数字 -->
-                <span class="pb-count is-ok">{{ t('episode.sb.pbOk', { n: videoPromptBatch.completed }) }}</span>
-                <span v-if="videoPromptBatch.failed" class="pb-fail">{{ t('episode.sb.pbFailed', { n: videoPromptBatch.failed }) }}</span>
-                <span class="pb-dim">{{ t('episode.sb.pbElapsed', { dur: vpbElapsed }) }}</span>
-                <span v-if="videoPromptBatch.running" class="pb-dim">{{ vpbEta ? t('episode.sb.pbEta', { dur: vpbEta }) : t('episode.sb.pbEtaUnknown') }}</span>
-                <button v-else class="pb-close" :title="t('common.close')" @click="dismissVideoPromptResult">✕</button>
-              </div>
-              <div v-if="videoPromptBatch.running" class="pb-line">
-                <span class="pb-kicker">{{ t('episode.sb.pbCurrent') }}</span>
-                <span class="pb-steps">
-                  <span v-for="s in vpbStageDots" :key="s.key" :class="['pb-dot', s.state]" :title="s.label"></span>
-                </span>
-                <span v-if="vpbCurrentLabel" class="pb-count">{{ vpbCurrentLabel }}</span>
-                <span class="pb-dim">{{ vpbStageText }}</span>
-                <span class="pb-dim">{{ t('episode.sb.pbItemElapsed', { dur: vpbItemElapsed }) }}</span>
-              </div>
-              <div v-else-if="vpbFailSummary" class="pb-line pb-line-wrap">
+            <!-- 2026-10-16（4.0.40）：总进度/本条已内联到顶行 ⇒ 本面板只在**还有额外内容**时才出现
+                 （失败明细 / 正在跑别的集 / 逐条流水），没有额外内容时整块不占行。 -->
+            <div v-if="(videoPromptBatch.finished && vpbFailSummary) || (vpbOtherRef && vpbIsOther) || vpbRecentItems.length" class="pb-panel">
+              <div v-if="videoPromptBatch.finished && vpbFailSummary" class="pb-line pb-line-wrap">
                 <span class="pb-kicker">{{ t('episode.sb.pbFailedItems') }}</span>
                 <span class="pb-fail">{{ vpbFailSummary }}</span>
               </div>
@@ -5988,10 +5986,14 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); }
   gap: 6px;
   flex: 0 1 auto;
   min-width: 0;
-  max-width: 200px;
+  max-width: min(100%, 620px);
   overflow: hidden;
   font-size: 11px;
+  white-space: nowrap;
 }
+.pb-sep { color: var(--text-3); flex: none; }
+.pb-inline .pb-steps { display: inline-flex; gap: 3px; flex: none; }
+.pb-inline .pb-dot { width: 6px; height: 6px; border-radius: 50%; }
 .pb-inline .pb-bar { flex: 1 1 auto; min-width: 36px; height: 5px; }
 .pb-line { display: flex; align-items: center; gap: 8px; font-size: 11px; min-width: 0; }
 .pb-line-wrap { flex-wrap: wrap; row-gap: 3px; }
