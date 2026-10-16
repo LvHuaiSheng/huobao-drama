@@ -45,6 +45,21 @@ export function costumeScore(declared: string, candidate: string): number {
 }
 
 /**
+ * 「谁该留、谁该走」—— ⚠️ 2026-10-16 事故：这层映射写反过一次，
+ * 结果把**正确的换装变体解绑、留下原始穿搭**（日志实测 autoDropped=「苏清禾·内搭正装（已解绑）→ 留下 苏清禾」）。
+ * 口径死记：**分数高的留下**。index 0 = 基准，index 1 = 变体。
+ */
+export function resolveCostumeKeep(
+  declared: string | null,
+  baseStyling: string,
+  variantStyling: string,
+): { keepBase: boolean; score: number; loserScore: number } | null {
+  const pick = pickCostumeMatch(declared, [baseStyling, variantStyling])
+  if (!pick) return null
+  return { keepBase: pick.index === 0, score: pick.score, loserScore: pick.runnerUp }
+}
+
+/**
  * 在候选里挑出与声明穿搭最匹配的那个。
  * @returns 胜出下标 + 分数；差距不足 `minGap` 时返回 null（**判不出就不选**，交给人工/警告）
  */

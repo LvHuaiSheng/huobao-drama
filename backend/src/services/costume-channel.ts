@@ -13,7 +13,7 @@
 
 import { db, schema } from '../db/index.js'
 import { and, eq } from 'drizzle-orm'
-import { declaredCostume, pickCostumeMatch, costumeScore } from './costume-match.js'
+import { declaredCostume, resolveCostumeKeep, costumeScore } from './costume-match.js'
 
 export interface CostumeFix {
   /** 被解绑的角色名 */
@@ -43,10 +43,11 @@ export async function enforceCostumeConsistency(episodeId: number, dramaId: numb
     const base = all.find(c => Number(c.id) === Number(v.variantOf))
     if (!base) continue
     if (!linked.includes(Number(v.id)) || !linked.includes(Number(base.id))) continue
-    const pick = pickCostumeMatch(declared, [base.styling || '', v.styling || ''])
-    if (!pick) continue                      // 判不出来 ⇒ 不动数据
-    const loser = pick.index === 0 ? base : v
-    const winner = pick.index === 0 ? v : base
+    const keep = resolveCostumeKeep(declared, base.styling || '', v.styling || '')
+    if (!keep) continue                      // 判不出来 ⇒ 不动数据
+    // ⚠️ 分数高的留下：keepBase=true ⇒ 走变体；keepBase=false ⇒ 走基准（2026-10-16 这里曾写反）
+    const loser = keep.keepBase ? v : base
+    const winner = keep.keepBase ? base : v
     try {
       // 只删**输的那一条**绑定行（不重建整集绑定：重建一旦中途失败会丢数据）
       await db.delete(schema.episodeCharacters).where(and(
