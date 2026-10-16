@@ -56,3 +56,15 @@ test('接线断言：路由登记/放行/查询三件套齐，保存工具喂进
   assert.match(route, /app\.get\('\/:type\/status'/, '必须暴露 status 供前端复原')
   assert.match(tool, /addSaved\(episodeId, storyboards\.length\)/, '保存分镜要累加进度')
 })
+
+test('提取要能发现「同集同时绑了基准角色和它的换装造型」（2026-10-16 实测第 13 集）', () => {
+  const src = readFileSync(new URL('../src/agents/tools/extract-tools.ts', import.meta.url), 'utf8')
+  assert.match(src, /save-characters-variant-conflict/, '冲突要留日志便于事后核对')
+  assert.match(src, /variant_conflicts/, '冲突要回给模型让它按剧本取舍')
+  assert.match(src, /variantOf/, '判断依据是变体的 variantOf 指向基准角色')
+  const prompt = readFileSync(new URL('../workspace/prompts/extractor.md', import.meta.url), 'utf8')
+  const skill = readFileSync(new URL('../workspace/skills/extractor/SKILL.md', import.meta.url), 'utf8')
+  assert.match(prompt, /剧本里指定了穿搭\/造型时/, '运行期提示词要写明这条规则')
+  assert.match(skill, /不许同时绑基准角色/, '技能同步')
+})
+

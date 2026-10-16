@@ -301,17 +301,46 @@ const saveDedupCharacters = createTool({
       }
     }
 
+    // 🔴 同集同时绑了「基准角色」与它的「换装变体」（2026-10-16 加，实测第 13 集：
+    //   剧本写明「女主穿搭 墨绿丝绒正装」，结果 `苏清禾`（原始灰蓝保洁服）与 `苏清禾·内搭正装` 都被绑上了
+    //   ⇒ 下游分镜把原始穿搭一起画进来）。这里**只警告不删**（同一集真穿两套的情况是合法的，删了会丢数据），
+    //   把冲突直接回给模型让它自己按剧本取舍。
+    const conflicts: string[] = []
+    try {
+      const all = (await db.select().from(schema.characters).where(eq(schema.characters.dramaId, dramaId)))
+        .filter(c => !c.deletedAt)
+      const linked = (await db.select().from(schema.episodeCharacters).where(eq(schema.episodeCharacters.episodeId, episodeId)))
+        .map(l => Number(l.characterId))
+      for (const v of all.filter(c => c.variantOf)) {
+        const base = all.find(c => Number(c.id) === Number(v.variantOf))
+        if (!base) continue
+        if (linked.includes(Number(v.id)) && linked.includes(Number(base.id))) {
+          conflicts.push(`${base.name}（基准：${(base.styling || '').slice(0, 24)}…）与 ${v.name}（造型：${(v.styling || '').slice(0, 24)}…）`)
+        }
+      }
+    } catch { /* 查库失败不影响保存 */ }
+    if (conflicts.length) {
+      logTaskProgress('ExtractTool', 'save-characters-variant-conflict', { episodeId, dramaId, conflicts })
+    }
+
     const payload = {
-      message: deficient.length
+      message: (deficient.length ? '' : '')
+        + (conflicts.length
+          ? `\n⚠️ 同一集里同时绑定了「基准角色」和它的「换装造型」：${conflicts.join('；')}。`
+            + `\n本集如果剧本里写明了具体穿搭，请**只保留造型匹配的那一个**（另一个用 save_dedup_characters 传空处理不了就说明给用户，或不要创建它）；`
+            + `只有剧本明确写同一角色在一集里换了两套时才两个都保留。`
+          : '')
+        + (deficient.length
         ? `角色保存完成：新增 ${results.created}，合并更新 ${results.merged}（其中换装造型变体 ${results.variants}）。`
           + `\n⚠️ 以下角色**没有写全颜色、已被拒绝入库**：${deficient.join('；')}。`
           + `\n请**立即**补齐后连同本条一起再调用一次 save_dedup_characters（其余已保存的角色不要重复提交）：`
           + `\n- 发色写死一个具体值（背景/龙套/群像同样要写，普通人写「纯黑色短发」这种最普通的即可，年长者可写「花白」）；`
           + `\n- 服装写清主色（上衣/裤/鞋各是什么颜色），配饰给颜色或材质；`
           + `\n- 不许出现「或 / 皆可 / 任选」这类二选一。`
-        : `角色保存完成：新增 ${results.created}，合并更新 ${results.merged}（其中换装造型变体 ${results.variants}）`,
+        : `角色保存完成：新增 ${results.created}，合并更新 ${results.merged}（其中换装造型变体 ${results.variants}）`),
       ...results,
       ...(deficient.length ? { rejected: deficient } : {}),
+      ...(conflicts.length ? { variant_conflicts: conflicts } : {}),
     }
     logTaskSuccess('ExtractTool', 'save-characters-complete', { episodeId, ...results })
     return payload
