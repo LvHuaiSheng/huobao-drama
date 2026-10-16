@@ -487,7 +487,17 @@
               <span class="dim" style="font-size:12px">{{ t('episode.prod.videos') }}</span>
               <span class="tag mono">{{ t('episode.sb.segmentStat', { n: sbs.length, dur: totalDuration }) }}</span>
               <span class="tag mono" :title="t('episode.vid.aspectRatio')">{{ dramaAspectRatio }}</span>
-              <div class="ml-auto flex gap-1">
+              <!-- 2026-10-16（4.0.39）：批量提示词进度条**内联到 9:16 右侧**并缩短（原来在下方面板里整行铺开太长）。
+                   可伸缩（flex:0 1 auto + max-width），右侧按钮组 flex:none ⇒ 永远不会重叠或被挤扁。 -->
+              <span v-if="videoPromptBatch.running" class="pb-inline" :title="t('episode.sb.pbOverall')">
+                <span class="pb-bar">
+                  <span class="pb-bar-ok" :style="{ width: vpbOkPct + '%' }"></span>
+                  <span class="pb-bar-fail" :style="{ width: vpbFailPct + '%' }"></span>
+                </span>
+                <span class="pb-count is-ok">{{ videoPromptBatch.completed }}/{{ videoPromptBatch.total }}</span>
+                <span v-if="videoPromptBatch.failed" class="pb-fail">✗{{ videoPromptBatch.failed }}</span>
+              </span>
+              <div class="ml-auto flex gap-1 prod-bar-actions">
                 <button class="btn btn-sm" :disabled="rn" @click="sbs.length ? (breakdownConfirm = true) : doBreakdown()">
                   <Loader2 v-if="rt === 'storyboard_breaker'" :size="11" class="animate-spin" />
                   <svg v-else width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
@@ -527,10 +537,7 @@
             <div v-if="videoPromptBatch.running || videoPromptBatch.finished" class="pb-panel">
               <div class="pb-line">
                 <span class="pb-kicker">{{ videoPromptBatch.finished ? t('episode.sb.pbResult') : t('episode.sb.pbOverall') }}</span>
-                <div class="pb-bar">
-                  <div class="pb-bar-ok" :style="{ width: vpbOkPct + '%' }"></div>
-                  <div class="pb-bar-fail" :style="{ width: vpbFailPct + '%' }"></div>
-                </div>
+                <!-- 进度条已内联到上方 9:16 右侧（4.0.39），这里只留数字 -->
                 <span class="pb-count is-ok">{{ t('episode.sb.pbOk', { n: videoPromptBatch.completed }) }}</span>
                 <span v-if="videoPromptBatch.failed" class="pb-fail">{{ t('episode.sb.pbFailed', { n: videoPromptBatch.failed }) }}</span>
                 <span class="pb-dim">{{ t('episode.sb.pbElapsed', { dur: vpbElapsed }) }}</span>
@@ -5972,6 +5979,20 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); }
   border-radius: 8px;
   background: var(--surface-raised);
 }
+/* 顶部工具条右侧按钮组：不参与伸缩、放不下就整组换行（防重叠） */
+.prod-bar-actions { flex: none; }
+/* 内联进度条（9:16 右侧）：可伸缩、有上限，绝不与右侧按钮重叠 */
+.pb-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 200px;
+  overflow: hidden;
+  font-size: 11px;
+}
+.pb-inline .pb-bar { flex: 1 1 auto; min-width: 36px; height: 5px; }
 .pb-line { display: flex; align-items: center; gap: 8px; font-size: 11px; min-width: 0; }
 .pb-line-wrap { flex-wrap: wrap; row-gap: 3px; }
 .pb-kicker { color: var(--text-3); flex: none; }
