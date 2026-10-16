@@ -12,7 +12,7 @@
 // 两边用不同谓词会给出相反结论（2026-10-15 实测 sb466/467）。zh-lang 零依赖，本文件「纯函数、零依赖」的性质不变。
 import { zhDialogueLines } from './zh-lang.js'
 import { findChineseOutsideDialogue } from './en-cn-gate.js'
-import { ambiguousStyling, assetColourGaps, WHAT_ZH } from './asset-colour-gate.js'
+import { ambiguousStyling, assetColourGaps, findGarmentColourMismatch, WHAT_ZH } from './asset-colour-gate.js'
 
 export type CheckLevel = 'error' | 'warn'
 
@@ -456,6 +456,26 @@ export function checkStoryboardPrompt(sb: StoryboardCheckInput, opts: CheckOptio
     }
   }
 
+  // ㊴ 服装颜色**写得对不对**（2026-10-16 加，用户报「第8集分镜8/9/10 王梅上身应该是灰褐色，出来的都是蓝色」）
+  //     上面只查「有没有写颜色」；实测模型会照抄卡面的**衣服款式**、把**颜色换掉**（卡面灰褐 → 稿子 dark blue /
+  //     deep red），库里角色数据是干净的 ⇒ 只能是模型换的色（多数是从同场群演服饰或别的角色制服借来的）。
+  //     生成侧 4.0.51 起会打回重写一轮；这里负责让用户看见（重写后仍不符 / 旧稿）。
+  {
+    const defs = (en || '').split(/\n(?=summary:)/)[0] || ''
+    const characters = (opts.media?.refs || []).filter(r => r.kind === 'character' && r.assetText)
+    if (defs && characters.length) {
+      for (const h of findGarmentColourMismatch(defs, characters.map(r => ({
+        picture: r.picture, kind: 'character' as const, name: r.name, assetText: r.assetText || '',
+      })))) {
+        out.push(mk({
+          level: 'error', code: 'garment-colour-mismatch', location: `<Subject ${h.picture}> ${h.name}`,
+          message: `${h.name} 的${h.what === 'hair' ? '发色' : '服装颜色'}与卡面不符：稿子写「${h.found}」，卡面文字是「${h.expected}」→ 成片会照稿子的颜色出（h3 只读提示词），颜色必然错；点重写会用卡面的颜色覆盖。原句：…${h.line}…`,
+          autoFixable: true,
+        }))
+      }
+    }
+  }
+
   return out
 }
 
@@ -512,6 +532,7 @@ const REPAIR_TEXT: Record<string, string> = {
   // `dialogue-over-budget` 故意**不进修法清单**（2026-10-15）：模型改不动自己写的时间轴，
   // 历史实测每轮都改不掉、白烧一轮约 45 秒（该条已标 autoFixable:false）；真要收紧就改生成侧逐拍预算规则。
   'zh-dialogue-punct': '中文台词句末必须收标点（。！？），不许光秃秃结束。',
+  'garment-colour-mismatch': '每个角色的服装颜色必须逐字取自该角色的卡面文字（发色同理）：不许借同场群演的服饰颜色、也不许借别的角色的制服颜色。',
   'en-has-chinese': '英文版里除 `<d>[Chinese]…</d>` 台词与画面文字外，禁止出现任何中文字符；`retention_analysis` 的标注必须写成英文（(appears in every shot) / (appears in shots 2 and 3 only) / (off-screen only)）。',
   'html-entity': '禁止输出 &lt; / &gt; / &amp;：所有尖括号（<Subject N> / <Picture N> / <Audio N> / <d>）一律裸写。',
   'face-in-voiceover-shot': '画外音那拍不许出现下巴/嘴入画的机位（from the jaw down / chin+neck / over-the-shoulder near），只许手部特写、纯背影或空镜。',

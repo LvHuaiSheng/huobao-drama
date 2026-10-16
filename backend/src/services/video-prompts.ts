@@ -366,7 +366,7 @@ import { shouldKeepCompressing, shouldRegenerateDraft, rosterBlock, itemBudgetLi
 import { findChineseOutsideDialogue } from './en-cn-gate.js'
 import { findVoiceoverMouthAction, type VoiceoverMouthHit } from './voiceover-gates.js'
 import { findRetentionMismatch, findRetentionOutfitMismatch, type RetentionMismatch, type RetentionOutfitHit } from './retention-gate.js'
-import { findColourGaps, shouldRewriteForColour, colourRewriteNote } from './asset-colour-gate.js'
+import { findColourGaps, shouldRewriteForColour, colourRewriteNote, findGarmentColourMismatch, garmentColourNote } from './asset-colour-gate.js'
 import { findVoiceoverOnscreenLock, OFFICIAL_LIP_LOCK, type VoiceoverLockGap } from './voiceover-onscreen-gate.js'
 export { findDanglingPropRef } from './prop-text-gates.js'
 export { findRetentionMismatch } from './retention-gate.js'
@@ -1296,6 +1296,44 @@ async function generateEnByStages(
       logTaskProgress('VideoPrompt', 'colour-after-fix', {
         episodeId, storyboardId: sb.id, remaining: gaps.length,
         left: gaps.map(g => `S${g.picture}:${g.what}`).join(','),
+      })
+    }
+    // 2026-10-16（4.0.51）：颜色**写得对不对** —— 上面只查「有没有写」。
+    //   实测（用户报「第8集分镜8/9/10 王梅上身应该是灰褐色，出来的都是蓝色」）：模型照抄了卡面的
+    //   衣服款式、把颜色换掉 —— 卡面「灰褐色对襟布衫 + 洗得发白碎花围裙」→ 稿子写
+    //   `dark blue front-opening cloth jacket over a faded small-floral apron`（分镜8/10），
+    //   分镜9 甚至编成 `deep red sleeveless evening dress`；库里角色数据是干净的 ⇒ 只能是模型换的色。
+    //   ⇒ 比对卡面服装颜色，不一致即打回重写一轮（与缺色闸同构，超限则回滚）。
+    const mism = findGarmentColourMismatch(defsOf(), assets)
+    if (mism.length) {
+      logTaskProgress('VideoPrompt', 'garment-colour-mismatch', {
+        episodeId, storyboardId: sb.id,
+        hits: mism.map(h => `S${h.picture}:${h.found}≠${h.expected}`).join(','),
+      })
+      const snapshot2 = new Map(parts)
+      const res2 = (await agent.generate(
+        [{ role: 'user', content: buildRewriteMultiPrompt(sb, [{
+          stage: EN_STAGES[0],
+          current: defsOf(),
+          problem: `颜色与角色卡面文字不符（**必须逐字改成卡面的颜色**，不许借同场其他角色/群演的颜色，也不许改成别的款式）:\n${garmentColourNote(mism)}`,
+        }], 1, extra, zhPrompt) }],
+        { maxSteps: 6, requestContext },
+      )) as { text?: string } | undefined
+      const rawG = cleanSegText(res2?.text || '')
+      debugLog(episodeId, sb.id, 'colour-mismatch-fix-1', rawG, { hits: mism.length })
+      if (writeBack(rawG, ['subject_definitions:']).length) {
+        const next2 = assemble()
+        if (next2.length > budget.limit) {
+          for (const k of parts.keys()) parts.delete(k)
+          for (const [k, v] of snapshot2) parts.set(k, v)
+          logTaskProgress('VideoPrompt', 'colour-mismatch-rollback-over-limit', { episodeId, storyboardId: sb.id, limit: budget.limit })
+        } else {
+          text = next2
+        }
+      }
+      logTaskProgress('VideoPrompt', 'garment-colour-after-fix', {
+        episodeId, storyboardId: sb.id,
+        remaining: findGarmentColourMismatch(defsOf(), assets).length,
       })
     }
   }
