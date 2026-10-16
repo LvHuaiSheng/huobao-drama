@@ -138,7 +138,7 @@
   --accent-purple-text: #4f46e5;
   --accent-purple-bg: rgba(99,102,241,0.10);
 
-  /* z-index 分层：页面内部 1–40；模态 .overlay 100–120；菜单 1000；全屏阻塞 2000 */
+  /* z-index 分层：页面内部 1–40；模态 .overlay 100–120（体检弹窗 300）；确认弹窗 .confirm-overlay 400；菜单 1000；全屏阻塞 2000 */
   --z-menu: 1000;
   --z-blocking: 2000;
 }

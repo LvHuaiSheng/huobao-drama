@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <div v-if="open" class="overlay" @click.self="emit('cancel')">
+    <div v-if="open" class="overlay confirm-overlay" @click.self="emit('cancel')">
       <div class="dialog confirm-dialog" role="alertdialog" aria-modal="true" :aria-label="effectiveTitle">
         <div class="confirm-icon">
           <Trash2 :size="20" :stroke-width="1.8" />
@@ -65,6 +65,11 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <style scoped>
+/* 2026-10-16（4.0.58，用户报「删除场景/角色卡片时，确认弹窗在原卡片底下被挡住」）：
+   共用 .overlay 是 z-index 100，而素材卡详情遮罩是 118（剧集页还有 120 / 体检 300）
+   ⇒ 卡片开着时确认弹窗被压在底下。确认弹窗是**压在所有模态之上**的临时弹窗，
+   单独给一层（400：高于各类模态 100~300，低于菜单 1000），一处改动修好全部调用方。 */
+.confirm-overlay { z-index: 400; }
 .confirm-dialog {
   width: 400px;
   max-width: calc(100vw - 48px);
