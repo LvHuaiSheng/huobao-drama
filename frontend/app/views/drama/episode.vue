@@ -484,6 +484,9 @@
           <!-- Sub: Video Production（分镜拆分 + 视频生成 合并） -->
           <div v-if="prodTab === 'videos'" class="prod-content">
             <div class="prod-section-bar">
+              <!-- 2026-10-16（4.0.44 用户要求）：左半（标题 / 分镜数 / 9:16 / 进度读数）自成一块、**自己上下两行换行**；
+                   右侧按钮组 flex:none ⇒ 尺寸与位置都不变。 -->
+              <div class="psb-left">
               <span class="dim" style="font-size:12px">{{ t('episode.prod.videos') }}</span>
               <span class="tag mono">{{ t('episode.sb.segmentStat', { n: sbs.length, dur: totalDuration }) }}</span>
               <span class="tag mono" :title="t('episode.vid.aspectRatio')">{{ dramaAspectRatio }}</span>
@@ -510,6 +513,7 @@
                 </template>
                 <button v-else class="pb-close" :title="t('common.close')" @click="dismissVideoPromptResult">✕</button>
               </span>
+              </div>
               <div class="ml-auto flex gap-1 prod-bar-actions">
                 <button class="btn btn-sm" :disabled="rn" @click="sbs.length ? (breakdownConfirm = true) : doBreakdown()">
                   <Loader2 v-if="rt === 'storyboard_breaker'" :size="11" class="animate-spin" />
@@ -5081,7 +5085,9 @@ onMounted(() => setTimeout(() => autoTour('episode', EPISODE_TOUR, t), 900))
 
 /* Production content */
 .prod-content { flex: 1; overflow-y: auto; padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 10px; }
-.prod-section-bar { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.prod-section-bar { display: flex; align-items: center; gap: 7px; flex-wrap: nowrap; }
+/* 左半：可伸缩、内部自己上下换行（进度读数长了两行也挤得下）；右侧按钮组 flex:none 尺寸不变 */
+.psb-left { display: flex; align-items: center; gap: 7px; row-gap: 3px; flex: 1 1 auto; min-width: 0; flex-wrap: wrap; }
 
 /* 资产栏动作：提取（虚线中性）与批量生成（强调色）视觉分组 */
 .asset-bar-actions { align-items: center; }
@@ -6000,17 +6006,18 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); }
   display: flex;
   align-items: center;
   gap: 6px;
-  flex: 0 1 auto;
+  row-gap: 3px;
+  flex: 1 1 auto;
   min-width: 0;
-  max-width: min(100%, 620px);
-  overflow: hidden;
+  max-width: 100%;
+  flex-wrap: wrap;          /* 读数多时自己折行，不裁切、不挤压按钮 */
   font-size: 11px;
-  white-space: nowrap;
 }
+.pb-inline > * { white-space: nowrap; }
 .pb-sep { color: var(--text-3); flex: none; }
 .pb-inline .pb-steps { display: inline-flex; gap: 3px; flex: none; }
 .pb-inline .pb-dot { width: 6px; height: 6px; border-radius: 50%; }
-.pb-inline .pb-bar { flex: 1 1 auto; min-width: 36px; height: 5px; }
+.pb-inline .pb-bar { flex: 1 1 140px; min-width: 60px; height: 5px; }
 .pb-line { display: flex; align-items: center; gap: 8px; font-size: 11px; min-width: 0; }
 .pb-line-wrap { flex-wrap: wrap; row-gap: 3px; }
 .pb-kicker { color: var(--text-3); flex: none; }
