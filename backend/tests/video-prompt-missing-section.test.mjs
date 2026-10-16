@@ -47,8 +47,11 @@ test('rosterBlock：把中文工作版首行的主体清单拼进去（没有清
 test('首稿与补写/压缩 prompt 都必须带主体清单（回归 sb481 的成因）', () => {
   const builders = src.slice(src.indexOf('function buildFullPrompt('), src.indexOf('function buildRewriteMultiPrompt('))
   assert.match(builders, /\$\{rosterBlock\(zhPrompt\)\}/, 'buildFullPrompt 要注入清单')
-  const rewrite = src.slice(src.indexOf('function buildRewriteMultiPrompt('))
-  assert.match(rewrite.slice(0, 3000), /\$\{rosterBlock\(zhPrompt\)\}/, 'buildRewriteMultiPrompt（补写/压缩）要注入清单')
+  // 4.0.49：原来只扫函数开头 3000 字符，加了「每组砍多少」的分摊块后清单被挤出窗口（脆断言）→ 扫整个函数体
+  const rs = src.indexOf('function buildRewriteMultiPrompt(')
+  const re = src.indexOf('\nfunction ', rs)
+  const rewrite = src.slice(rs, re > 0 ? re : undefined)
+  assert.match(rewrite, /\$\{rosterBlock\(zhPrompt\)\}/, 'buildRewriteMultiPrompt（补写/压缩）要注入清单')
 })
 
 test('整稿重来条件走纯函数（不再写死 pass/over 判断）', () => {

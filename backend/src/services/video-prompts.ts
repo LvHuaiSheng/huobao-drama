@@ -362,7 +362,7 @@ function groupProblem(text: string, stage: { segs: string[]; limit: number }): s
  * 道具锁不住的真正差异见 video-prompt 技能「道具镜必须绝对静止」一节。
  */
 import { findDanglingPropRef } from './prop-text-gates.js'
-import { shouldKeepCompressing, shouldRegenerateDraft, rosterBlock, itemBudgetLines, shouldTargetTotalOnly, SUBJECT_SECTION_QUOTA } from './seg-compress-gate.js'
+import { shouldKeepCompressing, shouldRegenerateDraft, rosterBlock, itemBudgetLines, shouldTargetTotalOnly, cutPlan, SUBJECT_SECTION_QUOTA } from './seg-compress-gate.js'
 import { findChineseOutsideDialogue } from './en-cn-gate.js'
 import { findVoiceoverMouthAction, type VoiceoverMouthHit } from './voiceover-gates.js'
 import { findRetentionMismatch, findRetentionOutfitMismatch, type RetentionMismatch, type RetentionOutfitHit } from './retention-gate.js'
@@ -461,7 +461,7 @@ function buildFullPrompt(
 🔴 长度要求（**一开始就写到位，不要写完再回头压** —— 压缩必须重跑一遍，很浪费）：
 - **目标长度 ${tLow}~${tHigh} 字符**（完整提示词，含换行与标点）。
 - 逐段目标：${targets}
-- **硬上限 ${limit} 字符**：写入时后端会校验，超了直接拒绝并要求重写。MiniMax H3 上限 7000 字符，发送时还会在最前面拼上${headLen ? `本项目 ${headLen} 字符的风格头` : '风格头'}——这部分额度**已经从这个上限里扣掉了**，不要再想"还能多写一点"。
+- **硬上限 ${limit} 字符**：写入时后端会校验，超了直接拒绝并要求重写。MiniMax H3 上限 7000 字符，发送时**不再另拼任何风格头**（画风介质词由你写进正文）—— 这 ${limit} 就是正文能用的全部额度（已含 12 字符安全余量），不要再想"还能多写一点"。
 - **宁可精炼**：每段只说必要的，形容词能省则省，但必须保住下面这些不许砍的内容。
 
 绝不许为了压长度而砍：<d> 台词、retention_analysis 的 fully_preserved、<Picture N> 的 with 外观。
@@ -540,6 +540,20 @@ function buildRewriteMultiPrompt(
     hard?.need,
     items.map(it => it.current.length - it.stage.limit),
   )
+  // 2026-10-16（4.0.49）：**把「全文再减 N」翻译成「每组砍多少」** —— 这是本次修复的核心。
+  //   实测依据（同一条分镜 sb481，同一输入）：
+  //     10-15：压缩提示走「各组压到自己的配额」分支 ⇒ 一轮砍掉 2500 字（7596→5048），最终 6071 过稿；
+  //     10-16：4.0.42 把目标改成「只认全文、各组配额这一轮不考核」⇒ 一轮只砍 445 甚至 0，连续作废。
+  //   ⇒ 模型**不会**自己把总量分配到各组：没有具体数字就不砍；给不可能的数字（组缺口 41%）也原样返回。
+  //   ⇒ 正确做法 = 每组一个**具体、可达成、且合计正好等于 need** 的数字。
+  //   分摊口径：按各组「超出配额」的比例分（哪组肥就多砍，余数补最肥那组）。
+  //   ⚠️ 由此得到的每个份额必然 ≤ 该组自己的超标量（因为 need < Σ各组超标），所以每组的目标都是真能砍到的。
+  //   缺段组不参与分摊 —— 它要「补写」，不是压缩。
+  const compressItems = items.filter(it => !/缺少|没有内容/.test(it.problem))
+  const excesses = compressItems.map(it => Math.max(0, it.current.length - it.stage.limit))
+  const sumExcess = excesses.reduce((a, b) => a + b, 0)
+  const need = hard?.need ?? 0
+  const cuts = cutPlan(need, excesses)
   const quotaLines = items
     .map(it => {
       const quota = it.stage.segs
@@ -548,14 +562,19 @@ function buildRewriteMultiPrompt(
       // 缺段 ≠ 超标：缺段要「补写」，只喊压缩它救不回来（实测 sb354 缺 subject_definitions 后仍缺）
       const verb = /缺少|没有内容/.test(it.problem) ? `🔴 **这一段是缺失的，请补写它**（段名 + 完整内容）` : '压缩'
       const segNames = it.stage.segs.map(s => s.replace(':', '')).join(' / ')
-      return totalOnly
-        ? `- [${segNames}] ${verb}｜**只需全文达标，本组不必压到 ${it.stage.limit} 字符**（组内配额 ${quota} 这一轮不考核）—— 现状：${it.problem}`
-        : `- [${segNames}] ${verb}｜目标 ≤ ${it.stage.limit} 字符（组内逐段：${quota}）—— 现状：${it.problem}`
+      const ci = compressItems.indexOf(it)
+      const cut = ci >= 0 ? cuts[ci] : undefined
+      if (cut !== undefined && need > 0) {
+        const now = it.current.length
+        return `- [${segNames}] ${verb}｜**本轮就砍 ${cut} 字符**（现 ${now} → ${now - cut}；组内配额 ${quota} 这一轮不用管）—— 现状：${it.problem}`
+      }
+      return `- [${segNames}] ${verb}｜目标 ≤ ${it.stage.limit} 字符（组内逐段：${quota}）—— 现状：${it.problem}`
     })
     .join('\n')
-  const totalOnlyNote = totalOnly
+  const totalOnlyNote = totalOnly && need > 0
     ? `
-🔴 **本轮判定标准只有一条：全文 ≤ ${hard!.limit} 字符（差 ${hard!.need} 字）。各组自己的配额这一轮不考核** —— 别去追「每组都要达标」（那是砍不出来的），挑最啰嗦的形容词、氛围补充、重复复述删，全文够了就算成功。
+🔴 **本轮就按上面每一组写明的「砍 N 字符」执行**：这些数字**合计正好等于全文要减的 ${need} 字**，一组都不许跳过 —— 别自己另定目标，也别只挑一组砍，**每一组都要咬着数字砍到位**。各组自己的绝对配额（要不要压到 1000 / 1100 / 2920）这一轮不用管。砍不够就算白跑（后端会重发、你等更久，最后可能整条作废）。
+🔴 怎么砍最省力：**直接删整句**，不要逐词微调 —— 氛围补充（光线/气氛/明暗）、重复复述的外观与保留句、stays identical to the reference 类尾句、形容词堆叠。英文一句通常 60~120 字符。
 `
     : ''
   const zhTimeline = zhPrompt
@@ -578,7 +597,7 @@ ${(() => {
     if (it.stage.segs.includes('subject_definitions:')) lines.push(...itemBudgetLines(it.current, 'subject', SUBJECT_SECTION_QUOTA))
   }
   return lines.length
-    ? `\n🔴 **逐项点名（每一项自己数一遍字数，别只看整段）**：\n${lines.join('\n')}\n（这些是**优先下手处**：${totalOnly ? '不必每项都到目标，全文总量达标即可' : '每一项都要压到目标以内，别只压整段总量'}；压不下来就先删氛围补充与重复复述。）\n`
+    ? `\n🔴 **逐项点名（每一项自己数一遍字数，别只看整段）**：\n${lines.join('\n')}\n（这些是**优先下手处**：按上面写明的字数砍，别只压整段总量；压不下来就先删氛围补充与重复复述。）\n`
     : ''
 })()}
 **怎么压（照做，这些都是安全的）**：
@@ -597,7 +616,7 @@ ${(() => {
 - <Picture N> 编号（参考图绑定）
 - 主体编号与名称的对应关系
 ${zhTimeline ? `\n**🔴 时间轴必须与中文工作版逐拍一致（压缩时不许改动任何秒数）**：\n${zhTimeline}\n` : ''}
-${extra ? `\n**压缩时仍必须继续满足补充说明**：${extra}\n` : ''}输出要求：**上面列出的每一组都要处理到位**（标了「补写」的写全，其余压到配额内），按组输出、每组保留自己的段名行；**不要输出未列出的组**；不要解释、前言、结语；不要代码块围栏；**不要调用任何工具（包括 read_storyboard_context —— 原文已附在下面，直接输出结果，不要去查库里的旧稿）**。
+${extra ? `\n**压缩时仍必须继续满足补充说明**：${extra}\n` : ''}输出要求：**上面列出的每一组都要处理到位**（标了「补写」的写全，其余**按上面写明的字数砍**），按组输出、每组保留自己的段名行；**不要输出未列出的组**；不要解释、前言、结语；不要代码块围栏；**不要调用任何工具（包括 read_storyboard_context —— 原文已附在下面，直接输出结果，不要去查库里的旧稿）**。
 
 ${bodies}`
 }

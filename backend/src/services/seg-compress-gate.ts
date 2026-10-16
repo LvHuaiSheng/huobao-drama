@@ -37,6 +37,32 @@ export function zhRosterLine(zhPrompt?: string): string {
 }
 
 /** 主体清单块（拼进英文版 prompt；没有中文工作版时返回空串） */
+/**
+ * 把「全文还要减 need 字」分摊成「每一组各砍多少」。
+ *
+ * 为什么要分摊：实测（sb481，同一输入）
+ *  - 只说「全文要减 N、各组配额不考核」⇒ 模型一轮只砍 445、甚至 0（4.0.42 之后连续作废）；
+ *  - 只说「各组压到自己的配额」⇒ 当组缺口高达 41% 时模型原样返回（sb493，两轮 cut=0）。
+ * ⇒ 必须给**每组一个具体数字**，且这些数字**合计正好等于 need**。
+ *
+ * 分摊口径：按各组超出配额的比例分（哪组肥就多砍），余数补给最肥那组。
+ * 保证（可被单测钉住）：
+ *  ① Σcuts === need；② 每个 cut ≥ 0；③ 只要 need ≤ Σexcesses，则每个 cut_i ≤ excess_i ——即每组的目标都真能砍到。
+ *  （need < Σexcesses 恒成立：need = 全文 − 硬上限，Σexcess ≥ 全文 − Σ各组配额，而 Σ各组配额 < 硬上限。）
+ */
+export function cutPlan(need: number, excesses: number[]): number[] {
+  if (!(need > 0) || !excesses.length) return excesses.map(() => 0)
+  const sum = excesses.reduce((a, b) => a + b, 0)
+  const cuts = excesses.map(e => (sum > 0 ? Math.round((need * Math.max(0, e)) / sum) : Math.round(need / excesses.length)))
+  const assigned = cuts.reduce((a, b) => a + b, 0)
+  if (assigned !== need) {
+    let j = 0
+    excesses.forEach((e, i) => { if (e > (excesses[j] ?? -1)) j = i })
+    cuts[j] += need - assigned
+  }
+  return cuts
+}
+
 export function rosterBlock(zhPrompt?: string, sectionQuota = SUBJECT_SECTION_QUOTA): string {
   const roster = zhRosterLine(zhPrompt)
   if (!roster) return ''
