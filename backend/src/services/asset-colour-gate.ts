@@ -16,12 +16,22 @@
  */
 
 /** 颜色/材质词（中英） */
+// ⚠️ 正则择先匹配：**长的 / 具体的写法必须排在短的 / 笼统的前面**，否则「灰棕」会被「灰」抢先吃掉
+//    （2026-10-16 实测：卡面「灰棕色对襟布衫」抽成「灰」，于是稿子写 `grey` 也被判「一致」）。
 const COLOURS = [
+  // ① 多词英文（先长后短）
+  'grey-brown', 'gray-brown', 'greyish brown', 'brownish grey', 'salmon pink', 'steel grey', 'steel gray',
+  'dark blue', 'deep blue', 'midnight blue', 'navy blue', 'light blue', 'pale blue', 'dark green',
+  'dark red', 'wine-red', 'off-white', 'salt-and-pepper',
+  // ② 单字英文
   'black', 'white', 'grey', 'gray', 'silver', 'golden', 'gold', 'brown', 'blond', 'blonde', 'straw',
   'auburn', 'ginger', 'red', 'maroon', 'wine', 'navy', 'blue', 'beige', 'cream', 'ivory', 'pink',
-  'orange', 'yellow', 'green', 'purple', 'tan', 'bronze', 'copper',
-  '黑', '白', '灰', '银', '金', '棕', '褐', '栗', '黄', '红', '酒红', '藏蓝', '深蓝', '浅蓝', '蓝',
-  '米白', '米色', '奶油', '粉', '橙', '绿', '紫', '花白', '灰白', '铜', '墨绿', '藏青', '驼', '蜡黄', '古铜',
+  'orange', 'yellow', 'green', 'purple', 'tan', 'bronze', 'copper', 'greige', 'taupe',
+  // ③ 中文复合色（必须先于单字：灰棕 > 灰、枯黄 > 黄、米白 > 白）
+  '灰褐色', '灰棕色', '灰褐', '灰棕', '米白色', '米色', '奶油色', '花白', '灰白', '酒红色', '藏蓝色',
+  '深蓝色', '浅蓝色', '墨绿色', '藏青色', '蜡黄', '枯黄', '古铜', '银灰',
+  // ④ 中文单字
+  '黑', '白', '灰', '银', '金', '棕', '褐', '栗', '黄', '红', '蓝', '粉', '橙', '绿', '紫', '铜', '驼',
 ].join('|')
 
 /** 发色判据：颜色词 ↔ 发型词（彼此相距 ≤40 字符） */
@@ -146,6 +156,7 @@ export function assetColourGaps(text: string): ColourWhat[] {
  */
 const CONCEPTS: Array<[string, string[]]> = [
   ['灰褐', ['grey-brown', 'greyish brown', 'greyish-brown', 'grey brown', 'greige', 'taupe']],
+  ['灰棕', ['grey-brown', 'greyish brown', 'greyish-brown', 'grey brown']],   // 用户 2026-10-16 把卡面改成「灰棕色」
   ['深蓝', ['dark blue', 'deep blue', 'midnight blue']],
   ['藏蓝', ['navy', 'navy blue', 'dark navy']],
   ['藏青', ['dark navy blue']],   // navy 只归「藏蓝」：一个英文写法只能映射到一个概念，否则同色被判不同
@@ -184,20 +195,32 @@ for (const [concept, aliases] of CONCEPTS) {
   TO_CONCEPT.set(concept, concept)
   for (const a of aliases) TO_CONCEPT.set(a.toLowerCase(), concept)
 }
-const CN_CONCEPTS = new Set(CONCEPTS.map(c => c[0]))
-for (const [concept] of CONCEPTS) {
-  const parts = [...concept].filter(ch => CN_CONCEPTS.has(ch) && ch !== concept)
-  COMPONENTS.set(concept, [concept, ...parts])
+for (const [concept] of CONCEPTS) COMPONENTS.set(concept, [concept])
+/**
+ * 同色族 = **互认的同义词**（不是「更笼统的写法」）。
+ *
+ * 2026-10-16 用户实测推翻了我原先的「组合色按成分放宽」假设：
+ *   卡面「**灰棕**色对襟布衫」→ 提示词写 `grey-brown` 成片对（9集分镜1 ✓），
+ *   写 `grey`（只有灰）成片就是**纯灰**（8集分镜7/8/9 ✗）。**H3 只认字面颜色词。**
+ * ⇒ 所以 灰 ∉ 灰棕一族：宁可多报，也不许把 `grey` 当 `grey-brown` 放行。
+ */
+const FAMILIES: string[][] = [
+  ['灰棕', '灰褐', '棕'],          // 灰棕/灰褐/棕：都是棕系（卡面写灰褐、稿子写 brown 算对；写 grey 不算）
+  ['褐', '棕', '灰褐', '灰棕'],
+  ['深蓝', '藏蓝', '藏青'],        // 卡面「深蓝色警服」↔ 稿子 `navy police uniform`（实测 sb481 警察）
+  ['花白', '灰白', '灰'],          // 「花白短发」↔ `grey hair`
+  ['黄', '枯黄', '蜡黄'],          // 「染成枯黄后长出黑根」↔ `straw-dyed hair`（同一个黄系）
+]
+for (const fam of FAMILIES) for (const c of fam) COMPONENTS.set(c, fam)
+/** 颜色概念 → 写提示词时该用的英文（重写指令里直接给模型，避免它自己缩成 grey） */
+export const EN_CANON: Record<string, string> = {
+  灰棕: 'grey-brown', 灰褐: 'grey-brown', 褐: 'brown', 棕: 'brown',
+  深蓝: 'navy / dark blue', 藏蓝: 'navy', 藏青: 'navy', 蓝: 'blue', 浅蓝: 'light blue',
+  黑: 'black', 白: 'white', 灰: 'grey', 花白: 'greying grey', 灰白: 'pale grey',
+  枯黄: 'straw-dyed', 蜡黄: 'sallow', 米白: 'cream', 米色: 'beige', 酒红: 'burgundy',
+  红: 'red', 墨绿: 'dark green', 绿: 'green', 黄: 'yellow', 银: 'silver', 金: 'gold',
+  粉: 'pink', 橙: 'orange', 紫: 'purple', 驼: 'camel', 古铜: 'bronze', 铜: 'copper',
 }
-// 同义色族（互认，避免把同一个颜色判成两个）：
-//   褐 / 棕 —— 卡面写「灰褐色」而提示词写 `brown` 是常事；
-//   深蓝 / 藏蓝 / 藏青 —— 卡面「深蓝色警服」↔ 提示词 `navy police uniform`（实测 sb481 警察）。
-// 注意：**不把「蓝」算进深蓝一族** —— 深蓝 ≠ 笼统的蓝，让「写在深蓝卡面上、稿子写 light blue」能被抓出来。
-COMPONENTS.set('褐', ['褐', '棕'])
-COMPONENTS.set('棕', ['棕', '褐'])
-COMPONENTS.set('深蓝', ['深蓝', '藏蓝', '藏青'])
-COMPONENTS.set('藏蓝', ['藏蓝', '藏青', '深蓝'])
-COMPONENTS.set('藏青', ['藏青', '藏蓝', '深蓝'])
 /** 概念等价判据：两边任意组合有交集即算「同一个颜色」 */
 const sameColour = (a: string, b: string): boolean => {
   const A = COMPONENTS.get(a) || [a]
@@ -221,11 +244,15 @@ function coloursInClausesWith(text: string, targets: string): string[] {
 export const garmentColours = (text: string): string[] => coloursInClausesWith(text, GARMENTS)
 /** 发型从句里的颜色（`lank straw-dyed hair` / 「头发染成枯黄后长出黑根」）——4.0.51 一并纳入校色 */
 export const hairColours = (text: string): string[] => coloursInClausesWith(text, HAIRWORDS)
-/** 颜色写法 → 概念（认不出返回 null） */
-export const colourConcept = (token: string): string | null =>
-  TO_CONCEPT.get(String(token || '').trim().toLowerCase())
-  || TO_CONCEPT.get(String(token || '').replace(/[a-z]/gi, '').trim())
-  || null
+/** 颜色写法 → 概念（认不出返回 null）。卡面常写「灰棕**色**对襟布衫」 ⇒ 去掉尾部「色」再查。 */
+export const colourConcept = (token: string): string | null => {
+  const raw = String(token || '').trim()
+  return TO_CONCEPT.get(raw.toLowerCase())
+    || TO_CONCEPT.get(raw.replace(/色$/, ''))
+    || TO_CONCEPT.get(raw.replace(/色$/, '').toLowerCase())
+    || TO_CONCEPT.get(raw.replace(/[a-z]/gi, '').trim())
+    || null
+}
 
 export interface GarmentColourMismatch {
   picture: number
@@ -274,6 +301,6 @@ export function findGarmentColourMismatch(defs: string, assets: CommunityAsset[]
 /** 给重写 prompt 用：把「卡面是什么色」直接塞给模型 */
 export function garmentColourNote(hits: GarmentColourMismatch[]): string {
   return hits
-    .map(h => `- <Subject ${h.picture}>（${h.name}）**${WHAT_ZH[h.what]}写成了「${h.found}」，卡面文字是「${h.expected}」** —— 必须逐字改成卡面的颜色，不许借同场其他角色/群演的颜色`)
+    .map(h => `- <Subject ${h.picture}>（${h.name}）**${WHAT_ZH[h.what]}写成了「${h.found}」，卡面文字是「${h.expected}」** —— 英文必须写成 ${h.expected.split('/').map(c => EN_CANON[c] || c).join(' / ')}（**不许缩写成更笼统的色词**，写 grey 就出纯灰、写 grey-brown 才出灰棕）；不许借同场其他角色/群演的颜色`)
     .join('\n')
 }

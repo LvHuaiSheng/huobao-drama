@@ -33,15 +33,23 @@ test('实测 sb482：deep red sleeveless evening dress（颜色+款式都换）�
   assert.equal(findGarmentColourMismatch(defs(line), ASSETS).length, 1)
 })
 
-test('写对了就不报（grey-brown / 只写成分 grey / brown 也算对）', () => {
+test('写对了不报（grey-brown / brown），**写笼统的 grey 必报**（用户实测：grey 出纯灰）', () => {
   for (const ok of [
     'grey-brown front-opening cloth jacket over a faded small-floral apron',
-    'grey front-opening cloth jacket over a faded small-floral apron',
     'brown front-opening cloth jacket over a faded small-floral apron',
   ]) {
     const line = `<Subject 2> is the woman in <Picture 2>, ${ok}, whose outfit comes from <Picture 2> only.`
     assert.equal(findGarmentColourMismatch(defs(line), ASSETS).length, 0, `不该报：${ok}`)
   }
+  // 2026-10-16 用户实测对照（同一角色、同一卡面）：
+  //   9集分镜1 写 grey-brown → 成片对 ✓；8集分镜7/8/9 写 grey → 成片纯灰 ✗
+  //   ⇒ H3 只认字面颜色词，「写得更笼统」不算对，必须报出来打回重写成 grey-brown。
+  const grey = '<Subject 2> is the woman in <Picture 2>, grey front-opening cloth jacket over a white small-floral apron.'
+  const hits = findGarmentColourMismatch(defs(grey), ASSETS)
+  assert.equal(hits.length, 1, 'grey 必须报')
+  assert.equal(hits[0].what, 'garment')
+  assert.match(hits[0].found, /灰/)
+  assert.match(hits[0].expected, /灰褐/)   // 卡面（本测试用的旧卡面文字：灰褐色对襟布衫/碎花围裙/黑布鞋）里的服装颜色
 })
 
 test('警察 navy 制服 vs 卡面深蓝警服 → 不报（同色异名）；别把款式相同的别的角色算进来', () => {
@@ -75,9 +83,10 @@ test('发色写对就不报：卡面枯黄+黑根 ↔ straw-dyed hair with dark 
 })
 
 test('提取器本身：只认紧挨服装词的颜色；中英概念映射正确', () => {
-  assert.deepEqual(garmentColours('deep blue cloth jacket, black old-style cloth shoes'), ['blue', 'black'])
-  assert.deepEqual(garmentColours('她站在灰褐色对襟布衫旁边'), ['灰', '褐'])
+  assert.deepEqual(garmentColours('deep blue cloth jacket, black old-style cloth shoes'), ['deep blue', 'black'])
+  assert.deepEqual(garmentColours('她站在灰褐色对襟布衫旁边'), ['灰褐色'])   // 复合色整体匹配，不许被「灰」抢先
   assert.equal(colourConcept('navy'), '藏蓝')
   assert.equal(colourConcept('灰褐'), '灰褐')
   assert.equal(colourConcept('blue'), '蓝')
+  assert.equal(colourConcept('灰棕色'), '灰棕')   // 卡面写「灰棕色」，去掉尾「色」再查
 })
