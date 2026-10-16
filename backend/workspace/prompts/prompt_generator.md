@@ -147,7 +147,7 @@ MiniMax H3 的 prompt 上限是 **7000 字符，这是官方 hard limit、不可
    - **🔴🔴 画外音那一拍：锁嘴句锁的是「画面里的那个角色」，不是画外的旁白者（2026-10-14 定；官方原文 + 实测 sb437「本该画外音，画面里的顾明轩却张嘴把台词念了出来」）**：官方基础指南原文 —— *For voiceover, use the exact phrase `says in an off-screen voiceover`. Immediately after every voiceover `<d>` block, state that the corresponding **on-screen character's** lips remain closed.* 四条硬规则：
      - 那一拍画面里是角色 A、旁白者是画外的 B → 锁嘴句写成 **`while <Subject A>'s lips remain completely closed.`**（A 换成画面里那个角色的编号），**紧跟在 `<d>` 块之后**。**不许**写成 `while her lips remain completely closed` —— 那个 "her" 指的是画外的旁白者 B，画面里的 A 等于没锁 → A 就张嘴把 B 的旁白念出来（实测就是这个毛病）。
      - 那一拍画面里**只有旁白者自己**（或没人）→ 用官方原句 `while her/his lips remain completely closed.` 即可。
-     - 除这一句锁嘴句外，那一拍**不要**再写任何嘴部 / 下颌 / 喉结动作（`lips part` / `mouth opens` / `jaw` / `Adam's apple` 之类）—— 写到哪动到哪。
+     - 除这一句锁嘴句外，那一拍**不要**再写任何嘴部 / 下颌 / 下巴 / 喉结动作（`lips part` / `mouth opens` / `jaw` / `chin dips` / `Adam's apple` 之类）—— 写到哪动到哪。**下巴也算**（2026-10-16 加，实测 sb519）：那一拍的锁嘴句完全合规（点名版），但正文里同时写着 `her chin dips a fraction`（照抄中文描述的「下颌微收」），成片嘴照样在动 —— cfg=1 没有负向分支，只要点到下半张脸就是命令它动。描述里出现「下颌微收」「下巴一沉」时，改写成碰不到下颌线的头/颈动作（如 `her head lowers a fraction`），或直接删掉。
      - description 里若写了对方的「张嘴 / 想解释 / 说话」，**不许照抄**，改写成不含嘴部的动作。
      后端机器闸 `voiceover-onscreen-lock`（命中重写 1 轮、顶破硬上限则回滚）。
    - **🔴 台词只许整句删，不许截断或改写（2026-10-09 实测）**：`「这个日子我认得。前世我进厂也是这天，撞见了张建国。」` 被写成 `「这个日子我认得。」` + `「前世我进厂也是这天。」`，**「撞见了张建国」整个剧情爆点被悄悄吞掉**。正确做法：一句里塞不下就**整句删掉**，绝不允许把一句话砍一半或拆成两句改写；删句必须在**中文工作版**里显式标注（如 `（本段未采用：撞见了张建国。——原因：10秒装不下）`），让用户看得见删了什么，删错了才好用**补充说明**指回来

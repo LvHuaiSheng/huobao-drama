@@ -29,6 +29,30 @@ const SELF_MADE_LOCK = /(?:no\s+on-?screen\s+mouth\s+moves|mouth\s+stays\s+(?:sh
 const MOUTH_OUT_OF_FRAME = /mouth\s+(?:is\s+)?(?:off-?screen|out\s+of\s+frame|not\s+in\s+frame)/gi
 /** 任何嘴部字样（mouth / lip / lips / 嘴唇 / 嘴） */
 const MOUTH_ANY = /\b(?:mouth|lips?)\b|嘴唇|嘴巴|张嘴/i
+
+/**
+ * 下半张脸的**动作**（下颌/下巴/喉结）—— 同上一条口径：cfg=1 没有负向分支，
+ * 正文里写下颌动作就等于命令 H3 动下半张脸，而画外音那一拍动下半张脸 = 嘴在动。
+ *
+ * 2026-10-16 实测（用户「11集分镜1 旁白还是读出来的」）：稿子**点名版锁嘴句完全合规**，
+ * 但同一拍里写了 `her chin dips a fraction`（中文原文「下颌微收」照抄过来）
+ * ⇒ 成片嘴照动。旧判据只查 `mouth|lips`，`chin` 从眼皮底下过去了。
+ *
+ * 只认**带动作词**的写法（`chin dips` / `jaw tightens` / 「下颌微收」），不认静态/光影写法
+ * （`a cold flat shape across her jaw` 这种只是打光，实测那条成片嘴是闭的 ⇒ 不能误报）。
+ * ponytail: 词表式判据，靠"部位词 + 动作词相邻"过滤；无动作词但仍在描述下半张脸的长句可能漏过，靠规格文案兜。
+ */
+const LOWER_FACE_MOTION = new RegExp(
+  '(' +
+  "(?:chin|jaw|throat|adam's apple)[A-Za-z' ]{0,14}" +
+  "(?:dips?|dipping|drops?|dropping|lifts?|lifting|tucks?|tucking|tightens?|tightening|clenches?|clenching" +
+  '|sinks?|sinking|trembles?|trembling|quivers?|quivering|works?|working|sets?|setting|parts?|parting' +
+  '|opens?|opening|moves?|moving|shifts?|shifting|jerks?|jerking|bobs?|bobbing|rises?|rising|falls?|falling)' +
+  "|(?:dips?|drops?|lifts?|tucks?|tightens?|clenches?|sinks?|trembles?|parts?|opens?|jerks?|bobs?)[A-Za-z' ]{0,14}" +
+  "(?:chin|jaw|throat|adam's apple)" +
+  '|(?:下颌|下巴|喉结)[^。；;,.，]{0,6}(?:收|沉|抬|紧|动|张|颤|微收)' +
+  '|(?:收|沉|抬|紧|张|颤)[^。；;,.，]{0,6}(?:下颌|下巴)' +
+  ')', 'i')
 const VOICEOVER = /says\s+in\s+an\s+off-?screen\s+voiceover/i
 
 export interface VoiceoverMouthHit {
@@ -53,7 +77,7 @@ export function findVoiceoverMouthAction(en: string): VoiceoverMouthHit[] {
       .replace(OFFICIAL_LOCK, ' ')
       .replace(SELF_MADE_LOCK, ' ')
       .replace(MOUTH_OUT_OF_FRAME, ' ')
-    const m = body.match(MOUTH_ANY)
+    const m = body.match(MOUTH_ANY) || body.match(LOWER_FACE_MOTION)
     if (m) {
       hits.push({
         shot: block.slice(0, block.indexOf(']') + 1),

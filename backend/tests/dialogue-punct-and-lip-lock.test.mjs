@@ -19,6 +19,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const { OFFICIAL_LIP_LOCK, findVoiceoverOnscreenLock } = await import('../src/services/voiceover-onscreen-gate.ts')
+const { findVoiceoverMouthAction } = await import('../src/services/voiceover-gates.ts')
 
 const EN = [
   'subject_definitions:',
@@ -97,5 +98,19 @@ test('画外音锁嘴必须点名，代词写法不算（2026-10-16 实测 sb509
   assert.deepEqual(hit[0].onscreen, [2], '画面里的角色（含旁白者本人）都要出现在 onscreen 里')
   // 画面里没有任何角色（subject 号不在本分镜的角色清单里）→ 无需锁嘴
   assert.deepEqual(findVoiceoverOnscreenLock('[Shot 1] An empty corridor. <Subject 3> (S1) says in an off-screen voiceover: <d>x</d> while her lips remain completely closed.', [1, 2]), [])
+})
+
+test('画外音拍里不许写下颌/下巴动作（2026-10-16 实测 sb519：锁嘴句完全合规、成片仍读出台词）', () => {
+  const real = "[Shot 3] At 00:07.000, the shot cuts to a chest-up close portrait of <Subject 2>. She keeps her eyes down; her chin dips a fraction. <Subject 2> (S1) says in an off-screen voiceover: <d>[Chinese] 二叔只是弃子，我的身世，还有第二层谎言。</d> while <Subject 2>'s lips remain completely closed."
+  assert.equal(findVoiceoverMouthAction(real).length, 1, '下巴动作必须命中')
+  assert.match(findVoiceoverMouthAction(real)[0].sample, /chin dips/i)
+  // 光影/静态提到 jaw 不算动作（实测 sb509 那条成片嘴是闭的）
+  const lighting = "[Shot 2] <Subject 2> (S1) says in an off-screen voiceover: <d>[Chinese] x</d> while <Subject 2>'s lips remain completely closed. Cold light lays one flat shape across her jaw."
+  assert.deepEqual(findVoiceoverMouthAction(lighting), [], '只是打光提到下颌，不许误报')
+  // 中文/其它写法
+  const zh = "[Shot 1] <Subject 2> says in an off-screen voiceover: <d>[Chinese] x</d> while her lips remain completely closed, 下颌微收。"
+  assert.equal(findVoiceoverMouthAction(zh).length, 1, '中文「下颌微收」也要命中')
+  const jaw = "[Shot 1] <Subject 2> says in an off-screen voiceover: <d>[Chinese] x</d> while her lips remain completely closed, his jaw tightens."
+  assert.equal(findVoiceoverMouthAction(jaw).length, 1, 'jaw tightens 要命中')
 })
 
