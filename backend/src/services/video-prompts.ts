@@ -368,6 +368,7 @@ import { findVoiceoverMouthAction, type VoiceoverMouthHit } from './voiceover-ga
 import { findRetentionMismatch, findRetentionOutfitMismatch, type RetentionMismatch, type RetentionOutfitHit } from './retention-gate.js'
 import { findColourGaps, shouldRewriteForColour, colourRewriteNote, findColourMismatchInPrompt, garmentColourNote } from './asset-colour-gate.js'
 import { findVoiceoverOnscreenLock, OFFICIAL_LIP_LOCK, type VoiceoverLockGap } from './voiceover-onscreen-gate.js'
+import { findDeviceScreenBody, deviceScreenNote } from './device-screen-gate.js'
 export { findDanglingPropRef } from './prop-text-gates.js'
 export { findRetentionMismatch } from './retention-gate.js'
 export { findVoiceoverOnscreenLock } from './voiceover-onscreen-gate.js'
@@ -1342,6 +1343,54 @@ async function generateEnByStages(
         episodeId, storyboardId: sb.id,
         remaining: findColourMismatchInPrompt(text, assets).length,
       })
+    }
+  }
+
+  // ③.13 「要露屏幕内容」的拍不许出现人物主体（2026-10-16 加，用户要求：屏幕镜头只留手+设备，否则穿帮）
+  if (!overLimit) {
+    let dh = findDeviceScreenBody(text)
+    if (dh.length) {
+      logTaskProgress('VideoPrompt', 'device-screen-body-detected', {
+        episodeId, storyboardId: sb.id,
+        shots: dh.map(h => `${h.shot}:${h.reason}`).join(','),
+      })
+      const snapshot3 = new Map(parts)
+      const shotMarks = dh.map(h => h.shot)
+      const scope = EN_STAGES.filter(st => st.segs.some(sg => shotMarks.some(m => (parts.get(sg) || '').includes(m))))
+      if (scope.length) {
+        const res3 = (await agent.generate(
+          [{ role: 'user', content: buildRewriteMultiPrompt(sb, scope.map(st => ({
+            stage: st,
+            current: st.segs.map(sg => parts.get(sg) || '').filter(Boolean).join('\n'),
+            problem: '下面这些拍要**露出屏幕内容**（手机/平板/立式屏上那行字才是这一拍的重点），'
+              + '但正文里写进了人物主体、或没写「手拿着设备」—— 一律改成**镜头里只有手和这个设备**：'
+              + '把脸/头/眼睛/胸/肩/躯干/脖子这些词、以及第二个主体**直接从这一拍删掉**（不许改成否定句，'
+              + 'cfg=1 没有负向分支，直接不写即可）；设备写成被手握着/拇指搭在设备上；'
+              + '镜头用 extreme close-up（或 macro），让设备屏幕占满画面。参考写对的形状：'
+              + '`Extreme close-up …: a raised arm fills the frame, fingers curled around <Subject N>, '
+              + 'its screen dominating the composition.`\n' + deviceScreenNote(dh),
+          })), 1, extra, zhPrompt) }],
+          { maxSteps: 6, requestContext },
+        )) as { text?: string } | undefined
+        const rawD = cleanSegText(res3?.text || '')
+        debugLog(episodeId, sb.id, 'device-screen-fix-1', rawD, { hits: dh.length, sections: scope.length })
+        if (writeBack(rawD, scope.flatMap(st => st.segs)).length) {
+          const next3 = assemble()
+          if (next3.length > budget.limit) {
+            for (const k of parts.keys()) parts.delete(k)
+            for (const [k, v] of snapshot3) parts.set(k, v)
+            logTaskProgress('VideoPrompt', 'device-screen-rollback-over-limit', { episodeId, storyboardId: sb.id, limit: budget.limit })
+          } else {
+            text = next3
+          }
+        }
+      }
+      dh = findDeviceScreenBody(text)
+      if (dh.length) {
+        logTaskProgress('VideoPrompt', 'device-screen-body-unresolved', {
+          episodeId, storyboardId: sb.id, shots: dh.map(h => h.shot).join(','),
+        })
+      }
     }
   }
 

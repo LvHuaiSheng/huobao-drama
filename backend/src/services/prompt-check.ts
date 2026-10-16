@@ -13,6 +13,7 @@
 import { zhDialogueLines } from './zh-lang.js'
 import { findChineseOutsideDialogue } from './en-cn-gate.js'
 import { ambiguousStyling, assetColourGaps, findGarmentColourMismatch, WHAT_ZH } from './asset-colour-gate.js'
+import { findDeviceScreenBody, deviceScreenNote } from './device-screen-gate.js'
 
 export type CheckLevel = 'error' | 'warn'
 
@@ -457,6 +458,21 @@ export function checkStoryboardPrompt(sb: StoryboardCheckInput, opts: CheckOptio
     }
   }
 
+  // ㊵ 「要露屏幕内容」的拍里出现了人物主体（2026-10-16 加，用户要求：屏幕镜头只留手 + 设备，否则穿帮）
+  //    这类拍的目的是**屏幕上那行内容**；写了脸/身，H3 就把参考图里的人一起画进来（多主体还会串脸串衣）。
+  {
+    const hits = findDeviceScreenBody(en || '')
+    if (hits.length) {
+      out.push(mk({
+        level: 'warn', code: 'device-screen-body', location: hits.map(h => h.shot).join('、'),
+        message: `这些拍要露出屏幕内容，但镜头里带了人物主体 ⇒ 容易穿帮：\n${deviceScreenNote(hits)}`
+          + `\n改法：把脸/头/眼睛/胸/肩/躯干/脖子的词、以及第二个主体**直接从这一拍删掉**（不要写否定句），`
+          + `设备改成"手握着 / 拇指搭在设备上"，镜头用 extreme close-up，让屏幕占满画面。`,
+        autoFixable: true,
+      }))
+    }
+  }
+
   // ㊴ 服装颜色**写得对不对**（2026-10-16 加，用户报「第8集分镜8/9/10 王梅上身应该是灰褐色，出来的都是蓝色」）
   //     上面只查「有没有写颜色」；实测模型会照抄卡面的**衣服款式**、把**颜色换掉**（卡面灰褐 → 稿子 dark blue /
   //     deep red），库里角色数据是干净的 ⇒ 只能是模型换的色（多数是从同场群演服饰或别的角色制服借来的）。
@@ -534,6 +550,7 @@ const REPAIR_TEXT: Record<string, string> = {
   // 历史实测每轮都改不掉、白烧一轮约 45 秒（该条已标 autoFixable:false）；真要收紧就改生成侧逐拍预算规则。
   'zh-dialogue-punct': '中文台词句末必须收标点（。！？），不许光秃秃结束。',
   'garment-colour-mismatch': '每个角色的服装颜色必须逐字取自该角色的卡面文字（发色同理）：不许借同场群演的服饰颜色、也不许借别的角色的制服颜色。',
+  'device-screen-body': '手机/平板/立式屏要露屏幕内容的那一拍，镜头里只能有「手（手臂/手指/拇指）+ 这个设备」：脸、头、眼睛、胸、肩、躯干、脖子以及第二个主体一律不写（写了 H3 就会把参考图里的人一起画进来 → 穿帮）。设备写成被手握着、镜头用 extreme close-up，让屏幕占满画面。',
   'en-has-chinese': '英文版里除 `<d>[Chinese]…</d>` 台词与画面文字外，禁止出现任何中文字符；`retention_analysis` 的标注必须写成英文（(appears in every shot) / (appears in shots 2 and 3 only) / (off-screen only)）。',
   'html-entity': '禁止输出 &lt; / &gt; / &amp;：所有尖括号（<Subject N> / <Picture N> / <Audio N> / <d>）一律裸写。',
   'face-in-voiceover-shot': '画外音那拍不许出现下巴/嘴入画的机位（from the jaw down / chin+neck / over-the-shoulder near），只许手部特写、纯背影或空镜。',
