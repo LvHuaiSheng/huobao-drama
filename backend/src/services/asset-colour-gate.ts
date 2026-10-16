@@ -40,7 +40,11 @@ const HAIRWORDS = ['hair', 'crew cut', 'cropped hair', 'buzz cut', 'bob', 'ponyt
 /** 服装判据 */
 const GARMENTS = ['jacket', 'coat', 'shirt', 'blouse', 'dress', 'uniform', 'apron', 'trousers', 'pants', 'skirt', 'suit',
   'robe', 'shoes', 'boots', 'cardigan', 'sweater', 'vest', 'scarf', 'tie', 'belt', 'hat', 'outfit', 'garment', 'top',
-  '衫', '衣', '外套', '制服', '警服', '裙', '裤', '鞋', '围裙', '夹克', '西装', '衬衫', '大衣', '背心', '毛衣', '领带', '腰带', '帽', '褂'].join('|')
+  // 2026-10-16（4.0.59）：配饰也要算 —— 卡面常把发圈颜色写在头发那句（「头发用黑色皮筋扎成低马尾」），
+  //   漏掉它就会把提示词里正确的 `black elastic` 判成「服装颜色不符」（实测 10集分镜3 苏清禾误报）。
+  'elastic', 'hair tie', 'hairband', 'hair band', 'ribbon', 'gloves', 'socks',
+  '衫', '衣', '外套', '制服', '警服', '裙', '裤', '鞋', '围裙', '夹克', '西装', '衬衫', '大衣', '背心', '毛衣', '领带', '腰带', '帽', '褂',
+  '皮筋', '发圈', '发卡', '发带', '头绳', '手套', '袜'].join('|')
 
 /** 颜色词与目标词相距 ≤40 字符（任一侧）就算「写出来了」 */
 function near(line: string, targets: string): boolean {
@@ -227,6 +231,12 @@ const sameColour = (a: string, b: string): boolean => {
   const B = COMPONENTS.get(b) || [b]
   return A.some(x => B.includes(x))
 }
+/** 英文颜色词加词边界后的匹配式：`whitened` 里不许匹配出 white、`blurred` 里不许匹配出 red
+ *  （2026-10-16 实测误报：`frayed whitened cuffs` 被判「写了白」、`blurred chest logo` 被判「写了红」）。 */
+const COLOURS_BOUNDED = COLOURS.split('|')
+  .map(c => /^[a-z-]+$/.test(c) ? `\\b${c}\\b` : c)
+  .join('|')
+
 /** 抽出**含指定词**的从句里的颜色词。
  *  按从句（。；，\n 切分）取色，而不是「离目标词 ≤40 字符」——
  *  后者会把同一行里的发色 / 鞋子 / 银镯颜色一起算成服装色（实测王梅卡面一次抽出 灰/褐/白/黄/黑/银 六个），
@@ -236,7 +246,7 @@ function coloursInClausesWith(text: string, targets: string): string[] {
   const out: string[] = []
   for (const clause of t.split(/[。；;，,\n]/)) {
     if (!new RegExp(`(?:${targets})`, 'i').test(clause)) continue
-    for (const m of clause.matchAll(new RegExp(COLOURS, 'gi'))) out.push(m[0])
+    for (const m of clause.matchAll(new RegExp(COLOURS_BOUNDED, 'gi'))) out.push(m[0])
   }
   return Array.from(new Set(out))
 }

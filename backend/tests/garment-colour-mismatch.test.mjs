@@ -109,6 +109,27 @@ test('保留段的颜色也查（4.0.53）：定义段改对了、保留段还�
   assert.deepEqual(findColourMismatchInPrompt(ok, ASSETS), [])
 })
 
+test('误报回归：配饰颜色（发圈）+ 英文子串（whitened/blurred）都不许算成服装色（10集分镜3 实测）', () => {
+  // ① 苏清禾：卡面「头发用黑色皮筋扎成低马尾」+「灰蓝色保洁服」；
+  //    稿子 `loose low ponytail tied with a plain black elastic … grey-blue cleaner work jacket`
+  //    → 黑来自**发圈**（卡面就写了黑），必须不报。原来 GARMENTS 没有「皮筋/elastic」⇒ 卡面那 黑 没被算进去 ⇒ 误报。
+  const su = '一身灰蓝色保洁工作服（本集为干净的灰蓝色制服），布料洗得发僵、袖口磨得发白起毛边；头发用黑色皮筋随意扎成低马尾。'
+  const suLine = '<Subject 2> is the young Chinese woman in <Picture 2>, loose low ponytail tied with a plain black elastic; whose outfit comes from <Picture 2> only: grey-blue cleaner work jacket, faded fabric with frayed whitened cuffs, blurred chest logo, old apron string knotted at the waist.'
+  assert.deepEqual(findColourMismatchInPrompt(defs(suLine), [{ picture: 2, kind: 'character', name: '苏清禾', assetText: su }]), [],
+    '发圈的黑 + 磨白/模糊都不是服装颜色问题，不许报')
+  // ② 陆沉渊：卡面「蓝色西装 / 纯白衬衫 / 金色徽章 / 黑色皮鞋」；
+  //    稿子 `tailored blue suit jacket … pure white shirt … narrow black tie … black leather shoes` → 一致，不许报
+  const lu = '一身剪裁极考究的蓝色西装，内搭纯白衬衫扣至领口，配深色窄版领带，西装左侧有一枚金色徽章；黑色皮鞋擦得一尘不染。'
+  const luLine = '<Subject 3> is the tall Chinese businessman in <Picture 3>, high brow ridge, slicked-back side-parted black hair; whose outfit comes from <Picture 3> only: tailored blue suit jacket, pure white shirt buttoned to the collar, narrow black tie, small gold lapel badge, black leather shoes.'
+  assert.deepEqual(findColourMismatchInPrompt(defs(luLine), [{ picture: 3, kind: 'character', name: '陆沉渊', assetText: lu }]), [])
+})
+
+test('英文颜色词必须按词边界匹配（whitened 里不许出 white、blurred 里不许出 red）', () => {
+  assert.deepEqual(garmentColours('frayed whitened cuffs on the jacket'), [])
+  assert.deepEqual(garmentColours('blurred chest logo on the uniform'), [])
+  assert.deepEqual(garmentColours('the tailored blue suit jacket'), ['blue'])
+})
+
 test('提取器本身：只认紧挨服装词的颜色；中英概念映射正确', () => {
   assert.deepEqual(garmentColours('deep blue cloth jacket, black old-style cloth shoes'), ['deep blue', 'black'])
   assert.deepEqual(garmentColours('她站在灰褐色对襟布衫旁边'), ['灰褐色'])   // 复合色整体匹配，不许被「灰」抢先
