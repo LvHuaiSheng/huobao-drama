@@ -498,7 +498,7 @@
                 <span class="pb-count is-ok">{{ t('episode.sb.pbOk', { n: videoPromptBatch.completed }) }}</span>
                 <span v-if="videoPromptBatch.failed" class="pb-fail">{{ t('episode.sb.pbFailed', { n: videoPromptBatch.failed }) }}</span>
                 <span class="pb-dim">{{ t('episode.sb.pbElapsed', { dur: vpbElapsed }) }}</span>
-                <span v-if="videoPromptBatch.running" class="pb-dim">{{ vpbEta ? t('episode.sb.pbEta', { dur: vpbEta }) : t('episode.sb.pbEtaUnknown') }}</span>
+                <!-- 2026-10-16（4.0.41 用户要求）：去掉「预计时长」与「本条已用时」两个读数 -->
                 <template v-if="videoPromptBatch.running">
                   <span class="pb-sep">·</span>
                   <span class="pb-kicker">{{ t('episode.sb.pbCurrent') }}</span>
@@ -507,7 +507,6 @@
                   </span>
                   <span v-if="vpbCurrentLabel" class="pb-count">{{ vpbCurrentLabel }}</span>
                   <span class="pb-dim">{{ vpbStageText }}</span>
-                  <span class="pb-dim">{{ t('episode.sb.pbItemElapsed', { dur: vpbItemElapsed }) }}</span>
                 </template>
                 <button v-else class="pb-close" :title="t('common.close')" @click="dismissVideoPromptResult">✕</button>
               </span>
