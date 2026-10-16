@@ -563,6 +563,7 @@ function buildRewriteMultiPrompt(
     : ''
   const bodies = items.map(it => `=== ORIGINAL: ${it.stage.segs.map(s => s.replace(':', '')).join(' / ')} ===\n${it.current}`).join('\n\n')
   return `分镜 #${sb.storyboardNumber}(ID:${sb.id}) 的 video_prompt_en 有 ${items.length} 组超标，**一次全部压到位**（第 ${attempt} 次合并压缩）。
+🔴 **必须把下面每一组都完整返回**（改完的正文原样贴回，含 detailed_description 那一组）—— **只回一部分 = 这一轮白跑**（实测有模型只回前两组、把最肥的正文段整组省掉，导致整条作废）。
 
 超标组与目标：
 ${quotaLines}
@@ -771,6 +772,29 @@ async function generateEnByStages(
       groups: bad.map(b => b.stage.key),
     })
     const written = writeBack(raw, bad.flatMap(b => b.stage.segs))
+    // 2026-10-16（4.0.48）：模型常常**只回部分组** —— 实测 sb481：要求 subj/summ/detail，它只回了前两组
+    //  （2999 字 = 定义段 1634 + 保留段 1363，`detailed_description` 整组被省掉），而写回是「部分输出也照收」
+    //  ⇒ 最该砍的正文段每轮都原样保留、连续两轮 cut=0 ⇒ 早停 ⇒ 整条作废（全文 7306，超 318）。
+    //  修法：对**这一轮没回来的组**立刻补一次单独请求（只跑缺的那组，通常正是最肥的正文段）。
+    const missingGroups = bad.filter(b => !extractSections(raw, b.stage.segs))
+    if (missingGroups.length && missingGroups.length < bad.length) {
+      const lenNow = assemble().length
+      const gap = Math.max(0, lenNow - budget.limit)
+      const res2 = (await agent.generate(
+        [{ role: 'user', content: buildRewriteMultiPrompt(sb, missingGroups, rewriteState.round + 1, extra, zhPrompt,
+          gap > 0 ? { len: lenNow, limit: budget.limit, need: gap } : undefined) }],
+        { maxSteps: 6, requestContext },
+      )) as { text?: string } | undefined
+      const raw2 = cleanSegText(res2?.text || '')
+      debugLog(episodeId, sb.id, `rewrite-fill-${rewriteState.round + 1}`, raw2, {
+        groups: missingGroups.map(b => b.stage.key),
+      })
+      writeBack(raw2, missingGroups.flatMap(b => b.stage.segs))
+      logTaskProgress('VideoPrompt', 'segment-partial-refill', {
+        episodeId, storyboardId: sb.id, round: rewriteState.round + 1,
+        missing: missingGroups.map(b => b.stage.key).join(','),
+      })
+    }
     // 2026-10-15 加：记下**这一轮实际砍了多少**（用来判断「硬欠账」指标有没有用、每轮是否在白磨）
     const cut = lenBefore - assemble().length
     logTaskProgress('VideoPrompt', 'segment-round-cut', {
