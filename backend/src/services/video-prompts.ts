@@ -362,7 +362,7 @@ function groupProblem(text: string, stage: { segs: string[]; limit: number }): s
  * 道具锁不住的真正差异见 video-prompt 技能「道具镜必须绝对静止」一节。
  */
 import { findDanglingPropRef } from './prop-text-gates.js'
-import { shouldKeepCompressing, shouldRegenerateDraft, rosterBlock, itemBudgetLines, shouldTargetTotalOnly, cutPlan, SUBJECT_SECTION_QUOTA } from './seg-compress-gate.js'
+import { shouldKeepCompressing, shouldRegenerateDraft, rosterBlock, itemBudgetLines, shouldTargetTotalOnly, SUBJECT_SECTION_QUOTA } from './seg-compress-gate.js'
 import { findChineseOutsideDialogue } from './en-cn-gate.js'
 import { findVoiceoverMouthAction, type VoiceoverMouthHit } from './voiceover-gates.js'
 import { findRetentionMismatch, findRetentionOutfitMismatch, type RetentionMismatch, type RetentionOutfitHit } from './retention-gate.js'
@@ -542,20 +542,13 @@ function buildRewriteMultiPrompt(
     hard?.need,
     items.map(it => it.current.length - it.stage.limit),
   )
-  // 2026-10-16（4.0.49）：**把「全文再减 N」翻译成「每组砍多少」** —— 这是本次修复的核心。
-  //   实测依据（同一条分镜 sb481，同一输入）：
-  //     10-15：压缩提示走「各组压到自己的配额」分支 ⇒ 一轮砍掉 2500 字（7596→5048），最终 6071 过稿；
-  //     10-16：4.0.42 把目标改成「只认全文、各组配额这一轮不考核」⇒ 一轮只砍 445 甚至 0，连续作废。
-  //   ⇒ 模型**不会**自己把总量分配到各组：没有具体数字就不砍；给不可能的数字（组缺口 41%）也原样返回。
-  //   ⇒ 正确做法 = 每组一个**具体、可达成、且合计正好等于 need** 的数字。
-  //   分摊口径：按各组「超出配额」的比例分（哪组肥就多砍，余数补最肥那组）。
-  //   ⚠️ 由此得到的每个份额必然 ≤ 该组自己的超标量（因为 need < Σ各组超标），所以每组的目标都是真能砍到的。
-  //   缺段组不参与分摊 —— 它要「补写」，不是压缩。
-  const compressItems = items.filter(it => !/缺少|没有内容/.test(it.problem))
-  const excesses = compressItems.map(it => Math.max(0, it.current.length - it.stage.limit))
-  const sumExcess = excesses.reduce((a, b) => a + b, 0)
+  // 2026-10-16（4.0.54）：这里曾经按比例把 need 分摊成「每组砍多少」（4.0.49~53）。实测它有个致命毛病：
+  //   全文只差 41 字时，摊出来的目标是「这组 10 字、那组 8 字」这种**小目标 ⇒ 模型干脆不动**
+  //   （sb480 七轮只砍 93/358/134/43/29/0/0，最后 41 字过不去、整条作废）。
+  //   ⇒ 结论：**压缩目标必须大而具体**（每组压到自己的配额），缺口越小越要给大目标 ——
+  //     因为配额目标远大于缺口，模型哪怕只照做三成也早把缺口填平了。
+  //     唯一要防的是「目标够不着 ⇒ 原样返回」（sb493 组缺口 41%），所以过关线旁边写明了退路。
   const need = hard?.need ?? 0
-  const cuts = cutPlan(need, excesses)
   const quotaLines = items
     .map(it => {
       const quota = it.stage.segs
@@ -564,18 +557,22 @@ function buildRewriteMultiPrompt(
       // 缺段 ≠ 超标：缺段要「补写」，只喊压缩它救不回来（实测 sb354 缺 subject_definitions 后仍缺）
       const verb = /缺少|没有内容/.test(it.problem) ? `🔴 **这一段是缺失的，请补写它**（段名 + 完整内容）` : '压缩'
       const segNames = it.stage.segs.map(s => s.replace(':', '')).join(' / ')
-      const ci = compressItems.indexOf(it)
-      const cut = ci >= 0 ? cuts[ci] : undefined
-      if (cut !== undefined && need > 0) {
-        const now = it.current.length
-        return `- [${segNames}] ${verb}｜**本轮就砍 ${cut} 字符**（现 ${now} → ${now - cut}；组内配额 ${quota} 这一轮不用管）—— 现状：${it.problem}`
-      }
-      return `- [${segNames}] ${verb}｜目标 ≤ ${it.stage.limit} 字符（组内逐段：${quota}）—— 现状：${it.problem}`
+      // 2026-10-16（4.0.54）：**目标必须大而具体**。
+      //   实测 sb480：全文只差 41 字时，4.0.49 起按比例分摊出「这组砍 10 字、那组砍 8 字」这种小目标
+      //   ⇒ 模型 7 轮只肯砍 93/358/134/43/29/0/0，最后 41 字过不去、整条作废。
+      //   而昨天能「一轮砍 2500 字」的那次，给的是**每组压到自己的配额**（大目标）。
+      //   关键：配额目标远大于当时的缺口 ⇒ 模型**哪怕只照做三成**（约 600 字）也早把 41 字的问题解决了。
+      //   ⇒ 恢复配额目标，但补一条明确的退路（否则重演 sb493：组缺口 41% 时给死目标 ⇒ 原样返回）。
+      const now = it.current.length
+      const over = now - it.stage.limit
+      return over > 0
+        ? `- [${segNames}] ${verb}｜**目标压到 ≤ ${it.stage.limit} 字符**（现在 ${now}，要砍 ${over}；组内逐段：${quota}）—— 现状：${it.problem}`
+        : `- [${segNames}] ${verb}｜目标 ≤ ${it.stage.limit} 字符（组内逐段：${quota}）—— 现状：${it.problem}`
     })
     .join('\n')
   const totalOnlyNote = totalOnly && need > 0
     ? `
-🔴 **本轮就按上面每一组写明的「砍 N 字符」执行**：这些数字**合计正好等于全文要减的 ${need} 字**，一组都不许跳过 —— 别自己另定目标，也别只挑一组砍，**每一组都要咬着数字砍到位**。各组自己的绝对配额（要不要压到 1000 / 1100 / 2920）这一轮不用管。砍不够就算白跑（后端会重发、你等更久，最后可能整条作废）。
+🔴 **过关线只有一条：全文 ≤ ${hard!.limit} 字符**（现在 ${hard!.len}，还差 ${need}）。但请**按上面每组的配额目标去砍**（那是给你一个具体、够得着的落点，也是最好砍的地方）—— **某一组实在压不到配额，就多压别的组**，只要全文过了关这轮就算成功。**别只做几处小修小补**：那会让后端反复重发、你等更久，最后整条作废。
 🔴 怎么砍最省力：**直接删整句**，不要逐词微调 —— 氛围补充（光线/气氛/明暗）、重复复述的外观与保留句、stays identical to the reference 类尾句、形容词堆叠。英文一句通常 60~120 字符。
 `
     : ''

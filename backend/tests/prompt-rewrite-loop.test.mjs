@@ -88,14 +88,12 @@ test('只盯全文缺口（4.0.34）：全文差 43、组配额缺口合计 1051
   assert.equal(shouldTargetTotalOnly(0, [349, 702]), false)
   assert.equal(shouldTargetTotalOnly(undefined, [349, 702]), false)
   assert.equal(shouldTargetTotalOnly(43, []), false)
-  // 接线（4.0.49 改）：光说「各组配额这一轮不考核」会让模型干脆不砍 ——
-  //   实测 sb481 4.0.42 之后一轮只砍 445、随后 0/0；同一条分镜在按组配额时一轮砍 2500。
-  //   ⇒ 必须给**每组一个具体要砍的字数**（合计正好 = need），且不许再出现「压到配额内」这类矛盾指令。
+  // 接线：本判据仍在用（决定「按组配额」还是「只认全文」的措辞分支）。
+  //   压缩指令的具体措辞（配额大目标 + 过关线 + 退路）由 tests/segment-compress-target.test.mjs 钉住 ——
+  //   4.0.54 起不再按缺口分摊小目标（实测小目标会让模型干脆不动）。
   const src = readFileSync(new URL('../src/services/video-prompts.ts', import.meta.url), 'utf8')
   assert.match(src, /shouldTargetTotalOnly\(/)
-  assert.match(src, /cutPlan\(need, excesses\)/)
-  assert.match(src, /本轮就砍 \$\{cut\} 字符/)
-  assert.doesNotMatch(src, /其余压到配额内/, '不许再留「其余压到配额内」与「只认全文」互相矛盾的指令')
+  assert.match(src, /过关线只有一条：全文 ≤ \$\{hard!\.limit\} 字符/)
 })
 
 test('逐项点名（4.0.32）：逐拍 / 逐主体给出目标字数', () => {
