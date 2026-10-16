@@ -5,7 +5,7 @@
 A self-maintained fork of [chatfire-AI/huobao-drama](https://github.com/chatfire-AI/huobao-drama) — an AI short-drama production pipeline (script → assets → storyboards → video), shipped as an Electron desktop app with a Nuxt front end and a TypeScript back end.
 
 > **This is a personal fork.** All of my changes live on the **`chain`** branch; **`master`** is kept exactly as upstream delivered it, which makes diffing easy. I do not chase upstream updates, and I do not offer support for this fork.
-> App version `desktop 4.0.46` · last update 2026-10-16 · 274 own commits since 2026-10-07.
+> App version `desktop 4.0.47` · last update 2026-10-16 · 276 own commits since 2026-10-07.
 
 ## What this fork adds
 
@@ -20,6 +20,7 @@ A self-maintained fork of [chatfire-AI/huobao-drama](https://github.com/chatfire
 
 | Date | Tag | Highlights |
 | --- | --- | --- |
+| 2026-10-16 | `v4.0.47-zdz1` | Fixed a contradiction between two of our own numbers — the reason episode 8 storyboards 7 and 8 could not be compressed. The skill said "**≤250 per subject**" for `subject_definitions` while the section quota is **1000 for the whole section**. Storyboard 8 has **six subjects**, so the model wrote 250 × 6 = 1476 characters — dead on its own rule — and then **refused to cut a single character** across seven compression rounds (526/287/45/12/86/0/0), dying 283 over the cap; storyboard 7 the same, 203 over. Storyboard 9 passed simply because it has fewer subjects. The two numbers can never agree when there are more than four subjects, so the rule is now stated as **per-subject budget = 1000 ÷ subject count** (4 ⇒ 250, 6 ⇒ 166) in the skill, the prompt sheet and the roster block handed to the model, with the storyboard-8 case recorded right next to it. |
 | 2026-10-16 | `v4.0.46-zdz1` | The failed-storyboard summary line is gone — it duplicated what is already on screen (the toolbar says `failed N`, and every failure already appears in the "recent" feed with its `✗` and its reason). Removing it also retired the `vpbFailSummary` computed. The panel below the toolbar now exists only for the "this batch is running in another episode" notice, so a normal run never occupies a second block. |
 | 2026-10-16 | `v4.0.45-zdz1` | The "recent" feed (`✓ storyboard #10 · 3m23s`) is no longer a separate block under the toolbar — it moved into the same wrapping block as the progress readout and now renders **as the second line of the video-production row**, exactly like the rest of the progress info. It carries `flex-basis: 100%`, so it always starts a new line inside that block and the toolbar buttons keep their size and place. The panel underneath now only appears for the fail summary and the "this is running in another episode" hint. |
 | 2026-10-16 | `v4.0.44-zdz1` | The video-production line now wraps on the left instead of squeezing. Everything from the "video production" label through the progress readout sits in one flexible block that wraps onto a **second line by itself** when the readouts get long, while the button group on the right keeps `flex: none` — its size and position never change and it is never pushed onto another line. Inside the progress block the chips wrap too (the bar keeps a sensible minimum), so nothing is clipped or squeezed any more. |

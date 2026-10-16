@@ -72,7 +72,7 @@ General rules:
 **Per-section quotas (🔴 write straight to these numbers — going over is SLOWER)**: the backend **measures each section** and **sends any oversize section back for a rewrite** (one storyboard can then burn 2–9 extra model calls, multiplying your wait). **Hitting the quota on the first pass is the fastest path.** Reconfigured 2026-10-10 evening to the official wording — the self-added CAST/BLOCKING sections are gone, back to the official six:
 - `detailed_description` ≤ 2500 (**official: 350–500 English words ≈ 1750–2500 characters** — do not write it short)
 - `non_diegetic_music` ≤ 120 (official: 1–3 sentences; write `N/A` when there is no score)
-- **Total 5020 (+ 5 newlines = 5025) ≤ 6200 = the hard full-prompt limit** (`subject_definitions` is capped at 1000 — ≤250 per subject — so the total leaves ~1180 slack for the model's habitual 10–30% overshoot)
+- **Total 5020 (+ 5 newlines = 5025) ≤ 6200 = the hard full-prompt limit** (`subject_definitions` is capped at **1000 for the whole section**, so each subject gets **1000 ÷ subject count** — 4 subjects ⇒ 250 each, 6 subjects ⇒ 166 each; the total leaves ~1180 slack for the model's habitual 10–30% overshoot)
 **Never cut**: `<d>` dialogue, every `fully_preserved` line in `retention_analysis`, the `<Picture N>` and `with` clause in `subject_definitions`.
 
 Six section names, fixed order, one per line:

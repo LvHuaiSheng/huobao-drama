@@ -183,7 +183,8 @@ The MiniMax H3 prompt limit is **7000 characters — an official hard limit that
 **Going over means the request is rejected outright and no video is produced** (measured 2026-10-09: sb147 reached 7608 characters → 8403 after concatenation → error "prompt too long: MiniMax H3 limit 7000 characters, current 8403").
 
 **Per-section quotas (🔴 write straight to these numbers — going over is SLOWER)**: the backend **measures each section** and **sends any oversize section back for a rewrite** (one storyboard can then burn 2–9 extra model calls, multiplying your wait). **Hitting the quota on the first pass is the fastest path.** Reconfigured 2026-10-10 to official guidance:
-- `subject_definitions` ≤ 1000 (**≤250 per subject**: 4 subjects ⇒ 1000. Each subject line is exactly *who it is + hair colour + garment colour + the complete-head statement* — no plot, no mood, no camera wording, no repeated appearance prose)
+- `subject_definitions` ≤ 1000 (**the whole section**, and that number wins): **per-subject budget = 1000 ÷ number of subjects** (4 subjects ⇒ ≤250 each; **6 subjects ⇒ ≤166 each**). Each subject line is exactly *who it is + hair colour + garment colour + the complete-head statement* — no plot, no mood, no camera wording, no repeated appearance prose.
+  ⚠️ Measured failure (2026-10-16, episode 8 storyboards 7/8): the skill said "≤250 per subject" while the section quota was 1000, and that storyboard has **6 subjects** ⇒ the model wrote 250×6 = 1476, exactly at its own rule, and then **refused to cut a single character** during compression — both storyboards died 200–280 characters over the cap. **With more than 4 subjects, split 1000 by the subject count.**
 - `summary` ≤ 340 (official: one short English paragraph)
 - `retention_analysis` ≤ 760
 - `detailed_description` ≤ 2500 (official: 350–500 English words ≈ 1750–2500 characters)
