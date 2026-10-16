@@ -311,7 +311,8 @@ export function checkStoryboardPrompt(sb: StoryboardCheckInput, opts: CheckOptio
     if (over.length) {
       out.push(mk({
         level: 'warn', code: 'dialogue-over-budget', location: 'detailed_description',
-        message: '台词比 H3 的实测语速还快（可能被念快或吃掉字）→ ' + over.slice(0, 3).join('；'),
+        message: '台词比 H3 的实测语速还快（可能被念快或吃掉字）→ ' + over.slice(0, 3).join('；')
+          + ' —— **这条只能改分镜描述**：要么把这句台词压到上限内，要么把这一拍拉长（生成/一键修复都改不动台词与时间轴，因为台词必须逐字照抄描述）',
         // 不喂给「一键修复」：模型改不动自己的时间轴（要把台词拆到别的拍才有效），
         // 历史实测每轮都改不掉、白烧一轮约 45 秒。真要收紧就改生成侧规则（见 SKILL 的逐拍预算条）。
         autoFixable: false,

@@ -42,7 +42,7 @@ test('批量提示词进度条：绑任务归属集 + 轮询 100 分钟 + 用尽
   const vue = readFileSync(new URL('../../frontend/app/views/drama/episode.vue', import.meta.url), 'utf8')
   assert.match(vue, /const VPB_RUN_KEY = 'hb\.vpb\.runningEpisode'/)
   assert.match(vue, /function markVpbEpisode\(id\)/)
-  assert.match(vue, /function pollVideoPromptBatch\(attempts = 2400\)/)
+  assert.match(vue, /function pollVideoPromptBatch\(attempts = 2400, silent = false\)/)   // 4.0.56：改成返回 Promise 给单条修复 await
   assert.match(vue, /const qid = vpbEpId\.value \|\| epId\.value/)
   assert.doesNotMatch(vue, /else videoPromptBatch\.value = emptyVideoPromptBatch\(\)/, '轮数用尽不许静默清空面板')
   assert.match(vue, /t\('episode\.sb\.pbStale'\)/)
@@ -54,7 +54,21 @@ test('批量提示词进度条：绑任务归属集 + 轮询 100 分钟 + 用尽
   for (const lang of ['zh', 'en', 'ja', 'ko']) {
     const loc = readFileSync(new URL(`../../frontend/app/locales/${lang}.json`, import.meta.url), 'utf8')
     for (const k of ['pbStale', 'pbOtherEp', 'pbOtherEpHint', 'pbOtherEpGo']) {
-      assert.ok(loc.includes(`"${k}"`), `${lang}.json 缺 ${k}`)
+     assert.ok(loc.includes(`"${k}"`), `${lang}.json 缺 ${k}`)
     }
-  }
-})
+    }
+    })
+
+    test('「一键修复」不许假成功（2026-10-16 用户报：提示成功但警告一模一样）', () => {
+    const vue = readFileSync(new URL('../../frontend/app/views/drama/episode.vue', import.meta.url), 'utf8')
+    // ① 按钮只在「有可自动修复项」时出现（实测 10集分镜6：唯一警告 dialogue-over-budget 不可自动修，却照样能点）
+    assert.match(vue, /v-if="promptCheck\.repairNotes && promptCheck\.autoFixableCount"/)
+    // ② 修完逐条对比指纹：一条都没消掉就明说，不许无条件 toast.success
+    assert.match(vue, /const gone = \[\.\.\.before\]\.filter/)
+    assert.match(vue, /episode\.check\.repairNone/)
+    // ③ 文案四种语言齐全
+    for (const lang of ['zh', 'en', 'ja', 'ko']) {
+    const loc = readFileSync(new URL(`../../frontend/app/locales/${lang}.json`, import.meta.url), 'utf8')
+    assert.ok(loc.includes('"repairNone"'), `${lang}.json 缺 repairNone`)
+    }
+    })

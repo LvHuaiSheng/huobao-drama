@@ -1570,7 +1570,7 @@
                   @click="fixAllChecked"
                 >
                   <Loader2 v-if="batchCheck.fixing" :size="11" class="animate-spin" />
-                  {{ batchCheck.fixing ? t('episode.check.repairingN', { done: batchCheck.fixDone, total: batchCheck.fixTotal }) : t('episode.check.repairAll', { n: batchBadItems.length }) }}
+                  {{ batchCheck.fixing ? t('episode.check.repairingN', { done: batchCheck.fixDone, total: batchCheck.fixTotal }) : t('episode.check.repairAll', { n: batchFixableItems.length }) }}
                 </button>
                 <button type="button" class="btn btn-sm" @click="batchCheck.open = false">{{ t('common.close') }}</button>
               </div>
@@ -1641,8 +1641,11 @@
             <div class="check-head">
               <h2 class="check-title">{{ t('episode.check.title', { n: promptCheck.storyboardNumber }) }}</h2>
               <div class="check-head-actions">
+                <!-- 2026-10-16（4.0.57）：没有「可自动修复」的问题时不给按钮 ——
+                     实测 10集分镜6：唯一警告是 dialogue-over-budget（设计上不可自动修），
+                     却照样能点、照样弹「已修复」，而警告一模一样。 -->
                 <button
-                  v-if="promptCheck.repairNotes"
+                  v-if="promptCheck.repairNotes && promptCheck.autoFixableCount"
                   type="button"
                   class="btn btn-sm btn-primary"
                   :disabled="promptCheck.repairing || batchCheck.fixing"
@@ -3464,7 +3467,7 @@ const PROMPT_CHECK_IGNORED_KEY = 'hb.promptCheck.ignored'
 const promptCheck = reactive({
   running: false, open: false, sb: null, storyboardNumber: '',
   issues: [], ignored: [], errorCount: 0, warnCount: 0, blockingCount: 0,
-  repairNotes: '', repairing: false,
+  autoFixableCount: 0, repairNotes: '', repairing: false,
 })
 try {
   const rawIgnored = localStorage.getItem(PROMPT_CHECK_IGNORED_KEY)
@@ -3499,6 +3502,7 @@ async function runPromptCheck(sb) {
     promptCheck.warnCount = (res && res.warn_count) || 0
     promptCheck.blockingCount = (res && res.blocking_count) || 0
     promptCheck.repairNotes = (res && res.repair_notes) || ''
+    promptCheck.autoFixableCount = (res && res.auto_fixable_count) || 0
     promptCheck.open = true
   } catch (e) {
     toastError(e)
@@ -3524,8 +3528,16 @@ async function runPromptRepair() {
     if (st0) applyVideoPromptStatus(st0)
     await pollVideoPromptBatch(2400, true)   // silent：单条修复用自己的 toast 文案
     await refresh()
+    // 2026-10-16（4.0.57）：**别再无条件报「已修复」**。修复跑完后逐条对比指纹：
+    //   一条都没消掉就明确说「没修掉」，并指出剩下的问题只能改分镜描述
+    //   （实测 10集分镜6：唯一警告是台词超语速上限，重写一遍当然原样还在）。
+    const before = new Set((promptCheck.issues || []).map(i => i.fingerprint))
     await runPromptCheck(promptCheck.sb)
-    toast.success(t('episode.check.repairDone'))
+    const left = (promptCheck.issues || []).filter(i => !promptCheck.ignored.includes(i.fingerprint))
+    const gone = [...before].filter(f => !left.some(i => i.fingerprint === f)).length
+    if (gone > 0) toast.success(t('episode.check.repairDone', { n: gone }))
+    else if (left.length) toast.info(t('episode.check.repairNone', { n: left.length }))
+    else toast.success(t('episode.check.repairDone', { n: 0 }))
   } catch (e) {
     toastError(e)
   } finally {
@@ -3545,6 +3557,10 @@ function isBatchClean(it) {
   return list.every(iss => promptCheck.ignored.includes(iss.fingerprint))
 }
 const batchBadItems = computed(() => (batchCheck.items || []).filter(it => !isBatchClean(it)))
+// 2026-10-16（4.0.57）：**只有「有可自动修复项」的分镜才进修复范围**。
+//   实测 10集分镜6：唯一警告是 dialogue-over-budget（设计上不可自动修，auto_fixable_count=0），
+//   却被算进「修复全部」→ 跑完照旧报成功、警告一模一样。
+const batchFixableItems = computed(() => batchBadItems.value.filter(it => (it.auto_fixable_count || 0) > 0))
 const batchNoEnCount = computed(() => (batchCheck.items || []).filter(it => !it.has_prompt_en).length)
 const progressPct = computed(() => {
   const total = batchCheck.fixTotal || 0
@@ -3589,7 +3605,7 @@ function jumpToCheckedStoryboard(it) {
 // 一键修复全部：一次性把「有问题的分镜」重写一遍，跑完自动重新体检
 // 2026-10-15（4.0.32）：**不再把体检的修法清单当 extra 下发**（给模型的指令越多写得越长 → 越容易超限，见 runPromptRepair 同注释）
 async function fixAllChecked() {
-  const targets = batchBadItems.value
+  const targets = batchFixableItems.value
   if (batchCheck.fixing || promptCheck.repairing || videoPromptBatch.running || !targets.length) return
   const ids = targets.map(it => it.storyboard_id)
   const notes = ''
