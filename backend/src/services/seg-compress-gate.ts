@@ -89,9 +89,12 @@ export function shouldTargetTotalOnly(
   need: number | undefined,
   stageOver: number[],
 ): boolean {
-  if (!need || need <= 0) return false
+  // 2026-10-16（4.0.42）：**压缩时永远只认全文**。原判据 `need × 3 < Σ组缺口` 里的 ×3 是我拍脑袋定的系数，
+  //   实测它放过了最坏的一类：sb493（第10集分镜4）need 1548、组缺口 3514 → 判 false → 仍按组配额要求它
+  //   砍 3514（41%）→ 模型**原样返回**（第1轮只回 subj 2066、第2轮回整篇 8538），两轮 cut=0 整条作废。
+  //   H3 只认全文长度，配额是给「写初稿」用的指引 ⇒ 压缩阶段只要全文还超，就必须以「全文再减 N」为唯一目标。
   const quotaDeficit = stageOver.reduce((s, v) => s + Math.max(0, v), 0)
-  return quotaDeficit > 0 && need * 3 < quotaDeficit
+  return !!need && need > 0 && quotaDeficit > 0
 }
 
 // ---------- 全文长度边界（2026-10-16 4.0.37 搬来此零依赖模块，便于单测）----------

@@ -865,7 +865,10 @@
       "needPromptsAfterBreak": "拆分完成，有 {n} 个分镜还没有视频提示词，需要时点「批量补齐提示词」",
       "confirmBreakTitle": "重新拆分分镜？",
       "confirmBreakMessage": "将按当前剧本重新拆解全部分镜：现有 {n} 个分镜及其视频提示词会被清空重建（已生成的视频成片不受影响）。此操作不可撤销。",
-      "confirmBreakOk": "重新拆分"
+      "confirmBreakOk": "重新拆分",
+      "confirmBatchPromptsTitle": "批量补齐视频提示词？",
+      "confirmBatchPromptsMessage": "将为 {n} 条分镜逐条生成/重新生成英文提示词：**已有的英文稿会被覆盖**，每条约 1~3 分钟并消耗 AI 额度，跑的过程中不要再点一次。已生成的视频不受影响。",
+      "confirmBatchPromptsOk": "开始补齐"
     },
     "ref": {
       "title": "参考素材",

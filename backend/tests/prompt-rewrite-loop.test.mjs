@@ -82,8 +82,9 @@ test('长度边界（4.0.38）：风格头不再进视频提示词 ⇒ 上限 69
 test('只盯全文缺口（4.0.34）：全文差 43、组配额缺口合计 1051 → 必须放弃组配额（sb483 实测）', () => {
   // 实测：全文只差 43，却要它把 summ 砍 349 + detail 砍 702 → 模型两轮一字不砍，稿子作废
   assert.equal(shouldTargetTotalOnly(43, [349, 702]), true)
-  // 缺口真的大（900）时，组配额仍是有效指引 → 保持原样
-  assert.equal(shouldTargetTotalOnly(900, [349, 702]), false)
+  // 4.0.42：组缺口远大于全文缺口时也必须只认全文 —— sb493 实测 need 1548 / 组缺口 3514 时按组配额要它砍 41%，
+  // 模型两轮全部原样返回（第1轮只回 subj、第2轮回整篇），整条作废
+  assert.equal(shouldTargetTotalOnly(1548, [1066, 665, 1783]), true)
   assert.equal(shouldTargetTotalOnly(0, [349, 702]), false)
   assert.equal(shouldTargetTotalOnly(undefined, [349, 702]), false)
   assert.equal(shouldTargetTotalOnly(43, []), false)

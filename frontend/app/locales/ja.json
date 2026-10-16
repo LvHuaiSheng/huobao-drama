@@ -865,7 +865,10 @@
       "needPromptsAfterBreak": "分解が完了しました。{n} 個のカットに動画プロンプトがまだありません。必要なら「一括でプロンプトを補完」を押してください。",
       "confirmBreakTitle": "カットを再分解しますか？",
       "confirmBreakMessage": "現在の脚本から全カットを再分解します：既存の {n} カットとその動画プロンプトは消去されて再生成されます（生成済みの動画は影響を受けません）。この操作は取り消せません。",
-      "confirmBreakOk": "再分解"
+      "confirmBreakOk": "再分解",
+      "confirmBatchPromptsTitle": "動画プロンプトを一括作成しますか？",
+      "confirmBatchPromptsMessage": "{n} 件のカットについて英語プロンプトを1件ずつ生成（または再生成）します：**既存の英語版は上書きされます**。1件あたり約1〜3分・AI利用枠を消費しますので、実行中は再度クリックしないでください。生成済みの動画は影響を受けません。",
+      "confirmBatchPromptsOk": "開始"
     },
     "ref": {
       "title": "参照素材",

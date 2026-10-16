@@ -516,7 +516,7 @@
                   <svg v-else width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
                   {{ sbs.length ? t('episode.sb.rebreak') : t('episode.sb.startBreak') }}
                 </button>
-                <button class="btn btn-sm" :disabled="videoPromptBatch.running || batchCheck.fixing || promptCheck.repairing || !sbs.length" @click="batchVideoPrompts">
+                <button class="btn btn-sm" :disabled="videoPromptBatch.running || batchCheck.fixing || promptCheck.repairing || !sbs.length" @click="batchPromptsConfirm = true">
                   <Loader2 v-if="videoPromptBatch.running" :size="11" class="animate-spin" />
                   <svg v-else width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
                   {{ videoPromptBatch.running ? t('episode.sb.promptProgress', { done: videoPromptBatch.completed, total: videoPromptBatch.total }) : (videoSelectMode && selectedVideoSbIds.length ? t('episode.sb.promptSelected', { n: selectedVideoSbIds.length }) : t('episode.sb.batchPrompts')) }}
@@ -1533,6 +1533,14 @@
         :loading="assetDelete.loading"
         @confirm="confirmDeleteAsset"
         @cancel="assetDelete.open = false"
+      />
+      <ConfirmDialog
+        :open="batchPromptsConfirm"
+        :title="t('episode.sb.confirmBatchPromptsTitle')"
+        :message="t('episode.sb.confirmBatchPromptsMessage', { n: videoSelectMode && selectedVideoSbIds.length ? selectedVideoSbIds.length : sbs.length })"
+        :confirm-text="t('episode.sb.confirmBatchPromptsOk')"
+        @confirm="confirmBatchPrompts"
+        @cancel="batchPromptsConfirm = false"
       />
       <ConfirmDialog
         :open="breakdownConfirm"
@@ -3430,6 +3438,13 @@ const breakdownConfirm = ref(false)
 function confirmBreakdown() {
   breakdownConfirm.value = false
   doBreakdown()
+}
+
+// 2026-10-16（用户要求）：批量补齐提示词会逐条跑一次 LLM（每条约 1~3 分钟、**会覆盖已有英文稿**）→ 加确认弹窗。
+const batchPromptsConfirm = ref(false)
+function confirmBatchPrompts() {
+  batchPromptsConfirm.value = false
+  batchVideoPrompts()
 }
 
 // 2026-10-13 用户需求：单条分镜的「体检」按钮 —— 放在这条分镜的「重新生成」旁边，只查这一条、只报不改。

@@ -865,7 +865,10 @@
       "needPromptsAfterBreak": "Breakdown complete - {n} storyboard(s) still need video prompts. Click \"Batch Fill Prompts\" when ready.",
       "confirmBreakTitle": "Re-break down storyboards?",
       "confirmBreakMessage": "All storyboards will be rebuilt from the current script: the existing {n} storyboards and their video prompts will be cleared and regenerated (finished videos are unaffected). This cannot be undone.",
-      "confirmBreakOk": "Re-break down"
+      "confirmBreakOk": "Re-break down",
+      "confirmBatchPromptsTitle": "Generate video prompts in bulk?",
+      "confirmBatchPromptsMessage": "This generates (or regenerates) the English prompt for {n} storyboards, one by one: **existing English prompts will be overwritten**, each takes about 1-3 minutes and uses your AI quota - do not click again while it runs. Finished videos are unaffected.",
+      "confirmBatchPromptsOk": "Start"
     },
     "ref": {
       "title": "Reference Assets",
