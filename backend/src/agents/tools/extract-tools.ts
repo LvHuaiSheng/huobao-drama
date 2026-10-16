@@ -12,6 +12,7 @@ import type { ToolExecutionContext } from '@mastra/core/tools'
 import { z } from 'zod'
 import { db, getInsertId, schema } from '../../db/index.js'
 import { assetColourGaps, WHAT_ZH } from '../../services/asset-colour-gate.js'
+import { enforceCostumeConsistency } from '../../services/costume-channel.js'
 import { eq, and } from 'drizzle-orm'
 
 /**
@@ -319,12 +320,23 @@ const saveDedupCharacters = createTool({
         }
       }
     } catch { /* 查库失败不影响保存 */ }
+    // 🔴 通道内自动纠正（2026-10-16 加，用户要求：「原始内容已经写了穿搭，就不应该后边提取错」）：
+    //   剧本声明了穿搭时，按字面重合度判定该留基准还是变体，不匹配的那个从本集解绑。
+    //   判定复用 services/costume-channel.ts（提取与拆分两条通道共用同一处实现），不靠模型自觉。
+    let autoDropped: string[] = []
     if (conflicts.length) {
-      logTaskProgress('ExtractTool', 'save-characters-variant-conflict', { episodeId, dramaId, conflicts })
+      const res = await enforceCostumeConsistency(episodeId, dramaId)
+      autoDropped = res.fixes.map(f => `${f.dropped}（已解绑）→ 留下 ${f.kept}`)
+      logTaskProgress('ExtractTool', 'save-characters-variant-conflict', {
+        episodeId, dramaId, conflicts, declaredCostume: res.declared, autoDropped,
+      })
     }
 
     const payload = {
       message: (deficient.length ? '' : '')
+        + (autoDropped.length
+          ? `\n✅ 已按剧本声明的穿搭自动整理本集角色：${autoDropped.join('；')}（另一个已解绑；如需两个都要，请在剧本里写明本集换了两套）`
+          : '')
         + (conflicts.length
           ? `\n⚠️ 同一集里同时绑定了「基准角色」和它的「换装造型」：${conflicts.join('；')}。`
             + `\n本集如果剧本里写明了具体穿搭，请**只保留造型匹配的那一个**（另一个用 save_dedup_characters 传空处理不了就说明给用户，或不要创建它）；`
@@ -341,6 +353,7 @@ const saveDedupCharacters = createTool({
       ...results,
       ...(deficient.length ? { rejected: deficient } : {}),
       ...(conflicts.length ? { variant_conflicts: conflicts } : {}),
+      ...(autoDropped.length ? { variant_auto_fixed: autoDropped } : {}),
     }
     logTaskSuccess('ExtractTool', 'save-characters-complete', { episodeId, ...results })
     return payload

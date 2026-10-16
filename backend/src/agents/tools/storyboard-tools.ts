@@ -9,6 +9,7 @@ import { db, getInsertId, schema } from '../../db/index.js'
 import { eq } from 'drizzle-orm'
 import { now } from '../../utils/response.js'
 import { addSaved } from '../../services/agent-runs.js'
+import { enforceCostumeConsistency } from '../../services/costume-channel.js'
 import { parseScriptDurationSeconds, expectedStoryboardCount, SEGMENT_SECONDS } from '../../services/script-duration.js'
 import { logTaskError, logTaskProgress, logTaskSuccess } from '../../utils/task-logger.js'
 import { promptEnLimit, debugLog } from '../../services/video-prompts.js'
@@ -115,6 +116,17 @@ async function validateStoryboardBindings(episodeId: number, dramaId: number, sc
     }
     await db.insert(schema.episodeCharacters).values({ episodeId, characterId, createdAt: now() })
   }
+  // 🔴 拆分通道同样要守「剧本写明穿搭就只留穿那套的角色」（2026-10-16 加）：
+  //   拆分按分镜里的人名绑角色，会把**基准角色**（原始穿搭）也挂回本集 —— 与提取通道共用同一处纠正实现。
+  try {
+    const fix = await enforceCostumeConsistency(episodeId, dramaId)
+    if (fix.fixes.length) {
+      logTaskProgress('StoryboardTool', 'costume-variant-auto-fixed', {
+        episodeId, dramaId, declared: fix.declared,
+        fixes: fix.fixes.map(f => `${f.dropped} → ${f.kept}`).join(','),
+      })
+    }
+  } catch { /* 纠正失败不阻断拆分 */ }
 
   const uniquePropIds = [...new Set((propIds || []).filter(Boolean))]
   for (const propId of uniquePropIds) {
