@@ -34,6 +34,15 @@ const VOICEOVER = /says\s+in\s+an\s+off-?screen\s+voiceover/i
 const subjectsOf = (s: string): number[] =>
   Array.from(new Set((s.match(/<Subject (\d+)>/g) || []).map(x => parseInt(x.replace(/\D+/g, ''), 10))))
 
+/**
+ * 官方锁嘴句的**两种合法写法**（2026-10-16 统一，别只认一种）：
+ *   ① 代词版 `while her/his/its lips remain completely closed`（画面里只有旁白者自己或空镜）
+ *   ② 点名版 `while <Subject K>'s lips remain completely closed`（画面里是别的角色 ⇒ **必须点名**，否则锁错人，见文件头 sb437）
+ * 事故：`zhEnConsistency` 里另写了一份只认 ① 的正则 ⇒ 稿子按规则写了 ② 却被判「没有锁嘴句」，
+ * 自动修复两轮都改不掉（模型改成 ① 反而违反本文件的规则）⇒ 用户看到「报错修复不了」（sb486，第9集分镜3）。
+ */
+export const OFFICIAL_LIP_LOCK = /(?:<Subject \d+>|her|his|its)(?:'s)?\s+lips?\s+remain\s+completely\s+closed/i
+
 /** 拍内是否已按官方口径锁了某个画面角色的嘴：`<Subject K>'s lips remain completely closed` */
 const locksSubject = (shot: string, k: number): boolean =>
   new RegExp(`<Subject ${k}>'s lips? remain completely closed`, 'i').test(shot)

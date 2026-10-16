@@ -280,13 +280,18 @@ export function checkStoryboardPrompt(sb: StoryboardCheckInput, opts: CheckOptio
   }
 
   // ⑦ 中文台词末尾必须收标点（否则解码器吞最后一个字）
-  const noPunct = zhLines.filter(t => !/[。！？…!?]$/.test(t))
+  // 2026-10-16：白名单原来只认 `。！？…!?`，把**结尾是破折号的被打断台词**（如「…交出来——」）
+  //   判成「没收标点」。这类台词来自分镜描述原文，而台词必须逐字照抄 ⇒ 生成/一键修复**永远改不掉**
+  //   （sb486 第9集分镜3 实测：警告一直在、模型动不了它）⇒ ① 把破折号当合法收尾；② 标 autoFixable:false。
+  const noPunct = zhLines.filter(t => !/[。！？…!?—～~]$/.test(t))
   if (noPunct.length) {
     out.push(mk({
       level: 'warn', code: 'zh-dialogue-punct', location: '中文工作版',
+      autoFixable: false,
       message:
         `中文台词 ${noPunct.length} 句末尾没收标点（最后一个字会被吞掉）：` +
-        noPunct.slice(0, 2).map(t => `「${t.slice(0, 10)}」`).join('、'),
+        noPunct.slice(0, 2).map(t => `「${t.slice(0, 10)}」`).join('、') +
+        ` —— 这句是从分镜描述里逐字抄来的，只能去分镜描述给该台词末尾补一个标点（生成/修复不会改台词原文）`,
     }))
   }
 

@@ -367,7 +367,7 @@ import { findChineseOutsideDialogue } from './en-cn-gate.js'
 import { findVoiceoverMouthAction, type VoiceoverMouthHit } from './voiceover-gates.js'
 import { findRetentionMismatch, findRetentionOutfitMismatch, type RetentionMismatch, type RetentionOutfitHit } from './retention-gate.js'
 import { findColourGaps, shouldRewriteForColour, colourRewriteNote } from './asset-colour-gate.js'
-import { findVoiceoverOnscreenLock, type VoiceoverLockGap } from './voiceover-onscreen-gate.js'
+import { findVoiceoverOnscreenLock, OFFICIAL_LIP_LOCK, type VoiceoverLockGap } from './voiceover-onscreen-gate.js'
 export { findDanglingPropRef } from './prop-text-gates.js'
 export { findRetentionMismatch } from './retention-gate.js'
 export { findVoiceoverOnscreenLock } from './voiceover-onscreen-gate.js'
@@ -404,7 +404,9 @@ function zhEnConsistency(enText: string, zhPrompt?: string): string | null {
   for (const m of enText.matchAll(/says\s+in\s+an\s+off-?screen\s+voiceover/gi)) {
     const at = m.index ?? 0
     const after = enText.slice(at, at + 400)
-    if (!/(?:her|his|its)\s+lips\s+remain\s+completely\s+closed/i.test(after)) {
+    // 2026-10-16：只认代词版会把**规则要求的点名版**判成「没有锁嘴句」（sb486 实测：稿子写
+    //   `<Subject 2>'s lips remain completely closed`、自动修复两轮都动不了）⇒ 改用共用判据。
+    if (!OFFICIAL_LIP_LOCK.test(after)) {
       return '画外音/旁白句后面 400 字符内没有官方锁嘴句：必须紧跟 <d> 块写「while her/his/its lips remain completely closed.」'
     }
     const before = enText.slice(Math.max(0, at - 100), at)
