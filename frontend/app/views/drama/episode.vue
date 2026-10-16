@@ -515,7 +515,9 @@
               </span>
               <!-- 2026-10-16（4.0.45 用户要求）：完成后的「最近 ✓ 分镜 #10 · 3m23s」不再单独占一格，
                    跟进度读数同一套换行逻辑 —— flex-basis 100% 让它固定落在**视频制作这一行的第二行** -->
-              <span v-if="vpbRecentItems.length" class="pb-recent-inline pb-inline">
+              <!-- 2026-10-16（4.0.46 用户拍板）：失败明细**不再单独显示** —— 顶行已有「失败 N」，
+                   且「最近」里每条失败都带 ✗ 与具体原因，再列一遍是重复。 -->
+              <span v-if="vpbRecentItems.length" class="pb-row-block pb-inline">
                 <span class="pb-kicker">{{ t('episode.sb.pbRecent') }}</span>
                 <span
                   v-for="it in vpbRecentItems"
@@ -564,11 +566,7 @@
             <!-- 2026-10-14：批量提示词进度面板 —— 总进度（绿=成功/红=失败）、本条进度、逐条流水与结果汇总 -->
             <!-- 2026-10-16（4.0.40）：总进度/本条已内联到顶行 ⇒ 本面板只在**还有额外内容**时才出现
                  （失败明细 / 正在跑别的集 / 逐条流水），没有额外内容时整块不占行。 -->
-            <div v-if="(videoPromptBatch.finished && vpbFailSummary) || (vpbOtherRef && vpbIsOther)" class="pb-panel">
-              <div v-if="videoPromptBatch.finished && vpbFailSummary" class="pb-line pb-line-wrap">
-                <span class="pb-kicker">{{ t('episode.sb.pbFailedItems') }}</span>
-                <span class="pb-fail">{{ vpbFailSummary }}</span>
-              </div>
+            <div v-if="vpbOtherRef && vpbIsOther" class="pb-panel">
               <!-- 正在跑的是**别的集**：进度照常显示，但要说清是哪一集 + 一键跳过去（2026-10-15 加） -->
               <div v-if="vpbOtherRef && vpbIsOther" class="pb-line">
                 <span class="pb-kicker">{{ t('episode.sb.pbOtherEp', { n: vpbOtherRef.num }) }}</span>
@@ -3313,12 +3311,6 @@ const vpbRecentItems = computed(() => (videoPromptBatch.value.items || []).slice
   dur: fmtDurationSec(it.seconds),
   error: it.error || '',
 })))
-// 结束后：失败的是哪几条、为什么（用户最想知道的就这一条）
-const vpbFailSummary = computed(() => {
-  const bad = (videoPromptBatch.value.items || []).filter(it => !it.ok)
-  if (!bad.length) return ''
-  return bad.map(it => `${t('episode.tasks.sbN', { n: it.storyboard_number ?? it.storyboard_id })}（${it.error || '—'}）`).join(' · ')
-})
 const vpbCurrentLabel = computed(() => {
   const id = videoPromptBatch.value.currentSbId
   if (!id) return ''
@@ -6017,8 +6009,9 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); }
 }
 .pb-inline > * { white-space: nowrap; }
 /* 「最近 …」整块固定占满一行 ⇒ 永远排在视频制作那一行的第二行（与进度读数同块、自己不占独立分格） */
-.pb-recent-inline { flex: 1 1 100%; }
-.pb-recent-inline > * { white-space: nowrap; }
+/* 「整行块」= 固定占满一行 ⇒ 永远在视频制作那一行里另起一行（进度读数 / 最近 / 失败分镜都用它） */
+.pb-row-block { flex: 1 1 100%; }
+.pb-row-block > * { white-space: nowrap; }
 .pb-sep { color: var(--text-3); flex: none; }
 .pb-inline .pb-steps { display: inline-flex; gap: 3px; flex: none; }
 .pb-inline .pb-dot { width: 6px; height: 6px; border-radius: 50%; }
