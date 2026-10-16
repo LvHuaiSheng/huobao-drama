@@ -842,7 +842,7 @@
       "aiGenerate": "AI로 생성",
       "videoPromptCopy": "이 스토리보드의 화면 설명(대사/나레이션 포함)과 분위기를 바탕으로 생성",
       "videoPromptPlaceholder": "{'@'}캐릭터명 / {'@'}장멸명 으로 참조 소재를 지정하고, 3초마다 줄 바꿈하여 화면의 움직임과 침라를 기술. AI로 생성해 프롬프트 Agent에 맡길 수도 있습니다…",
-      "breaking": "스토리보드 분해 중...",
+      "breaking": "분할 중 {time} · {done}/{total}개 작성됨",
       "emptyTitle": "스토리보드 분해 시작",
       "emptyDesc": "대본, 캐릭터, 장면을 바탕으로 샷으로 분해하여 스토리보드 설명과 연결 정보를 생성합니다.",
       "hasVideo": "영상 생성됨",

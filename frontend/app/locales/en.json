@@ -842,7 +842,7 @@
       "aiGenerate": "AI Generate",
       "videoPromptCopy": "Generated from this shot's visual description (including dialogue/narration) and atmosphere",
       "videoPromptPlaceholder": "Reference assets with {'@'}character / {'@'}scene, describe motion and camera per 3-second line; or click AI Generate for the prompt Agent…",
-      "breaking": "Breaking the storyboard...",
+      "breaking": "Splitting {time} · {done}/{total} written",
       "emptyTitle": "Start Storyboard Breakdown",
       "emptyDesc": "Break the script into shots based on the script, characters and scenes, producing shot descriptions and bindings.",
       "hasVideo": "Video generated",

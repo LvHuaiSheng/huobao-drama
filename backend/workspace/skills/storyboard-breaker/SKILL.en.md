@@ -21,7 +21,10 @@ One storyboard = one **storyboard segment** = one video-generation task.
 
 1. Call `read_storyboard_context` to read the script, characters, scenes, props, and existing storyboard summaries
 2. **Beat identification**: first identify the script's narrative beats — markers such as [Opening] [Trigger] [Climax] [Resolution], or narrative turning points (location changes, rule reveals, emotional eruptions, reversals). **Beat boundaries force a segment cut**; group sub-shots within the same beat into the same segment where possible, and do not scatter a causal chain (setup-event-reaction) across different segments
-3. **Total-volume anchoring**: target total duration = script character count ÷ 500 characters/minute; segment count ≈ target total duration ÷ 12 seconds, with ±20% tolerance. Do not significantly overshoot or undershoot
+3. **Total-volume anchoring (changed 2026-10-16: read the declared duration, stop estimating)**: target total duration = the seconds in the script's header line 「时长：X 分 Y 秒」 (e.g. 2 分 20 秒 = 140 s). Segment count = that number ÷ **10 seconds** (the last one may be shorter), and the **sum of all segment durations must equal it exactly**.
+   - ❌ **Never estimate from character count ("characters ÷ 500 per minute") again** — measured: it left episodes 1–12 each **40–96 seconds short** (declared 130–160 s, produced 48–113 s; episode 11 declared 140 s but produced 87 s). That ratio has nothing to do with the declared duration.
+   - Only when the header carries no duration, fall back to summing the per-shot second marks inside the script.
+   - If the material cannot fill the duration, expand action / reactions / environment instead of shortening the episode; `save_storyboards` reports the remaining seconds on every save — keep saving until it reaches the target.
 4. **Split sub-shots within each segment**: cut sub-shots at action-change points, viewpoint-change points, and subject-change points; after filling in all fields for each segment, call `save_storyboards` to save them in one go
 
 ## Pacing-Tier Durations

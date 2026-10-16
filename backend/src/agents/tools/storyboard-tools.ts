@@ -8,6 +8,8 @@ import { z } from 'zod'
 import { db, getInsertId, schema } from '../../db/index.js'
 import { eq } from 'drizzle-orm'
 import { now } from '../../utils/response.js'
+import { addSaved } from '../../services/agent-runs.js'
+import { parseScriptDurationSeconds, expectedStoryboardCount, SEGMENT_SECONDS } from '../../services/script-duration.js'
 import { logTaskError, logTaskProgress, logTaskSuccess } from '../../utils/task-logger.js'
 import { promptEnLimit, debugLog } from '../../services/video-prompts.js'
 import { getDramaStylePrompt } from '../../services/style-preset.js'
@@ -409,7 +411,31 @@ const saveStoryboards = createTool({
       count: storyboards.length,
       totalDuration,
     })
-    return { message: `Saved ${storyboards.length} storyboards`, count: storyboards.length, total_duration: totalDuration }
+    // 2026-10-16：给「拆分镜头」的进度显示累加条数（前端切页回来也能看到已经写了多少条）
+    addSaved(episodeId, storyboards.length)
+
+    // 2026-10-16（用户报「拆分没按原始时长」）：剧本片头写着目标时长，分镜合计必须对得上。
+    //   实测第 1~12 集每集都短 40~96 秒（拆完只有 48~113 秒，声明 130~160 秒）——
+    //   原因是拆分只数了剧本里的镜头块，从没读片头那个时长。这里把「还差多少」直接回给 Agent，
+    //   没写到目标之前它自己会继续补（工具反馈比提示词长文有效）。
+    const [epRow] = await db.select().from(schema.episodes).where(eq(schema.episodes.id, episodeId))
+    const declared = parseScriptDurationSeconds(epRow?.content || '')
+    const target = expectedStoryboardCount(declared)
+    const savedRows = await db.select({ id: schema.storyboards.id, duration: schema.storyboards.duration })
+      .from(schema.storyboards).where(eq(schema.storyboards.episodeId, episodeId))
+    const savedTotal = savedRows.length
+    const savedSeconds = savedRows.reduce((sum, r: any) => sum + Number(r.duration || 0), 0)
+    let durationNote = ''
+    if (declared) {
+      const gap = declared - savedSeconds
+      durationNote = gap > 0
+        ? `\n⚠️ **时长还没写够**：剧本片头声明 ${declared} 秒（${Math.floor(declared / 60)} 分 ${declared % 60} 秒），`
+          + `目前 ${savedTotal} 条 / 合计 ${savedSeconds} 秒 ⇒ **还差 ${gap} 秒**（约 ${Math.ceil(gap / SEGMENT_SECONDS)} 条 ${SEGMENT_SECONDS} 秒的分镜）。`
+          + `\n**必须继续调用本工具把剩余内容补完再结束**（每条 ${SEGMENT_SECONDS} 秒、最后一条可不足 ${SEGMENT_SECONDS} 秒；`
+          + `目标 ${target} 条、合计正好 ${declared} 秒）。剧情没那么多内容时，就把动作/反应/环境铺开写足时长，不要压缩总长。`
+        : `\n时长核对：剧本声明 ${declared} 秒，目前 ${savedTotal} 条 / 合计 ${savedSeconds} 秒 ✓（已达标）。`
+    }
+    return { message: `Saved ${storyboards.length} storyboards（本集累计 ${savedTotal} 条 / ${savedSeconds} 秒）${durationNote}`, count: storyboards.length, total_duration: totalDuration, episode_total_count: savedTotal, episode_total_seconds: savedSeconds, script_declared_seconds: declared }
   },
 })
 

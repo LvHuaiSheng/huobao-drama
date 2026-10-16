@@ -528,10 +528,13 @@
               </span>
               </div>
               <div class="ml-auto flex gap-1 prod-bar-actions">
+                <span v-if="rt === 'storyboard_breaker' && breakProgress" class="pb-inline pb-break" :title="breakLabel">
+                  <span class="pb-bar"><span class="pb-bar-ok" :style="{ width: breakPct + '%' }"></span></span>
+                </span>
                 <button class="btn btn-sm" :disabled="rn" @click="sbs.length ? (breakdownConfirm = true) : doBreakdown()">
                   <Loader2 v-if="rt === 'storyboard_breaker'" :size="11" class="animate-spin" />
                   <svg v-else width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-                  {{ sbs.length ? t('episode.sb.rebreak') : t('episode.sb.startBreak') }}
+                  {{ rt === 'storyboard_breaker' && breakProgress ? breakLabel : (sbs.length ? t('episode.sb.rebreak') : t('episode.sb.startBreak')) }}
                 </button>
                 <button class="btn btn-sm" :disabled="videoPromptBatch.running || batchCheck.fixing || promptCheck.repairing || !sbs.length" @click="batchPromptsConfirm = true">
                   <Loader2 v-if="videoPromptBatch.running" :size="11" class="animate-spin" />
@@ -1720,7 +1723,20 @@ const storedPanel = (() => {
 // 首个 refresh 时若已恢复面板位置，跳过按内容自动重置 scriptStep
 let panelRestored = !!storedPanel
 const panel = ref(['production', 'export'].includes(storedPanel?.panel) ? storedPanel.panel : 'script')
-const { running: rn, runningType: rt, run: runAgent } = useAgent()
+const { running: rn, runningType: rt, run: runAgent, progress: breakProgress, resume: resumeAgent } = useAgent()
+// 2026-10-16：拆分镜头的进度（后端给真数据：已用时 + 已写入条数 / 目标条数）
+const breakPct = computed(() => {
+  const p = breakProgress.value
+  if (!p || !p.expected) return 0
+  return Math.min(100, Math.round((p.saved / p.expected) * 100))
+})
+const breakLabel = computed(() => {
+  const p = breakProgress.value
+  if (!p) return ''
+  const m = Math.floor(p.elapsedSeconds / 60)
+  const s = String(p.elapsedSeconds % 60).padStart(2, '0')
+  return t('episode.sb.breaking', { time: `${m}:${s}`, done: p.saved, total: p.expected ?? '?' })
+})
 
 const localRaw = ref(''), localScript = ref('')
 const rawContent = computed(() => episode.value?.content || '')
@@ -3182,6 +3198,9 @@ function pollExtractStatus(target, attempts = 150) {
 /** 页面加载后恢复仍在运行的提取任务状态（刷新页面不丢进度展示） */
 async function syncExtractStatus() {
   if (!epId.value) return
+  // 2026-10-16（用户报「点了拆分、切画面回来又能点，而且没有进度条」）：拆分镜头也在后端跑，
+  //   状态从后端问 ⇒ 切页/刷新/多窗口回来都能复原按钮状态与进度条（后端同时会挡掉重复提交）。
+  try { await resumeAgent('storyboard_breaker', epId.value, onBreakdownDone) } catch (e) { /* 后端没在跑就什么都不做 */ }
   try {
     const st = await episodeAPI.extractStatus(epId.value)
     for (const x of EXTRACT_TARGETS.value) {
@@ -6042,6 +6061,9 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); }
 .pb-inline .pb-steps { display: inline-flex; gap: 3px; flex: none; }
 .pb-inline .pb-dot { width: 6px; height: 6px; border-radius: 50%; }
 .pb-inline .pb-bar { flex: 1 1 140px; min-width: 60px; height: 5px; }
+/* 2026-10-16 拆分镜头进度（复用 pb-bar 样式，宽度限一下别挤按钮） */
+.pb-break { flex: none; max-width: 160px; }
+.pb-break .pb-bar { flex: none; width: 120px; }
 .pb-line { display: flex; align-items: center; gap: 8px; font-size: 11px; min-width: 0; }
 .pb-line-wrap { flex-wrap: wrap; row-gap: 3px; }
 .pb-kicker { color: var(--text-3); flex: none; }

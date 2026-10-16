@@ -7,6 +7,10 @@ import { buildAgentRequestContext } from '../agents/context.js'
 import { mastra } from '../mastra/index.js'
 import { success, badRequest } from '../utils/response.js'
 import { logTaskError, logTaskPayload, logTaskProgress, logTaskStart, logTaskSuccess } from '../utils/task-logger.js'
+import { beginRun, endRun, getRun, listRuns } from '../services/agent-runs.js'
+import { db, schema } from '../db/index.js'
+import { eq } from 'drizzle-orm'
+import { parseScriptDurationSeconds, expectedStoryboardCount } from '../services/script-duration.js'
 
 const app = new Hono()
 
@@ -78,6 +82,16 @@ app.post('/:type/chat', async (c) => {
   }
   const maxSteps = AGENT_MAX_STEPS[agentType] ?? 20
 
+  // 2026-10-16：同一 Agent + 同一集**只许跑一个**。前端原来是组件局部状态，切页回来就能再点，
+  //   重复提交会让两条流水线同时写同一集的分镜（后一条 replace_existing 清空前一条的成果）。
+  //   门放在后端 ⇒ 多窗口、手快点、刷新页面都挡得住。
+  const run = beginRun(agentType, Number(episode_id))
+  if (!run) {
+    const cur = getRun(agentType, Number(episode_id))
+    logTaskError('Agent', agentType, { reason: 'already-running', episodeId: episode_id, elapsedSeconds: cur?.elapsedSeconds })
+    return badRequest(c, `${agentType} 正在跑这一集（已 ${cur?.elapsedSeconds ?? 0} 秒），等它结束再试`)
+  }
+
   try {
     const result = await agent.generate(
       [{ role: 'user', content: message }],
@@ -86,6 +100,22 @@ app.post('/:type/chat', async (c) => {
 
     const elapsed = ((performance.now() - startTime) / 1000).toFixed(1)
     logTaskSuccess('Agent', agentType, { elapsedSeconds: elapsed })
+
+    // 2026-10-16：拆分/改写跑完核对一次总时长（实测每集普遍短 40~96 秒 ⇒ 记下来便于事后核对）
+    if (agentType === 'storyboard_breaker') {
+      try {
+        const [ep] = await db.select({ content: schema.episodes.content }).from(schema.episodes)
+          .where(eq(schema.episodes.id, Number(episode_id)))
+        const declared = parseScriptDurationSeconds(ep?.content || '')
+        const rows = await db.select({ duration: schema.storyboards.duration }).from(schema.storyboards)
+          .where(eq(schema.storyboards.episodeId, Number(episode_id)))
+        const total = rows.reduce((s, r: any) => s + Number(r.duration || 0), 0)
+        logTaskProgress('Agent', 'duration-check', {
+          episodeId: episode_id, declaredSeconds: declared, storyboardCount: rows.length,
+          totalSeconds: total, gapSeconds: declared == null ? null : declared - total,
+        })
+      } catch { /* 核对失败不影响结果 */ }
+    }
 
     // 收集所有 tool calls 和 results
     const toolCalls = result.toolCalls || []
@@ -117,7 +147,43 @@ app.post('/:type/chat', async (c) => {
     logTaskError('Agent', agentType, { elapsedSeconds: elapsed, error: err.message })
     console.error(err.stack || err)
     return badRequest(c, err.message || 'Agent 执行失败')
+  } finally {
+    // 成功与失败都要放行，否则这个 Agent 会被自己的登记永久挡住
+    endRun(agentType, Number(episode_id))
   }
+})
+
+/**
+ * GET /agent/:type/status?episode_id= — 当前运行态（前端切页回来靠它复原按钮状态 + 显示进度）
+ * 不传 episode_id 时返回该 Agent 在跑的所有集。
+ */
+app.get('/:type/status', async (c) => {
+  const agentType = c.req.param('type')
+  if (!validAgentTypes.includes(agentType)) return badRequest(c, `无效的 Agent 类型：${agentType}`)
+  const raw = c.req.query('episode_id')
+  if (raw) {
+    const episodeId = Number(raw)
+    const run = getRun(agentType, episodeId)
+    // 拆分镜头：把「目标条数 / 已写入秒数」一起给前端 ⇒ 进度条是**确定的**（用户要的进度条）
+    let extra: Record<string, unknown> = {}
+    if (agentType === 'storyboard_breaker' && Number.isFinite(episodeId)) {
+      try {
+        const [ep] = await db.select({ content: schema.episodes.content }).from(schema.episodes)
+          .where(eq(schema.episodes.id, episodeId))
+        const declared = parseScriptDurationSeconds(ep?.content || '')
+        const rows = await db.select({ duration: schema.storyboards.duration }).from(schema.storyboards)
+          .where(eq(schema.storyboards.episodeId, episodeId))
+        extra = {
+          expected_storyboards: expectedStoryboardCount(declared),
+          declared_seconds: declared,
+          saved_seconds: rows.reduce((s, r: any) => s + Number(r.duration || 0), 0),
+        }
+      } catch { /* 取不到就不给目标，前端退回不确定进度条 */ }
+    }
+    return success(c, run ? { running: true, ...run, ...extra } : { running: false, ...extra })
+  }
+  const runs = listRuns(agentType)
+  return success(c, { running: runs.length > 0, runs })
 })
 
 // GET /agent/:type/debug

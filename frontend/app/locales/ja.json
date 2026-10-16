@@ -842,7 +842,7 @@
       "aiGenerate": "AI で生成",
       "videoPromptCopy": "この分镜の画面説明（セリフ/ナレーションを含む）と雰囲気から生成",
       "videoPromptPlaceholder": "{'@'}キャラクター名 / {'@'}シーン名 で参照素材を指定し、3 秒ごとに改行して画面の動きとカメラを記述。AI で生成してプロンプト Agent に任せることもできます…",
-      "breaking": "分镜を分解中...",
+      "breaking": "分割中 {time} · {done}/{total} 件書き込み済み",
       "emptyTitle": "分镜分解を開始",
       "emptyDesc": "脚本、キャラクター、シーンをもとにショットへ分解し、分镜説明と紐付け情報を生成します。",
       "hasVideo": "動画生成済み",
