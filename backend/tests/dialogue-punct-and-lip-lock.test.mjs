@@ -18,7 +18,7 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-const { OFFICIAL_LIP_LOCK } = await import('../src/services/voiceover-onscreen-gate.ts')
+const { OFFICIAL_LIP_LOCK, findVoiceoverOnscreenLock } = await import('../src/services/voiceover-onscreen-gate.ts')
 
 const EN = [
   'subject_definitions:',
@@ -82,6 +82,20 @@ test('锁嘴句判据同时认「代词版」与「点名版」', () => {
 
 test('接线断言：一致性闸用的是共用判据，不许再各写一份', () => {
   const src = readFileSync(new URL('../src/services/video-prompts.ts', import.meta.url), 'utf-8')
-  assert.match(src, /OFFICIAL_LIP_LOCK\.test\(after\)/, '一致性闸必须用共用判据')
+  // 2026-10-16（4.0.62）起：一致性闸只认**点名版**锁嘴句 —— 代词写法已作废（实测 sb509）
+  assert.match(src, /<Subject \\d\+>'s lips\? remain completely closed/, '一致性闸必须要求点名版锁嘴句')
+  assert.match(src, /代词写法 .*已作废|已作废/, '文案里要说明代词写法为什么被弃用')
   assert.doesNotMatch(src, /\(\?:her\|his\|its\)\\s\+lips\\s\+remain/, '旧的「只认代词版」正则必须删掉')
 })
+
+test('画外音锁嘴必须点名，代词写法不算（2026-10-16 实测 sb509：同一分镜点名那条嘴是闭的、代词那条旁白被念出来）', () => {
+  const named = "[Shot 2] At 00:05.000, the camera cuts to a medium shot, completely still, holding <Subject 2>, the woman alone in frame. <Subject 2> (S1) says in an off-screen voiceover: <d>[Chinese] 你的仇恨，并未结束。</d> while <Subject 2>'s lips remain completely closed. The camera holds without shift."
+  const pron = named.replace("while <Subject 2>'s lips remain completely closed.", 'while her lips remain completely closed.')
+  assert.deepEqual(findVoiceoverOnscreenLock(named, [1, 2]), [], '点名版必须通过')
+  const hit = findVoiceoverOnscreenLock(pron, [1, 2])
+  assert.equal(hit.length, 1, '代词版必须命中 —— 画面里那个人没被点名锁嘴')
+  assert.deepEqual(hit[0].onscreen, [2], '画面里的角色（含旁白者本人）都要出现在 onscreen 里')
+  // 画面里没有任何角色（subject 号不在本分镜的角色清单里）→ 无需锁嘴
+  assert.deepEqual(findVoiceoverOnscreenLock('[Shot 1] An empty corridor. <Subject 3> (S1) says in an off-screen voiceover: <d>x</d> while her lips remain completely closed.', [1, 2]), [])
+})
+

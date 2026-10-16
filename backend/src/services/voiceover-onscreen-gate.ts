@@ -13,10 +13,17 @@
  * 稿子却写成 `while her lips remain completely closed` —— "her" 指向画外的旁白者，
  * 画面里的顾明轩**没有被锁嘴**，于是 H3 让他张嘴把苏清禾的旁白念了出来（用户报的正是这个）。
  *
- * 判据：逐 `[Shot N]` 扫描；该拍有画外音 `<d>` 时，若拍内出现了**除旁白者以外的角色主体**
- * （charSubjects 由调用方按参考图顺序给出），则该拍必须有一句
- * `<Subject K>'s lips remain completely closed`（K = 画面里的那个角色）。缺 → 命中。
- * 拍内只有旁白者自己、或拍内没有角色 → 不判（官方原句的代词写法即可）。
+ * 判据（2026-10-16 收紧）：逐 `[Shot N]` 扫描；该拍有画外音 `<d>`、且画面前文提到了角色主体
+ * （charSubjects 由调用方按参考图顺序给出）时，该拍必须有一句
+ * **点名版** `<Subject K>'s lips remain completely closed`（K = 画面里那个角色，**包括旁白者本人**）。
+ * 缺 → 命中。
+ *
+ * 🔴 **为什么连「画面里只有旁白者自己」也要点名**（实测 sb509，2026-10-16）：
+ *   同一分镜三条成片 —— 11:29 那条写 `<Subject 2>'s lips remain completely closed` 嘴是闭的 ✓；
+ *   12:11 / 12:28 两条写成 `while her lips remain completely closed`（原规则允许），
+ *   用户报「旁白没有锁住嘴」，画面里的人把旁白念了出来。死因与 sb437 相同：
+ *   **代词不绑定画面人物，H3 只对"被点到的那个 subject"执行闭嘴**。
+ *   画面里没有角色主体时本来就无需锁嘴 ⇒ 代词写法不再有存在的理由，一律作废。
  *
  * 纯函数，单独成文件以便脱离 DB/Agent 模块图单测。
  */
@@ -47,6 +54,7 @@ export const OFFICIAL_LIP_LOCK = /(?:<Subject \d+>|her|his|its)(?:'s)?\s+lips?\s
 const locksSubject = (shot: string, k: number): boolean =>
   new RegExp(`<Subject ${k}>'s lips? remain completely closed`, 'i').test(shot)
 
+
 /**
  * @param en 英文版提示词全文
  * @param charSubjects 本分镜里「角色」主体的编号（按参考图顺序，由调用方给出）
@@ -63,9 +71,10 @@ export function findVoiceoverOnscreenLock(en: string, charSubjects: number[]): V
     const head = block.slice(0, block.search(VOICEOVER))
     const mentioned = subjectsOf(head)          // 旁白句之前提到的 = 这一拍画面里的
     const narrator = mentioned.length ? mentioned[mentioned.length - 1] : 0
-    const onscreen = mentioned.filter(n => n !== narrator && chars.has(n))
-    if (!onscreen.length) continue              // 画面里没有别的角色 → 不判
-    if (onscreen.some(k => locksSubject(block, k))) continue
+    const onscreen = mentioned.filter(n => chars.has(n))   // 含旁白者本人（见文件头 sb509）
+    if (!onscreen.length) continue              // 画面里没有角色 → 无需锁嘴
+    // 点到名的那个角色的嘴已锁 → 通过；只写代词（her/his/its）不算
+    if (onscreen.some(k => locksSubject(block, k))) continue   // locksSubject 已经是点名版，代词写法匹配不上
     hits.push({ shot: block.slice(0, block.indexOf(']') + 1), narrator, onscreen })
   }
   return hits

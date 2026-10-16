@@ -406,8 +406,10 @@ function zhEnConsistency(enText: string, zhPrompt?: string): string | null {
     const after = enText.slice(at, at + 400)
     // 2026-10-16：只认代词版会把**规则要求的点名版**判成「没有锁嘴句」（sb486 实测：稿子写
     //   `<Subject 2>'s lips remain completely closed`、自动修复两轮都动不了）⇒ 改用共用判据。
-    if (!OFFICIAL_LIP_LOCK.test(after)) {
-      return '画外音/旁白句后面 400 字符内没有官方锁嘴句：必须紧跟 <d> 块写「while her/his/its lips remain completely closed.」'
+    // 2026-10-16（4.0.62）：**只认点名版** —— 代词写法（`while her lips…`）不再合格，实测 sb509：
+    //   点名版嘴是闭的、代词版画面人物把旁白念了出来（与 sb437 同因，代词不绑定画面人物）。
+    if (!/<Subject \d+>'s lips? remain completely closed/i.test(after)) {
+      return '画外音/旁白句后面必须紧跟**点名**锁嘴句「while <Subject K>\'s lips remain completely closed.」（K = 画面里那个角色，旁白者本人也要点名）—— 代词写法 while her/his/its lips… 已作废（H3 只对点到的 subject 执行闭嘴，实测 sb509）'
     }
     const before = enText.slice(Math.max(0, at - 100), at)
     if (!/\(S\d+\)/.test(before)) {
@@ -1430,7 +1432,7 @@ function buildVoiceoverOnscreenFixPrompt(
   gaps: VoiceoverLockGap[],
 ): string {
   const detail = gaps.map(g =>
-    `- ${g.shot}：旁白者是画外的 <Subject ${g.narrator}>，这一拍画面里在的角色是 <Subject ${g.onscreen.join('> / <Subject ')}>`).join('\n')
+    `- ${g.shot}：这一拍画面里在的角色是 <Subject ${g.onscreen.join('> / <Subject ')}>（旁白者是 <Subject ${g.narrator}>，可能画外、也可能就是画面里这个人；不管哪种，画面里在的人都要点名锁嘴）`).join('\n')
   return `分镜 #${sb.storyboardNumber}(ID:${sb.id}) 的 video_prompt_en 里，**画外音那一拍的锁嘴句锁错了人**：
 
 ${detail}
@@ -1439,7 +1441,7 @@ ${detail}
 > For voiceover, use the exact phrase \`says in an off-screen voiceover\`. Immediately after every voiceover \`<d>\` block, state that the corresponding **on-screen character's** lips remain closed.
 > 例：\`The man (S1) says in an off-screen voiceover: <d>[English] I still remember that road.</d> while his lips remain completely closed.\`
 
-**问题**：稿子写成 \`while her lips remain completely closed\` —— 那个 "her" 指的是**画外的旁白者**，画面里在的那个角色**没有被锁嘴** → H3 会让他张嘴，把旁白台词念出来（实测事故：本该是画外音，画面里的顾明轩张嘴念了苏清禾的旁白）。
+**问题**：锁嘴句写成了代词（\`while her/his/its lips remain completely closed\`）—— 代词**不绑定画面里的具体人物**，H3 只对「点到的 subject」执行闭嘴 ⇒ 画面里的人张嘴把旁白念了出来。两个实测：① sb437 画面里是顾明轩、旁白是画外的苏清禾，写 \`her\` 锁在了画外那个人身上；② sb509 画面里就是旁白者本人，写 \`her\` 同样没锁住（写点名版的那一次成片嘴是闭的）。
 
 **怎么改（只改这些句子，其余一字不动）**：
 - 把上述每一拍的锁嘴句改成**画面里那个角色**的：\`while <Subject K>'s lips remain completely closed.\`（K 换成上面列出的画面角色编号），位置仍然**紧跟在 \`<d>\` 块之后**。
