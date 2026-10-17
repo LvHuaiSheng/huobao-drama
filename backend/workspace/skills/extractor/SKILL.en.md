@@ -22,6 +22,7 @@ Extracted scene fields (corresponding one-to-one with the `save_dedup_scenes` to
 - **location** (required): the specific place name
 - **time**: time period (e.g. daytime / dusk / late night); the same location at a different time period counts as a new scene
 - **prompt**: scene description — space, set dressing, period texture, key visual elements (pure background, no people)
+- **🔴 Never name the episode's props/products/devices in a scene description** (added 2026-10-17, measured incident): a scene description carries space, set dressing and fixed installations only; tabletops / desktops / display tables / shelves are written as **empty**. Key props (samples, products, specimens, documents…) have their own asset and reference image — naming one in the scene description makes the scene image **paint a second, generic copy of it**, and the finished shot is drawn from that copy while the prop's own reference image and identity card get overridden (measured: a Festo industrial livestream scene described "a display table holding an industrial sample — a narrow silver-grey servo drive…", the scene image came back with 1 drive on the table + 4 on the shelf, all generic ⇒ in that storyboard the prop was "not locked at all" in the wide shot and looked fine in the medium shot)
 - **lighting**: scene lighting — light sources, color tone, brightness contrast, mood
 
 ## Prop Extraction Rules

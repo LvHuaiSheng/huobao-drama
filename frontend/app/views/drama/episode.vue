@@ -1260,6 +1260,17 @@
                   <span class="dim">{{ assetDetail.type === 'character' ? t('episode.asset.editHintChar') : assetDetail.type === 'prop' ? t('episode.asset.editHintProp') : t('episode.asset.editHintScene') }}</span>
                 </div>
 
+                <div class="asset-detail-describe-row">
+                  <button
+                    class="btn btn-sm"
+                    :disabled="assetDescribeBusyFor(assetDetail) || !assetDetailImagePath"
+                    @click="describeAssetDetailFromImage"
+                  >
+                    {{ assetDescribeLabel(assetDetail) }}
+                  </button>
+                  <span v-if="assetDetailImageIsUpload" class="dim">{{ t('episode.asset.uploadImageHint') }}</span>
+                </div>
+
                 <div v-if="assetDetail.type === 'prop'" class="asset-detail-edit-grid asset-detail-edit-grid--prop">
                   <label class="asset-detail-edit-field">
                     <span>{{ t('episode.asset.appearanceOfObject') }}</span>
@@ -1950,6 +1961,9 @@ function openAssetDetail(type, item) {
   }
   assetPromptDraft.value = item.final_prompt || item.finalPrompt || ''
   assetPromptDirty.value = false
+  // 该资产已经点过「按图写描述」→ 把已拿到的建议直接填进来（仍未落库，保存才生效）
+  const cachedKey = assetDescribeKey(assetDetail.value)
+  if (cachedKey && assetDescribeFields[cachedKey]) applyDescribeFields(assetDetail.value, assetDescribeFields[cachedKey])
 }
 
 function closeAssetDetail() {
@@ -4171,6 +4185,68 @@ const assetUploadLabelMap = computed(() => ({
   scene: t('episode.asset.sceneImage'),
   prop: t('episode.asset.propImage'),
 }))
+/** 「按图写描述」：把当前资产的图片发给文本模型（它能读图），拿回样貌/妆造/物品外貌/场景描述建议，
+ *  只填进编辑框、不落库 —— 用户过目后点保存。上传图尤其需要：文字还是提取时凭剧本编的，与图不符会让成片锁不住。 */
+// 2026-10-17 改：状态**按资产**记（原来一个全局 busy，点了一个别的资产按钮就点不动了）。
+// 点下去立刻返回、请求在后台排队（服务端另有 FIFO 串行队列），结果按资产缓存；
+// 打开该资产时自动把缓存填进编辑框，用户点保存才落库。
+const assetDescribeState = reactive({})          // key -> 'running' | 'queued' | 'done'
+const assetDescribeFields = {}                   // key -> 模型回的建议字段（无需响应式）
+let assetDescribeInFlight = 0
+const assetDetailImagePath = computed(() => String(assetDetail.value?.item?.image_url || assetDetail.value?.item?.imageUrl || ''))
+const assetDetailImageIsUpload = computed(() => assetDetailImagePath.value.includes('static/uploads/'))
+const assetDescribeKey = (detail) => (detail?.item?.id ? `${detail.type}:${detail.item.id}` : '')
+const assetDescribeBusyFor = (detail) => ['running', 'queued'].includes(assetDescribeState[assetDescribeKey(detail)] || '')
+function assetDescribeLabel(detail) {
+  const s = assetDescribeState[assetDescribeKey(detail)] || ''
+  if (s === 'queued') return t('episode.asset.describeQueued')
+  if (s === 'running') return t('episode.asset.describing')
+  return t('episode.asset.describeFromImage')
+}
+/** 把建议字段填进当前编辑框（不落库） */
+function applyDescribeFields(detail, fields) {
+  if (!fields || !Object.keys(fields).length) return
+  const draft = assetDetailDraft.value
+  if (detail.type === 'character') {
+    if (fields.appearance) draft.appearance = fields.appearance
+    if (fields.styling) draft.styling = fields.styling
+  } else if (detail.type === 'scene') {
+    if (fields.prompt) draft.prompt = fields.prompt
+    if (fields.lighting) draft.lighting = fields.lighting
+  } else if (fields.description) {
+    draft.description = fields.description
+  }
+}
+function describeAssetDetailFromImage() {
+  const detail = assetDetail.value
+  const key = assetDescribeKey(detail)
+  if (!key) return
+  const s = assetDescribeState[key] || ''
+  if (s === 'running' || s === 'queued') return
+  // 再点一次 = 按图重写一遍（缓存只用于「打开资产时自动回填」，不作为阻止重跑的开关）
+  if (s === 'done') { delete assetDescribeFields[key]; assetDescribeState[key] = '' }
+  assetDescribeState[key] = assetDescribeInFlight > 0 ? 'queued' : 'running'
+  assetDescribeInFlight++
+  api.post('/upload/describe', { kind: detail.type, id: detail.item.id })
+    .then((res) => {
+      assetDescribeFields[key] = res?.fields || {}
+      assetDescribeState[key] = 'done'
+      const cur = assetDetail.value
+      if (cur?.open && assetDescribeKey(cur) === key) applyDescribeFields(cur, assetDescribeFields[key])
+      toast.success(t('episode.asset.describeFromImageDone'))
+    })
+    .catch((e) => {
+      assetDescribeState[key] = ''
+      toastError(e)
+    })
+    .finally(() => {
+      assetDescribeInFlight--
+      // 只影响文案：把最早排队的那个从「排队中」推进到「读图…」（真正的顺序由服务端队列决定）
+      const next = Object.keys(assetDescribeState).find((k) => assetDescribeState[k] === 'queued')
+      if (next) assetDescribeState[next] = 'running'
+    })
+}
+
 const uploadingAssetKeys = ref([])
 function isUploadingAsset(kind, id) { return uploadingAssetKeys.value.includes(`${kind}:${id}`) }
 function uploadAssetImage(kind, id) {
@@ -6402,6 +6478,14 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); }
   font-weight: 820;
   letter-spacing: 0.02em;
 }
+.asset-detail-describe-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 6px 0 10px;
+}
+
 .asset-detail-section-title .dim {
   font-size: 11px;
   font-weight: 560;

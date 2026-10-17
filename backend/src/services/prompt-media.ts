@@ -30,6 +30,8 @@ export async function buildMediaRefs(storyboardId: number, slotLimit = 9): Promi
   if (scene) {
     refs.push({
       picture: picNo++, kind: 'scene', id: scene.id, name: scene.location || '',
+      // 2026-10-17：「场景抢戏」判据要用场景自己的文字 —— 场景图就是照这段生成的
+      assetText: [scene.prompt, scene.lighting].filter(Boolean).join(' ｜ '),
       hasImage: !!(scene.imageUrl || '').trim(),
       hasCard: fs.existsSync(refmodCardPath(refmodCardName('scene', scene.id))),
     })

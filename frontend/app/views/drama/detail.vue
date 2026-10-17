@@ -454,6 +454,18 @@
                   <span class="dim">{{ editTarget.kindKey === 'character' ? t('episode.asset.editHintChar') : editTarget.kindKey === 'prop' ? t('episode.asset.editHintProp') : t('episode.asset.editHintScene') }}</span>
                 </div>
 
+                <!-- 按图写描述（2026-10-17：素材库页也放一个 —— 用户报「素材库里没有按图写描述」） -->
+                <div class="asset-detail-describe-row">
+                  <button
+                    class="btn btn-sm"
+                    :disabled="describeBusy || !matHasImage(editTarget)"
+                    @click="describeEditTargetFromImage"
+                  >
+                    {{ describeBusy ? t('episode.asset.describing') : t('episode.asset.describeFromImage') }}
+                  </button>
+                  <span v-if="describeDone" class="dim">{{ t('episode.asset.describeFromImageDone') }}</span>
+                </div>
+
                 <!-- 道具：单列物品外貌 -->
                 <div v-if="editTarget.kindKey === 'prop'" class="mat-detail-edit-grid mat-detail-edit-grid--prop">
                   <label class="mat-detail-edit-field">
@@ -780,7 +792,7 @@
 import { toast } from 'vue-sonner'
 import { toastError } from '~/composables/useToast'
 import { useI18n } from 'vue-i18n'
-import { dramaAPI, episodeAPI, characterAPI, sceneAPI, propAPI, uploadAPI, refmodAPI, voiceAPI } from '~/composables/useApi'
+import { api, dramaAPI, episodeAPI, characterAPI, sceneAPI, propAPI, uploadAPI, refmodAPI, voiceAPI } from '~/composables/useApi'
 import BaseSelect from '~/components/BaseSelect.vue'
 import ProjectEditDialog from '~/components/ProjectEditDialog.vue'
 
@@ -1358,8 +1370,35 @@ const editSaving = ref(false)
 const editTarget = ref(null)
 const editDraft = reactive({})
 
+// 按图写描述（2026-10-17）：素材库页的资产弹窗也放一个 —— 只填进编辑草稿，仍要点保存才落库
+const describeBusy = ref(false)
+const describeDone = ref(false)
+async function describeEditTargetFromImage() {
+  const target = editTarget.value
+  if (!target?.id || describeBusy.value) return
+  describeBusy.value = true
+  describeDone.value = false
+  try {
+    const res = await api.post('/upload/describe', { kind: target.kindKey, id: target.id })
+    const f = res?.fields || {}
+    if (f.description) editDraft.description = f.description
+    if (f.appearance) editDraft.appearance = f.appearance
+    if (f.styling) editDraft.styling = f.styling
+    if (f.prompt) editDraft.prompt = f.prompt
+    if (f.lighting) editDraft.lighting = f.lighting
+    describeDone.value = true
+    toast.success(t('episode.asset.describeFromImageDone'))
+  } catch (e) {
+    toastError(e)
+  } finally {
+    describeBusy.value = false
+  }
+}
+
 function openEdit(m) {
   editTarget.value = m
+  describeDone.value = false
+  describeBusy.value = false
   // 按类型初始化 draft
   Object.keys(editDraft).forEach(k => delete editDraft[k])
   if (m.kindKey === 'character') {

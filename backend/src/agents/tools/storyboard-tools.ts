@@ -14,7 +14,7 @@ import { parseScriptDurationSeconds, expectedStoryboardCount, SEGMENT_SECONDS } 
 import { logTaskError, logTaskProgress, logTaskSuccess } from '../../utils/task-logger.js'
 import { promptEnLimit, debugLog } from '../../services/video-prompts.js'
 import { getDramaStylePrompt } from '../../services/style-preset.js'
-import { getDramaId, getEpisodeId } from '../context.js'
+import { getDramaId, getEpisodeId, getPromptStage } from '../context.js'
 import fs from 'node:fs'
 import { voiceCardName, voiceMetaPath } from '../../services/voice.js'
 import { refmodCardPath } from '../../services/refmod.js'
@@ -150,7 +150,7 @@ function requireIds(context: ToolContext): { episodeId: number; dramaId: number 
 
 const readStoryboardContext = createTool({
   id: 'read_storyboard_context',
-  description: 'Read the screenplay, characters, scenes, and props for storyboard breakdown.',
+  description: 'Read this episode\'s context for storyboard work: characters, scenes, props and existing storyboards (the screenplay is included only when called by the breakdown step; when writing prompts, take dialogue from the storyboard description, not from the screenplay).',
   inputSchema: z.object({}),
   execute: async (_input, context) => {
     const ids = requireIds(context)
@@ -279,6 +279,12 @@ const readStoryboardContext = createTool({
         }
       }))
 
+    // 2026-10-17：**写提示词时不给剧本**。这个工具是拆解 Agent 与提示词 Agent 共用的，
+    // 拆解必须看剧本（从剧本拆出分镜）；但提示词 Agent 拿到剧本后会「对齐」台词 ——
+    // 实测（ep32 分镜5）描述写「自动优化」、剧本写「自动调谐」⇒ 重出两轮都被改回剧本的说法，
+    // 而流程单明写「台词只能来自 description」。判据用现成的 promptStage：
+    // video-prompts.ts 在中文工作版前设 'zh'、英文发送版前设 'en'（拆解链路不设）⇒ 有值就是写提示词。
+    const promptStage = getPromptStage(context?.requestContext)
     const payload = {
       episode: {
         id: ep.id,
@@ -286,7 +292,7 @@ const readStoryboardContext = createTool({
         episode_number: ep.episodeNumber,
         description: ep.description || '',
       },
-      script,
+      ...(promptStage ? {} : { script }),
       characters,
       scenes,
       props,
@@ -299,7 +305,9 @@ const readStoryboardContext = createTool({
       scenes: scenes.length,
       props: props.length,
       existingStoryboards: payload.existing_storyboards.length,
-      scriptLength: script.length,
+      scriptLength: promptStage ? 0 : script.length,
+      script_included: !promptStage,
+      promptStage: promptStage || 'none',
     })
     return payload
   },

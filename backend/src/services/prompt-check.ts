@@ -14,6 +14,7 @@ import { zhDialogueLines } from './zh-lang.js'
 import { findChineseOutsideDialogue } from './en-cn-gate.js'
 import { ambiguousStyling, assetColourGaps, findGarmentColourMismatch, WHAT_ZH } from './asset-colour-gate.js'
 import { findDeviceScreenBody, deviceScreenNote } from './device-screen-gate.js'
+import { findScenePropConflicts } from './scene-prop-conflict.js'
 
 export type CheckLevel = 'error' | 'warn'
 
@@ -488,6 +489,25 @@ export function checkStoryboardPrompt(sb: StoryboardCheckInput, opts: CheckOptio
           level: 'error', code: 'garment-colour-mismatch', location: `<Subject ${h.picture}> ${h.name}`,
           message: `${h.name} 的${h.what === 'hair' ? '发色' : '服装颜色'}与卡面不符：稿子写「${h.found}」，卡面文字是「${h.expected}」→ 成片会照稿子的颜色出（h3 只读提示词），颜色必然错；点重写会用卡面的颜色覆盖。原句：…${h.line}…`,
           autoFixable: true,
+        }))
+      }
+    }
+  }
+
+  // ㊵ 场景抢戏：场景资产的文字里出现了本分镜的道具（2026-10-17 加，Festo 产品片第1集分镜1 实测）
+  //     机制：场景图是整拍的视觉底 —— 它本来就画了同一件东西（还是通用款）时，广角那拍模型直接抄场景里那台，
+  //     道具参考图/道具卡被压过去（实测场景描述写着「台上陈列工控样机…」，场景图台面 1 台＋货架 4 台通用款驱动器）。
+  //     只报 warn、不自动修：修法在**场景资产侧**（场景只画空间与陈设），不是改这条提示词能解决的。
+  {
+    const refs = opts.media?.refs || []
+    const sceneText = refs.find(r => r.kind === 'scene')?.assetText || ''
+    const propNames = refs.filter(r => r.kind === 'prop' && r.name).map(r => r.name)
+    if (sceneText && propNames.length) {
+      for (const c of findScenePropConflicts(sceneText, propNames)) {
+        out.push(mk({
+          level: 'warn', code: 'scene-steals-prop', location: '参考图 1（场景）',
+          message: `场景资产里写着本分镜的道具「${c.propName}」（场景描述命中「${c.matched}」）→ 场景图会把同一件东西再画一遍，成片会照场景里那台画、道具参考图与道具卡被压过去（广角那拍最明显）。修法：场景资产只画空间与陈设，删掉道具描写 → 重出场景图 → 再出片。`,
+          autoFixable: false,
         }))
       }
     }

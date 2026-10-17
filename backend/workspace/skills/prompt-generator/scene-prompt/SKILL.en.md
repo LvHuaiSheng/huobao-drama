@@ -34,6 +34,14 @@ The space must be **readable, consistent, and reusable**:
 - **Floor and walls**: make material, color, and condition specific (e.g. "oil stains on the concrete floor", "mottled lime plaster on the walls")
 - **Key set dressing**: write 2-4 core pieces and their **fixed relative positions** (e.g. "the assembly line runs along the wall, ending at the bar counter"); the left-right/near-far relationships among pieces must be self-consistent — do not just list item names
 
+## Props never enter the scene image (Hard Rule, added 2026-10-17)
+
+A scene image **never contains the episode's props, products or movable samples** — those are owned by their own prop reference image:
+
+- Tabletops, desktops, display tables, shelves: write them **empty** (e.g. "the table is covered with a dark grey anti-static mat, nothing on it"); if the surface's purpose must be stated, name only the surface itself — **never the object, and never a model number**
+- Fixed set dressing is unaffected (production line, machine tools, stove, the shelving unit itself, lamps, tables, chairs, doors, windows, wall decor)
+- Measured incident: a scene description reading "the display table holds an industrial sample — a narrow silver-grey servo drive…" produced a scene image with 1 drive on the table + 4 on the shelf, all generic; in that storyboard the model simply copied the scene's drive in the **wide shot** (the prop was "not locked at all") while the **medium shot** looked correct ⇒ the fuller the reference set, the harder this is to notice
+
 ## In-frame Text (Hard Rule)
 
 **Any text that appears in the image must be written out verbatim in the prompt** — vague phrasings like "some characters on the signboard" always make the model invent garbage (garbled glyphs, fake characters, wrong characters). This is the single most common way scene images fail.
