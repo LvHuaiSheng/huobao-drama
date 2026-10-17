@@ -24,7 +24,10 @@ const COLOURS = [
   // 2026-10-16（4.0.60）：玫红系 —— 卡面写「玫红」，稿子写 `rose-pink` 是同一个颜色（rose = 玫）。
   //   不许被 pink 抢先匹配（实测 10集分镜7 张莉：卡面玫红被抽成「红」、稿子 rose-pink 抽成「粉」⇒ 误报）。
   'rose-pink', 'rose red', 'rose', 'magenta', 'fuchsia',
-  'dark blue', 'deep blue', 'midnight blue', 'navy blue', 'light blue', 'pale blue', 'dark green',
+  // 2026-10-17（4.0.72）：连字符写法要整词收进来 —— 词表原来只有空格版 `navy blue`，
+  //   稿子写 `navy-blue police uniform tunic`（=卡面「藏蓝色警服」，本来就对）会被 `\b` 拆成 `navy`+`blue`
+  //   ⇒ 多出一个「蓝」⇒ 误报「稿子写蓝、卡面藏蓝」（实测 15集分镜2、8集分镜3/4）。
+  'dark blue', 'deep blue', 'midnight blue', 'navy blue', 'navy-blue', 'light blue', 'pale blue', 'dark green',
   'dark red', 'wine-red', 'off-white', 'salt-and-pepper',
   // ② 单字英文
   'black', 'white', 'grey', 'gray', 'silver', 'golden', 'gold', 'brown', 'blond', 'blonde', 'straw',
@@ -43,6 +46,11 @@ const HAIRWORDS = ['hair', 'crew cut', 'cropped hair', 'buzz cut', 'bob', 'ponyt
 /** 服装判据 */
 const GARMENTS = ['jacket', 'coat', 'shirt', 'blouse', 'dress', 'uniform', 'apron', 'trousers', 'pants', 'skirt', 'suit',
   'robe', 'shoes', 'boots', 'cardigan', 'sweater', 'vest', 'scarf', 'tie', 'belt', 'hat', 'outfit', 'garment', 'top',
+  // 2026-10-17（4.0.72）**只收中文侧的内搭/配饰词**：卡面（中文）常把颜色写在这些句子里
+  //   ——「内衬**米白色**真丝吊带打底」（15集分镜7）、「佩戴 oversized 的**金色**饰品、多层手镯与夸张戒指」（8集分镜1/2/4 张莉）——
+  //   不收词 ⇒ 卡面自己的颜色进不了 want ⇒ 稿子写对（`off-white` / `gold necklace`）反被判「不符」。
+  //   ⚠️ 英文侧（necklace/camisole…）**故意不加**：那会让 got 侧也多算——稿子里提到金饰而卡面没写金饰的角色会凭空多出一堆告警（回归扫描实测 +30 条假警报）。
+  '吊带', '打底', '饰品', '首饰', '项链', '手镯', '戒指', '耳环', '腕表',
   // 2026-10-16（4.0.59）：配饰也要算 —— 卡面常把发圈颜色写在头发那句（「头发用黑色皮筋扎成低马尾」），
   //   漏掉它就会把提示词里正确的 `black elastic` 判成「服装颜色不符」（实测 10集分镜3 苏清禾误报）。
   'elastic', 'hair tie', 'hairband', 'hair band', 'ribbon', 'gloves', 'socks',
@@ -50,7 +58,8 @@ const GARMENTS = ['jacket', 'coat', 'shirt', 'blouse', 'dress', 'uniform', 'apro
   // 2026-10-16（4.0.61）：整身装束的说法漏了 —— 「深蓝色**工装**」「蓝色商务**休闲装**」「浅灰色宴会**便装**」「深灰色**中山装**」
   //   全都判不出服装色（实测工人乙/宾客甲/宾客乙），体检会喊「缺服装颜色」而卡里明明写着。
   '工装', '便装', '休闲装', '中山装', '礼服', '旗袍', '正装', '戏服',
-  '皮筋', '发圈', '发卡', '发带', '头绳', '手套', '袜'].join('|')
+  '皮筋', '发圈', '发卡', '发带', '头绳', '手套', '袜',
+  '吊带', '打底'].join('|')
 
 /** 颜色词与目标词相距 ≤40 字符（任一侧）就算「写出来了」 */
 function near(line: string, targets: string): boolean {
@@ -237,7 +246,7 @@ const CONCEPTS: Array<[string, string[]]> = [
   ['灰褐', ['grey-brown', 'greyish brown', 'greyish-brown', 'grey brown', 'greige', 'taupe']],
   ['灰棕', ['grey-brown', 'greyish brown', 'greyish-brown', 'grey brown']],   // 用户 2026-10-16 把卡面改成「灰棕色」
   ['深蓝', ['dark blue', 'deep blue', 'midnight blue']],
-  ['藏蓝', ['navy', 'navy blue', 'dark navy']],
+  ['藏蓝', ['navy', 'navy blue', 'navy-blue', 'dark navy']],   // navy-blue：连字符写法（4.0.72）
   ['藏青', ['dark navy blue']],   // navy 只归「藏蓝」：一个英文写法只能映射到一个概念，否则同色被判不同
   ['浅蓝', ['light blue', 'pale blue', 'pale blue-grey']],
   ['蓝', ['blue']],
@@ -290,7 +299,8 @@ const FAMILIES: string[][] = [
   ['深蓝', '藏蓝', '藏青'],        // 卡面「深蓝色警服」↔ 稿子 `navy police uniform`（实测 sb481 警察）
   ['花白', '灰白', '灰'],          // 「花白短发」↔ `grey hair`
   ['黄', '枯黄', '蜡黄'],          // 「染成枯黄后长出黑根」↔ `straw-dyed hair`（同一个黄系）
-  ['玫红', '红'],                  // 玫红是红的一种（卡面「玫红」↔ 稿子 `rose-pink` / `red`）；不含「粉」——粉与红不互认
+  ['玫红', '红', '酒红'],          // 2026-10-17：酒红也归红系（卡面「酒红礼服裙」↔ 稿子 `wine-red` / `red` 都算对，实测 5集分镜1 苏梦瑶）
+  ['米白', '白'],                  // 2026-10-17：米白是白系（卡面「浅色（米白）衬衫」↔ 稿子 `off-white` / `white`；实测 9集分镜1/2/3/6 苏家二叔）                  // 玫红是红的一种（卡面「玫红」↔ 稿子 `rose-pink` / `red`）；不含「粉」——粉与红不互认
 ]
 for (const fam of FAMILIES) for (const c of fam) COMPONENTS.set(c, fam)
 /** 颜色概念 → 写提示词时该用的英文（重写指令里直接给模型，避免它自己缩成 grey） */
