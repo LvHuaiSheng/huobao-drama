@@ -58,11 +58,19 @@ async function shimBase(): Promise<string> {
 async function shimPost<T = any>(p: string, body: any): Promise<T> {
   const cfg = await getActiveConfig('video')
   const base = await shimBase()
-  const resp = await fetch(`${base}${p}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg?.apiKey || ''}` },
-    body: JSON.stringify(body),
-  })
+  let resp: Response
+  try {
+    resp = await fetch(`${base}${p}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg?.apiKey || ''}` },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(1800_000),
+    })
+  } catch (err: any) {
+    // 网络层失败（服务器关机/掉线/Tailscale 断）——说人话，别把 fetch failed 甩给用户
+    const msg = String(err?.message || err)
+    throw new Error(`生成服务连不上（${base}）—— 检查那台机器是否开机、Tailscale 是否在线。原始错误: ${msg}`)
+  }
   const text = await resp.text()
   let json: any = null
   try { json = JSON.parse(text) } catch { /* 非 JSON */ }
