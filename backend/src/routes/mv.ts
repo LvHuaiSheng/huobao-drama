@@ -70,6 +70,25 @@ async function shimPost<T = any>(p: string, body: any): Promise<T> {
   return json as T
 }
 
+/** 把中文补充说明整批翻成英文（一条 LLM 调用；失败返回空数组，编译照常跑） */
+async function translateExtras(list: string[], configId?: number | null): Promise<string[]> {
+  const idx = list.map((t, i) => [t, i] as const).filter(([t]) => t)
+  if (!idx.length) return []
+  try {
+    const ask = `把下面每条「视频补充说明」翻成英文（电影摄影/画面约束用语，简短，不解释、不加序号）：
+${idx.map(([t, i]) => `${i}: ${t}`).join('\n')}
+
+只输出 JSON 数组：[{"index":0,"en":"…"}]`
+    const out = pickJson<any[]>(await askText('你是影视提示词翻译，只输出 JSON。', ask, 2000, configId))
+    const arr = new Array(list.length).fill('')
+    for (const o of Array.isArray(out) ? out : []) {
+      const i = Number(o?.index)
+      if (Number.isFinite(i) && i >= 0 && i < arr.length) arr[i] = String(o?.en || '').trim()
+    }
+    return arr
+  } catch { return [] }
+}
+
 /** 调当前文本模型（OpenAI 形状 /chat/completions；不用 Agent，避免它的提示词风格污染） */
 async function askText(system: string, user: string, maxTokens = 2500, configId?: number | null): Promise<string> {
   const cfg = (configId ? await getConfigById(Number(configId)) : null) ?? await getTextConfig()
@@ -718,8 +737,9 @@ ${raw.map((s, i) => `${i}: ${s.start}s 起 ${s.seconds}s（${s.frames}帧） ${s
 ${outlineLine || '(无)'}
 ${lyricLines.length ? `歌词行：\n${lyricLines.map((l, i) => `${i + 1}. ${l}`).join('\n')}` : ''}
 
-给每段按**标准 MV 分镜**配「景别 + 机位」：景别按这一段的歌词情绪与音乐节奏选（不要求交替、不硬性限制位置），机位是英文短句，必须一直看得清脸和嘴（有唱段尤其），例如
-"locked-off static camera, medium shot, front three-quarter face view, stable framing"。
+给每段按**标准 MV 分镜**配「景别 + 机位」：景别按这一段的歌词情绪与音乐节奏选（不要求交替、不硬性限制位置）。
+机位**用中文写**（给用户看的，编译时会自动转英文），必须一直看得清脸和嘴（有唱段尤其），例如
+"固定机位，中景，正脸三分之四侧面，平视，稳定构图"。
 一段里只能有一个景别、一种机位（这段只出一张参考图、一个镜头），不许在段内推拉变焦换景别。
 只输出 JSON 数组，长度必须等于 ${raw.length}：
 [{"index":0,"shot_size":"中远景|中景|近景|特写","camera":"…","lyric":"这一段正在唱的那句歌词，没唱就留空"}, …]`
@@ -778,6 +798,9 @@ app.post('/projects/:id/prompts', async (c) => {
   if (!shots.length) return badRequest(c, '还没有分镜表，先切分详细分镜')
   const { character, scene } = await primaryAssets(id)
   if (!character) return badRequest(c, '还没有人物资产（先提取人物并出图）')
+  // 补充说明用户写中文；编译前整批翻一次英文（失败就原样，不阻塞编译）
+  const extras = shots.map((s) => String(s.promptExtra || '').trim())
+  const extrasEn = await translateExtras(extras, project.textConfigId)
   const pictures = (character.image ? 1 : 0) + (scene?.image ? 1 : 0)
   try {
     const out = await shimPost<{ shots: any[] }>('/v2/mv/prompts', {
@@ -796,6 +819,7 @@ app.post('/projects/:id/prompts', async (c) => {
           shot: s.shotSize || '', camera: s.camera || '', vocal_state: s.vocalState || 'vocal_active',
           pictures: Math.max(1, picked.length),
           scene_note: scene?.description ? String(scene.description) : '',
+          prompt_extra: extrasEn[s.shotNumber - 1] || '',
         }
       })),
     })

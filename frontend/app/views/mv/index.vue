@@ -394,8 +394,8 @@
                     <label class="mv-field is-wide"><span>机位（中文即可，编译时自动转英文）</span>
                       <input v-model="activeShot.camera" class="input" placeholder="固定机位，中景，正脸三分之四，平视" @blur="saveShot(activeShot)" />
                     </label>
-                    <label class="mv-field is-wide"><span>补充说明（英文，原样追加到提示词末尾；可留空直接生成）</span>
-                      <textarea v-model="activeShot.promptExtra" class="textarea" rows="2" placeholder="keep the hands out of frame" @blur="saveShot(activeShot)" />
+                    <label class="mv-field is-wide"><span>补充说明（中文即可，编译时自动转英文追加；可留空直接生成）</span>
+                      <textarea v-model="activeShot.promptExtra" class="textarea" rows="2" placeholder="不要出现手，保持构图稳定" @blur="saveShot(activeShot)" />
                     </label>
                   </div>
                 </div>
