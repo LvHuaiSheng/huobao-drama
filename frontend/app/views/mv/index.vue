@@ -44,6 +44,10 @@
           <button class="btn btn-sm" @click="assemble" :disabled="busy">合成成片</button>
           <button class="btn btn-sm" :class="{ 'is-on': selectMode }" @click="toggleSelectMode">{{ selectMode ? '退出批量' : '批量选择' }}</button>
         </template>
+        <button v-if="current" class="btn btn-sm" :class="{ 'is-on': !!pj.vocalStem }" @click="separateVocals" :disabled="busy || separating"
+          :title="pj.vocalStem ? '已分离：' + pj.vocalStem : '用 demucs 分出人声轨，供唱/非唱判据用'">
+          {{ separating ? '分离中…' : (pj.vocalStem ? '已分离人声' : '人声分离') }}
+        </button>
         <button v-if="current" class="btn btn-sm" @click="taskDrawer = true">
           任务<span v-if="activeTaskCount" class="mv-task-badge">{{ activeTaskCount }}</span>
         </button>
@@ -816,6 +820,19 @@ const openViewerUrl = (src, title) => { viewer.value = { open: true, src, title 
 // 任务抽屉（照短剧）：只列本项目各段的生成记录
 const taskDrawer = ref(false)
 const checking = ref(false)
+const separating = ref(false)
+async function separateVocals() {
+  if (!current.value) return
+  separating.value = true
+  try {
+    const r = await call(() => api.post(`/mv/projects/${pj.value.id}/separate`, {}),
+      '正在分离人声（首次会下载模型，约 1~3 分钟）…')
+    if (r) {
+      current.value = { ...current.value, project: { ...pj.value, vocalStem: r.vocalStem } }
+      alert(r.cached ? '人声已分离过，直接复用' : `人声分离完成，用时 ${Number(r.seconds || 0).toFixed(1)} 秒`)
+    }
+  } finally { separating.value = false }
+}
 const checkResult = ref(null)
 async function runCheck() {
   if (!need(shots.value.length, '还没有分镜')) return
@@ -1278,7 +1295,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 .mv-main { flex: 1; min-width: 0; }
 
 /* 顶部标签栏（照短剧：模型选择器一排） */
-.head-actions { flex-wrap: wrap; }
+.head-actions { flex-wrap: wrap; margin-left: auto; justify-content: flex-end; }
 .btn.is-on { border-color: var(--accent); color: var(--accent-text, var(--accent)); background: rgba(120,140,255,.14); }
 .mv-top-selects { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex-shrink: 0; }
 .mv-sel {

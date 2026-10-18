@@ -302,6 +302,7 @@ export const mvProjects = sqliteTable('mv_projects', {
   idea: text('idea'),
   songFile: text('song_file'),
   songRemoteName: text('song_remote_name'),
+  vocalStem: text('vocal_stem'),      // 人声分离产物（服务器绝对路径；NULL=还没分离）
   songSeconds: real('song_seconds'),
   lyrics: text('lyrics'),
   aspectRatio: text('aspect_ratio'),      // 画幅 9:16 / 16:9（人物板固定 16:9；场景图与成片按它）

@@ -841,6 +841,27 @@ app.post('/projects/:id/prompts', async (c) => {
   }
 })
 
+/** 人声分离（demucs）：产出 vocals.wav，给唱/非唱判据用；幂等，已分离直接返回 */
+app.post('/projects/:id/separate', async (c) => {
+  const id = Number(c.req.param('id'))
+  const project = await loadProject(id)
+  if (!project) return notFound(c, 'MV 项目不存在')
+  const remote = String(project.songRemoteName || '')
+  if (!remote) return badRequest(c, '这首歌还没上传到生成服务（先做详细分镜，会自动上传）')
+  try {
+    const out = await shimPost<{ vocals: string; no_vocals?: string; seconds?: number; cached?: boolean }>(
+      '/v2/mv/separate', { audio_file: remote, tag: `p${id}`, force: !!project.vocalStem && false },
+    )
+    const stem = String(out?.vocals || '')
+    await db.update(schema.mvProjects).set({ vocalStem: stem, updatedAt: now() }).where(eq(schema.mvProjects.id, id))
+    logTaskSuccess('MV', 'separate', { id, seconds: out?.seconds, cached: out?.cached })
+    return success(c, { vocalStem: stem, noVocals: out?.no_vocals || null, seconds: out?.seconds || 0, cached: !!out?.cached })
+  } catch (err: any) {
+    logTaskError('MV', 'separate', { id, error: err?.message })
+    return serverError(c, err?.message || '人声分离失败')
+  }
+})
+
 /** 体检：把每段提示词发给中转跑硬校验，回问题清单（不生成、不改数据） */
 app.post('/projects/:id/check', async (c) => {
   const id = Number(c.req.param('id'))
