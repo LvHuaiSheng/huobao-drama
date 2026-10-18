@@ -361,15 +361,12 @@
                 <div class="video-inspector-prompt-extra">
                   <div class="video-inspector-fields">
                     <label class="mv-field"><span>唱/非唱</span>
-                      <select v-model="activeShot.vocalState" class="input" @change="saveShot(activeShot)">
-                        <option value="vocal_active">唱</option><option value="non_vocal">非唱</option>
-                      </select>
+                      <BaseSelect :model-value="activeShot.vocalState || 'vocal_active'" :options="VOCAL_OPTS"
+                        @update:model-value="(v) => { activeShot.vocalState = v; saveShot(activeShot) }" />
                     </label>
                     <label class="mv-field"><span>景别</span>
-                      <select v-model="activeShot.shotSize" class="input" @change="saveShot(activeShot)">
-                        <option value="中远景">中远景</option><option value="中景">中景</option>
-                        <option value="近景">近景</option><option value="特写">特写</option>
-                      </select>
+                      <BaseSelect :model-value="activeShot.shotSize || '中景'" :options="SIZE_OPTS"
+                        @update:model-value="(v) => { activeShot.shotSize = v; saveShot(activeShot) }" />
                     </label>
                     <label class="mv-field is-wide"><span>机位（英文，留空用默认固定机位）</span>
                       <input v-model="activeShot.camera" class="input" placeholder="locked-off static camera, medium shot" @blur="saveShot(activeShot)" />
@@ -792,6 +789,8 @@ const videoRows = computed(() => {
 const openViewerUrl = (src, title) => { viewer.value = { open: true, src, title } }
 // 任务抽屉（照短剧）：只列本项目各段的生成记录
 const taskDrawer = ref(false)
+const VOCAL_OPTS = [{ label: '唱', value: 'vocal_active' }, { label: '非唱', value: 'non_vocal' }]
+const SIZE_OPTS = [{ label: '中远景', value: '中远景' }, { label: '中景', value: '中景' }, { label: '近景', value: '近景' }, { label: '特写', value: '特写' }]
 const taskRows = computed(() => shots.value
   .filter((s) => s.status === 'processing' || s.videoUrl || s.status === 'failed' || s.taskId)
   .map((s) => ({
