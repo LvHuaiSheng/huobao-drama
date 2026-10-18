@@ -155,10 +155,18 @@ async function primaryAssets(projectId: number) {
   }
 }
 
-/** 风格预设的「风格头」（给图片/提示词当画风句）；没选或已停用返回 '' */
+/**
+ * 项目的画风头（资产图片提示词的第一段）。
+ * 项目没选画风（老项目）时兜底用预设里排序第一个 —— 风格那里本来就有默认值，别让提示词裸奔。
+ */
 async function styleHead(project: any): Promise<string> {
   try {
-    return (await getStyleSpecByValue(project?.style)).head
+    const head = (await getStyleSpecByValue(project?.style)).head
+    if (head) return head
+    const [first] = await db.select().from(schema.stylePresets)
+      .where(eq(schema.stylePresets.isActive, true))
+      .orderBy(schema.stylePresets.sortOrder).limit(1)
+    return first ? (await getStyleSpecByValue(first.value)).head : ''
   } catch { return '' }
 }
 
