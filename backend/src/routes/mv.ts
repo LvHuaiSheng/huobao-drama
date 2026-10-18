@@ -387,6 +387,7 @@ app.put('/projects/:id/assets/:aid', async (c) => {
   if (body.description !== undefined) patch.description = String(body.description).slice(0, 4000)
   if (body.appearance !== undefined) patch.appearance = String(body.appearance).slice(0, 2000)
   if (body.styling !== undefined) patch.styling = String(body.styling).slice(0, 2000)
+  if (body.prompt !== undefined) patch.prompt = String(body.prompt).slice(0, 4000)
   await db.update(schema.mvAssets).set(patch).where(eq(schema.mvAssets.id, aid))
   return success(c, { assets: await assetsOf(id) })
 })
