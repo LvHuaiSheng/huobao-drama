@@ -37,18 +37,22 @@
       <div class="head-actions">
         <span v-if="busy && stepMsg" class="busy-hint">{{ stepMsg }}</span>
         <template v-if="current && tab === 'video'">
+          <span class="mv-step-hint">①</span>
+          <button class="btn btn-sm" :class="{ 'is-on': !!pj.vocalStem }" @click="askSeparate" :disabled="busy || separating"
+            :title="pj.vocalStem ? '已分离：' + pj.vocalStem : '用 demucs 分出人声轨，供唱/非唱判据用'">
+            {{ separating ? '分离中…' : (pj.vocalStem ? '已分离人声' : '人声分离') }}
+          </button>
+          <span class="mv-step-hint">②</span>
           <input v-model.number="maxSeconds" class="input mv-num" type="number" min="5" max="15" step="0.5" title="最长切分（秒，H3 上限 15）" />
           <button class="btn btn-sm" @click="genShots" :disabled="busy || !pj.vocalStem"
-            :title="pj.vocalStem ? '按人声轨切分并标唱/非唱' : '先点右边「人声分离」——分镜的唱/非唱要靠人声轨判断'">切分详细分镜</button>
-          <button class="btn btn-sm" @click="askGenPrompts" :disabled="busy">编译全部提示词</button>
-          <button class="btn btn-sm" @click="askRenderAll" :disabled="busy">生成全部</button>
-          <button class="btn btn-sm" @click="askAssemble" :disabled="busy">合成成片</button>
+            :title="pj.vocalStem ? '按人声轨切分并标唱/非唱' : '先做人声分离——分镜的唱/非唱要靠人声轨判断'">拆分分镜</button>
+          <span class="mv-step-hint">③</span>
+          <button class="btn btn-sm" @click="askGenPrompts" :disabled="busy || !shots.length">编译全部提示词</button>
+          <span class="mv-step-hint">④</span>
+          <button class="btn btn-sm" @click="askRenderAll" :disabled="busy || !shots.length">生成全部</button>
+          <button class="btn btn-sm" @click="askAssemble" :disabled="busy || !shots.length">合成成片</button>
           <button class="btn btn-sm" :class="{ 'is-on': selectMode }" @click="toggleSelectMode">{{ selectMode ? '退出批量' : '批量选择' }}</button>
         </template>
-        <button v-if="current" class="btn btn-sm" :class="{ 'is-on': !!pj.vocalStem }" @click="askSeparate" :disabled="busy || separating"
-          :title="pj.vocalStem ? '已分离：' + pj.vocalStem : '用 demucs 分出人声轨，供唱/非唱判据用'">
-          {{ separating ? '分离中…' : (pj.vocalStem ? '已分离人声' : '人声分离') }}
-        </button>
         <button v-if="current" class="btn btn-sm" @click="taskDrawer = true">
           任务<span v-if="activeTaskCount" class="mv-task-badge">{{ activeTaskCount }}</span>
         </button>
@@ -315,7 +319,7 @@
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
               </button>
             </div>
-            <div v-if="!videoRows.length" class="video-task-empty">{{ shots.length ? '这个筛选下没有段落' : '还没有分镜 —— 先点上方「切分详细分镜」' }}</div>
+            <div v-if="!videoRows.length" class="video-task-empty">{{ shots.length ? '这个筛选下没有段落' : '还没有分镜 —— 先点上方「拆分分镜」（需先人声分离）' }}</div>
           </div>
           <div v-if="selectMode" class="video-task-foot is-batch">
             <button class="shot-quick-btn" @click="selectedIds = videoRows.map(x => x.id)">全选</button>
@@ -368,13 +372,27 @@
                 <div class="video-inspector-prompt-head">
                   <span class="video-inspector-label video-inspector-label-hero">视频提示词</span>
                   <div class="video-inspector-actions">
-                    <button type="button" class="btn btn-sm" @click="askGenPrompts" :disabled="busy">编译全部提示词</button>
-                    <button type="button" class="btn btn-sm" @click="runCheck" :disabled="busy || checking">{{ checking ? '体检中…' : '体检' }}</button>
+                    <button type="button" class="btn btn-sm" @click="genShotPrompt(activeShot)" :disabled="busy || shotPromptBusy === activeShot.id">
+                      {{ shotPromptBusy === activeShot.id ? '生成中…' : (activeShot.prompt ? '重新生成' : 'AI 生成') }}
+                    </button>
+                    <button type="button" class="btn btn-sm" @click="checkShot(activeShot)" :disabled="busy || checkingShot === activeShot.id">
+                      {{ checkingShot === activeShot.id ? '体检中…' : '体检' }}
+                    </button>
                     <button type="button" class="btn btn-sm" @click="saveShot(activeShot)">保存这条</button>
                   </div>
                 </div>
                 <textarea v-model="activeShot.prompt" class="textarea video-inspector-prompt" rows="14"
                   placeholder="还没有提示词 —— 点「编译全部提示词」整批生成；生成后可在这里直接改" />
+                <div v-if="shotCheck" class="mv-check-panel" :class="{ 'is-bad': !shotCheck.ok }">
+                  <div class="mv-check-head">
+                    <strong>#{{ String(shotCheck.shotNumber).padStart(2,'0') }} 体检：{{ shotCheck.ok ? '通过' : '有问题' }}</strong>
+                    <button class="btn btn-ghost btn-sm" @click="shotCheck = null">收起</button>
+                  </div>
+                  <div v-for="(m, i) in shotCheck.problems" :key="i" class="mv-check-row">
+                    <span class="mv-check-idx">·</span><span class="mv-check-msg">{{ m }}</span>
+                  </div>
+                  <div v-if="shotCheck.ok" class="mv-check-ok">这一段合规，可以生成。</div>
+                </div>
                 <div v-if="checkResult" class="mv-check-panel" :class="{ 'is-bad': checkResult.bad }">
                   <div class="mv-check-head">
                     <strong>体检结果：{{ checkResult.ok }} 条通过 / {{ checkResult.bad }} 条有问题</strong>
@@ -854,6 +872,28 @@ const askSeparate = () => askConfirm('人声分离',
   pj.value.vocalStem ? '复用' : '开始分离', separateVocals)
 
 const checking = ref(false)
+const shotPromptBusy = ref(null)
+const checkingShot = ref(null)
+const shotCheck = ref(null)
+async function genShotPrompt(s) {
+  if (!s) return
+  if (!need(!!pj.value.vocalStem, '先做人声分离')) return
+  shotPromptBusy.value = s.id
+  shotCheck.value = null
+  try {
+    const r = await call(() => api.post(`/mv/projects/${pj.value.id}/shots/${s.id}/prompt`, {}), '正在生成这一段的提示词…')
+    if (r) { s.prompt = r.prompt }
+  } finally { shotPromptBusy.value = null }
+}
+async function checkShot(s) {
+  if (!s) return
+  if (!s.prompt) { alert('这一段还没有提示词'); return }
+  checkingShot.value = s.id
+  try {
+    const r = await api.post(`/mv/projects/${pj.value.id}/shots/${s.id}/check`, {}).catch((e) => { alert(String(e?.message || e)); return null })
+    if (r) shotCheck.value = r
+  } finally { checkingShot.value = null }
+}
 const separating = ref(false)
 async function separateVocals() {
   if (!current.value) return
@@ -1331,6 +1371,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 
 /* 顶部标签栏（照短剧：模型选择器一排） */
 .head-actions { flex-wrap: wrap; margin-left: auto; justify-content: flex-end; }
+.mv-step-hint { font-size: 10.5px; font-weight: 800; color: var(--text-3); align-self: center; }
 .btn.is-on { border-color: var(--accent); color: var(--accent-text, var(--accent)); background: rgba(120,140,255,.14); }
 .mv-top-selects { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex-shrink: 0; }
 .mv-sel {

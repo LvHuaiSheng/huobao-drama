@@ -846,6 +846,64 @@ app.post('/projects/:id/prompts', async (c) => {
   }
 })
 
+/** 单段提示词生成/重新生成（照短剧每段的「AI 生成 / 重新生成」） */
+app.post('/projects/:id/shots/:sid/prompt', async (c) => {
+  const id = Number(c.req.param('id'))
+  const sid = Number(c.req.param('sid'))
+  const project = await loadProject(id)
+  if (!project) return notFound(c, 'MV 项目不存在')
+  const [shot] = await db.select().from(schema.mvShots)
+    .where(and(eq(schema.mvShots.id, sid), eq(schema.mvShots.projectId, id)))
+  if (!shot) return notFound(c, '分镜不存在')
+  const { character, scene } = await primaryAssets(id)
+  if (!character) return badRequest(c, '还没有人物资产（先提取人物并出图）')
+  const picked = (await shotRefs(id, shot)).filter((a) => a.image)
+  const sc = picked.find((a) => a.kind === 'scene') || scene
+  const extrasEn = await translateExtras([String(shot.promptExtra || '')], project.textConfigId)
+  try {
+    const out = await shimPost<{ shots: any[] }>('/v2/mv/prompts', {
+      pictures: Math.max(1, picked.length),
+      performer: String(character.description || character.name || 'the lead singer').slice(0, 600),
+      style: (await styleHead(project)) || undefined,
+      language: 'Chinese',
+      lyrics: [String(shot.lyric || '')],
+      shots: [{
+        index: 0, start: shot.startSeconds, end: shot.endSeconds, frames: shot.frames, seconds: shot.seconds,
+        shot: shot.shotSize || '', camera: shot.camera || '', vocal_state: shot.vocalState || 'vocal_active',
+        pictures: Math.max(1, picked.length),
+        scene_note: sc?.description ? String(sc.description) : '',
+        prompt_extra: extrasEn[0] || '',
+      }],
+    })
+    const prompt = String(out?.shots?.[0]?.prompt || '')
+    if (!prompt) throw new Error('编译结果为空')
+    await db.update(schema.mvShots).set({ prompt, updatedAt: now() }).where(eq(schema.mvShots.id, sid))
+    return success(c, { id: sid, prompt })
+  } catch (err: any) {
+    logTaskError('MV', 'shot-prompt', { id, sid, error: err?.message })
+    return serverError(c, err?.message || '提示词生成失败')
+  }
+})
+
+/** 单段体检 */
+app.post('/projects/:id/shots/:sid/check', async (c) => {
+  const id = Number(c.req.param('id'))
+  const sid = Number(c.req.param('sid'))
+  const [shot] = await db.select().from(schema.mvShots)
+    .where(and(eq(schema.mvShots.id, sid), eq(schema.mvShots.projectId, id)))
+  if (!shot) return notFound(c, '分镜不存在')
+  try {
+    const out = await shimPost<{ rows: any[] }>('/v2/mv/check', {
+      shots: [{ prompt: shot.prompt || '', vocal_state: shot.vocalState || 'vocal_active' }],
+    })
+    const row = out?.rows?.[0] || { ok: false, problems: ['体检无返回'] }
+    return success(c, { shotNumber: shot.shotNumber, ok: !!row.ok, problems: row.problems || [] })
+  } catch (err: any) {
+    logTaskError('MV', 'shot-check', { id, sid, error: err?.message })
+    return serverError(c, err?.message || '体检失败')
+  }
+})
+
 /** 人声分离（demucs）：产出 vocals.wav，给唱/非唱判据用；幂等，已分离直接返回 */
 app.post('/projects/:id/separate', async (c) => {
   const id = Number(c.req.param('id'))
