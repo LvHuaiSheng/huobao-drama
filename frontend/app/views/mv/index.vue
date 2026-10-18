@@ -980,12 +980,12 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 }
 
 .mv-asset-err { font-size: 11.5px; margin: 0 10px 8px; line-height: 1.5; }
-/* 看大图 */
-.mv-viewer-overlay { z-index: 60; }
-.mv-viewer { width: min(960px, calc(100vw - 48px)); padding: 14px; }
+/* 看大图（必须压在最上层：编辑弹窗是 70，大图要 90，否则被挡住） */
+.mv-modal.mv-viewer-overlay { z-index: 90; padding: 16px; }
+.mv-viewer { width: min(1280px, calc(100vw - 48px)); max-height: calc(100vh - 32px); padding: 12px; }
 .mv-viewer-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .mv-viewer-title { font-size: 13px; font-weight: 600; }
-.mv-viewer-img { width: 100%; max-height: 76vh; object-fit: contain; border-radius: var(--radius); background: var(--bg-2); display: block; }
+.mv-viewer-img { width: 100%; max-height: calc(100vh - 130px); object-fit: contain; border-radius: var(--radius); background: var(--bg-2); display: block; }
 
 /* 编辑资产弹窗 —— 与短剧素材详情弹窗（.mat-detail-*）同款结构与数值 */
 .mv-modal.mv-detail-overlay { z-index: 70; padding: 28px; }
