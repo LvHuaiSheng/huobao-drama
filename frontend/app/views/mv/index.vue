@@ -38,7 +38,8 @@
         <span v-if="busy && stepMsg" class="busy-hint">{{ stepMsg }}</span>
         <template v-if="current && tab === 'video'">
           <input v-model.number="maxSeconds" class="input mv-num" type="number" min="5" max="15" step="0.5" title="最长切分（秒，H3 上限 15）" />
-          <button class="btn btn-sm" @click="genShots" :disabled="busy">切分详细分镜</button>
+          <button class="btn btn-sm" @click="genShots" :disabled="busy || !pj.vocalStem"
+            :title="pj.vocalStem ? '按人声轨切分并标唱/非唱' : '先点右边「人声分离」——分镜的唱/非唱要靠人声轨判断'">切分详细分镜</button>
           <button class="btn btn-sm" @click="genPrompts" :disabled="busy">编译全部提示词</button>
           <button class="btn btn-sm" @click="renderAll" :disabled="busy">生成全部</button>
           <button class="btn btn-sm" @click="assemble" :disabled="busy">合成成片</button>
@@ -1142,6 +1143,7 @@ async function genOutline() {
 }
 
 async function genShots() {
+  if (!need(!!pj.value.vocalStem, '先点顶栏「人声分离」—— 分镜的唱/非唱要用人声轨判断，没分离就切会全标成唱')) return
   if (!guardStep(4)) return
   const r = await call(() => api.post(`/mv/projects/${pj.value.id}/shots`, { max_seconds: maxSeconds.value }), '正在按歌切段…')
   if (r) await refresh()

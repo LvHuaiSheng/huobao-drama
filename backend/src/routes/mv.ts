@@ -702,6 +702,8 @@ app.post('/projects/:id/shots', async (c) => {
   const id = Number(c.req.param('id'))
   const project = await loadProject(id)
   if (!project) return notFound(c, 'MV 项目不存在')
+  // 分镜的唱/非唱要靠人声轨判，没分离就切会全标成「唱」
+  if (!project.vocalStem) return badRequest(c, '先点顶栏「人声分离」—— 分镜的唱/非唱要用人声轨判断')
   const body = await c.req.json().catch(() => ({} as any))
   const maxS = Math.min(HARD_MAX_S, Number(body.max_seconds || project.maxShotSeconds) || DEFAULT_MAX_S)
   // 到这一步才第一次把原曲转 32k 送 4080（建项目时不碰它）
@@ -713,7 +715,10 @@ app.post('/projects/:id/shots', async (c) => {
   }
   let plan: { shots: any[]; grid?: number[] }
   try {
-    plan = await shimPost('/v2/mv/plan', { audio_file: remoteSong, max_seconds: maxS, target_seconds: 7 })
+    plan = await shimPost('/v2/mv/plan', {
+      audio_file: remoteSong, max_seconds: maxS, target_seconds: 7,
+      vocal_stem: project.vocalStem || undefined,
+    })
   } catch (err: any) {
     return serverError(c, `切段失败：${err?.message}`)
   }
