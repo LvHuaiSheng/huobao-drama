@@ -25,6 +25,7 @@ import { db, schema, getInsertId } from '../db/index.js'
 import { generateImage, generateVideo } from '../services/generation.js'
 import { getTextConfig, getTextProviderBaseUrl, getActiveConfig } from '../services/ai.js'
 import { getStyleSpecByValue } from '../services/style-preset.js'
+import { joinProviderUrl } from '../services/adapters/url.js'
 import { extractChatText } from '../services/asset-describe-prompt.js'
 import { getAbsolutePath } from '../utils/storage.js'
 import { STORAGE_ROOT } from '../utils/paths.js'
@@ -42,14 +43,13 @@ type Kind = typeof KINDS[number]
 
 // ---------------------------------------------------------------- 基础工具
 
-/** 4080 地址：优先 MV_SHIM_BASE，其次「视频通道」的 baseUrl（不写死） */
+/** 4080 地址：优先 MV_SHIM_BASE，其次「视频通道」的 baseUrl（不写死）
+ *  末尾可能被填成 …:8100/v1（BeefTV 的口径）→ 去掉 v1/v2 段，MV 自己拼 /v2/mv/… */
 async function shimBase(): Promise<string> {
   const env = String(process.env.MV_SHIM_BASE || '').trim()
-  if (env) return env.replace(/\/+$/, '')
-  const cfg = await getActiveConfig('video')
-  const base = String(cfg?.baseUrl || '').trim().replace(/\/+$/, '')
-  if (!base) throw new Error('没配视频服务地址（设置页的视频通道），MV 提交不了')
-  return base
+  const raw = env || String((await getActiveConfig('video'))?.baseUrl || '').trim()
+  if (!raw) throw new Error('没配视频服务地址（设置页的视频通道），MV 提交不了')
+  return raw.replace(/\/(v1|v2)\/?$/i, '').replace(/\/+$/, '')
 }
 
 async function shimPost<T = any>(p: string, body: any): Promise<T> {
@@ -72,7 +72,7 @@ async function askText(system: string, user: string, maxTokens = 2500): Promise<
   const cfg = await getTextConfig()
   let model = ''
   try { model = (JSON.parse(cfg.model || '[]') as string[])[0] || '' } catch { model = String(cfg.model || '') }
-  const resp = await fetch(`${getTextProviderBaseUrl(cfg)}/v1/chat/completions`, {
+  const resp = await fetch(joinProviderUrl(getTextProviderBaseUrl(cfg), '/v1', '/chat/completions'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey || ''}` },
     body: JSON.stringify({ model, messages: [{ role: 'system', content: system }, { role: 'user', content: user }], max_tokens: maxTokens }),
