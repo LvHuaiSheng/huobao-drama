@@ -382,7 +382,12 @@
                   </div>
                 </div>
                 <textarea v-model="activeShot.prompt" class="textarea video-inspector-prompt" rows="14"
-                  placeholder="还没有提示词 —— 点「编译全部提示词」整批生成；生成后可在这里直接改" />
+                  placeholder="还没有提示词 —— 点上面的「AI 生成」，或顶部「编译全部提示词」；生成后在这里改成你要的中文稿" />
+                <div class="video-inspector-prompt-extra">
+                  <button v-if="activeShot.promptEn" type="button" class="btn btn-sm video-inspector-prompt-en-toggle"
+                    @click="showEn = !showEn">{{ showEn ? '收起英文提示词' : '显示英文提示词（发给 H3 的就是它）' }}</button>
+                  <pre v-if="showEn && activeShot.promptEn" class="video-inspector-prompt-en">{{ activeShot.promptEn }}</pre>
+                </div>
                 <div v-if="shotCheck" class="mv-check-panel" :class="{ 'is-bad': !shotCheck.ok }">
                   <div class="mv-check-head">
                     <strong>#{{ String(shotCheck.shotNumber).padStart(2,'0') }} 体检：{{ shotCheck.ok ? '通过' : '有问题' }}</strong>
@@ -873,10 +878,12 @@ const askSeparate = () => askConfirm('人声分离',
 
 const checking = ref(false)
 const shotPromptBusy = ref(null)
+const showEn = ref(false)
 const checkingShot = ref(null)
 const shotCheck = ref(null)
 async function genShotPrompt(s) {
   if (!s) return
+  showEn.value = false
   if (!need(!!pj.value.vocalStem, '先做人声分离')) return
   shotPromptBusy.value = s.id
   shotCheck.value = null
@@ -1821,5 +1828,9 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); color: var(--
 .shot-check.on { background: var(--accent); border-color: var(--accent); }
 .video-task-row.is-selected { background: rgba(120,140,255,.16); box-shadow: inset 0 0 0 1.5px var(--accent); }
 .video-task-foot.is-batch { border-top: 1px solid var(--accent); background: rgba(120,140,255,.08); }
+
+/* 英文提示词折叠区（照短剧 video-inspector-prompt-en） */
+.video-inspector-prompt-en-toggle { align-self: flex-start; }
+.video-inspector-prompt-en { margin: 6px 0 0; padding: 10px; max-height: 260px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-2); color: var(--text-2); font-family: var(--font-mono, monospace); font-size: 10.5px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
 
 </style>

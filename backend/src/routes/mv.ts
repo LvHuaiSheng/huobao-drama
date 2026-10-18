@@ -70,6 +70,30 @@ async function shimPost<T = any>(p: string, body: any): Promise<T> {
   return json as T
 }
 
+/** 把英文六段稿整批翻成中文六段稿（界面显示用；界面上改的是中文，发 H3 仍用英文） */
+async function toChinesePrompts(list: string[], configId?: number | null): Promise<string[]> {
+  const idx = list.map((t, i) => [t, i] as const).filter(([t]) => t)
+  if (!idx.length) return []
+  try {
+    const ask = `把下面每条视频提示词翻成中文，要求：
+1) 保留官方六段结构，段名用中文：主体定义 / 概要 / 保持分析 / 详细描述 / 整体声音 / 非叙事音乐
+2) 保留所有占位符原样（<Subject 1> <Picture 1> …）、时间码、引号内台词原文
+3) 只翻译说明文字，不要解释、不要加序号、不要改动结构
+4) 每条独立翻译，长度尽量对应
+
+${idx.map(([t, i]) => `--- ${i} ---\n${t}`).join('\n')}
+
+只输出 JSON 数组：[{"index":0,"zh":"…"}]`
+    const out = pickJson<any[]>(await askText('你是影视提示词翻译，只输出 JSON。', ask, 6000, configId))
+    const arr = new Array(list.length).fill('')
+    for (const o of Array.isArray(out) ? out : []) {
+      const i = Number(o?.index)
+      if (Number.isFinite(i) && i >= 0 && i < arr.length) arr[i] = String(o?.zh || '').trim()
+    }
+    return arr
+  } catch { return [] }
+}
+
 /** 把中文补充说明整批翻成英文（一条 LLM 调用；失败返回空数组，编译照常跑） */
 async function translateExtras(list: string[], configId?: number | null): Promise<string[]> {
   const idx = list.map((t, i) => [t, i] as const).filter(([t]) => t)
@@ -830,10 +854,15 @@ app.post('/projects/:id/prompts', async (c) => {
     })
     const items = out?.shots || []
     if (items.length !== shots.length) throw new Error(`编译结果条数不对（${items.length}/${shots.length}）`)
+    const ens = items.map((it: any, i: number) => {
+      const ex = String(shots[i].promptExtra || '').trim()
+      return String(it.prompt || '') + (ex ? `\n\n[extra notes] ${ex}` : '')
+    })
+    const zhs = await toChinesePrompts(ens, project.textConfigId)
     for (let i = 0; i < shots.length; i++) {
-      const extra = String(shots[i].promptExtra || '').trim()
       await db.update(schema.mvShots).set({
-        prompt: String(items[i].prompt || '') + (extra ? `\n\n[extra notes] ${extra}` : ''),
+        prompt: zhs[i] || ens[i],
+        promptEn: ens[i],
         updatedAt: now(),
       })
         .where(eq(schema.mvShots.id, shots[i].id))
@@ -875,10 +904,13 @@ app.post('/projects/:id/shots/:sid/prompt', async (c) => {
         prompt_extra: extrasEn[0] || '',
       }],
     })
-    const prompt = String(out?.shots?.[0]?.prompt || '')
-    if (!prompt) throw new Error('编译结果为空')
-    await db.update(schema.mvShots).set({ prompt, updatedAt: now() }).where(eq(schema.mvShots.id, sid))
-    return success(c, { id: sid, prompt })
+    const extra1 = String(shot.promptExtra || '').trim()
+    const en = String(out?.shots?.[0]?.prompt || '') + (extra1 ? `\n\n[extra notes] ${extra1}` : '')
+    if (!en.trim()) throw new Error('编译结果为空')
+    const [zh] = await toChinesePrompts([en], project.textConfigId)
+    const prompt = zh || en
+    await db.update(schema.mvShots).set({ prompt, promptEn: en, updatedAt: now() }).where(eq(schema.mvShots.id, sid))
+    return success(c, { id: sid, prompt, promptEn: en })
   } catch (err: any) {
     logTaskError('MV', 'shot-prompt', { id, sid, error: err?.message })
     return serverError(c, err?.message || '提示词生成失败')
@@ -966,7 +998,7 @@ app.post('/projects/:id/shots/:sid/render', async (c) => {
   const [shot] = await db.select().from(schema.mvShots)
     .where(and(eq(schema.mvShots.id, sid), eq(schema.mvShots.projectId, id)))
   if (!shot) return notFound(c, '分镜不存在')
-  if (!shot.prompt) return badRequest(c, '这一段还没提示词，先编译提示词')
+  if (!shot.prompt && !shot.promptEn) return badRequest(c, '这一段还没提示词，先编译提示词')
   const body = await c.req.json().catch(() => ({} as any))
   // 这一段自己绑定的参考图（人物/场景/其它都可能），没绑就用人物卡+场景卡
   const picked = (await shotRefs(id, shot)).filter((a) => a.image)
@@ -975,7 +1007,7 @@ app.post('/projects/:id/shots/:sid/render', async (c) => {
   const cards = picked.map((a) => a.card).filter(Boolean) as string[]
   try {
     const taskId = await generateVideo({
-      prompt: shot.prompt,
+      prompt: String(shot.promptEn || shot.prompt || ''),
       model: MV_MODEL,
       configId: project.videoConfigId ?? undefined,
       duration: Math.max(5.167, Number(shot.seconds) || 5.167),
