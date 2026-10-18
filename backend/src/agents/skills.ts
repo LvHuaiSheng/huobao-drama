@@ -178,6 +178,15 @@ export async function loadAgentSkills(agentType: string, lang?: string | null, o
  * maybeRefresh 负责感知目录增删（动态 resolver 路径变化），refresh 负责内容更新
  * （目录 mtime 不会因文件内容编辑而更新，单靠 maybeRefresh 的 staleness 检查不可靠）
  */
+/** 读一份 skill 的正文（供 MV 等其它链路直接复用短剧的规则文件；读不到返回空串） */
+export function readSkillFile(id: string): string {
+  try {
+    return fs.readFileSync(path.join(SKILLS_DIR, id, 'SKILL.md'), 'utf8')
+  } catch {
+    return ''
+  }
+}
+
 export async function refreshSkillWorkspaces(): Promise<void> {
   await Promise.all(
     [...Object.values(skillWorkspaces), skillsManagerWorkspace]

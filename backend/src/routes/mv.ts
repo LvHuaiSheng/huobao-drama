@@ -27,6 +27,7 @@ import { getTextConfig, getTextProviderBaseUrl, getActiveConfig } from '../servi
 import { getStyleSpecByValue } from '../services/style-preset.js'
 import { joinProviderUrl } from '../services/adapters/url.js'
 import { loadAgentPromptFile } from '../agents/prompts.js'
+import { readSkillFile } from '../agents/skills.js'
 import { DEFAULT_PROMPTS } from '../agents/index.js'
 import { extractChatText } from '../services/asset-describe-prompt.js'
 import { getAbsolutePath } from '../utils/storage.js'
@@ -399,11 +400,17 @@ app.delete('/projects/:id/assets/:aid', async (c) => {
   return success(c, { assets: await assetsOf(id) })
 })
 
+/** 资产提示词规则：直接用短剧的那两份 skill（人物板 / 场景），读不到才回退 MV 自己的指令 */
+async function assetRule(kind: string): Promise<string> {
+  const drama = readSkillFile(kind === 'character' ? 'prompt-generator/character-prompt' : 'prompt-generator/scene-prompt')
+  return drama || (await mvPrompt('mv_asset_image'))
+}
+
 /**
  * 给资产生成「生图提示词」（照短剧：描述 → 生成提示词 → 出图）
  *
- * 规则文本 = 「设置 → Agent 配置 → MV 资产出图」那条指令（---SCENE--- 前是人物板规则、后是场景规则），
- * 由当前文本模型把资产的描述写成一段可直接出图的提示词 ⇒ 出图按钮只认这条提示词。
+ * 规则来自短剧自己的 skill（人物 = prompt-generator/character-prompt，场景 = scene-prompt），
+ * 输出＝**风格头在最前 + 中文资产描述 + skill 规定的构图**（与短剧 final_prompt 同款），存进 mv_assets.prompt。
  */
 app.post('/projects/:id/assets/:aid/prompt', async (c) => {
   const id = Number(c.req.param('id'))
@@ -423,20 +430,23 @@ app.post('/projects/:id/assets/:aid/prompt', async (c) => {
       updatedAt: now(),
     }).where(eq(schema.mvAssets.id, aid))
   }
-  const rawRule = await mvPrompt('mv_asset_image')
-  const [charRule, sceneRule] = rawRule.includes('---SCENE---')
-    ? rawRule.split('---SCENE---').map((s) => s.trim())
-    : [rawRule, '']
-  const rule = asset.kind === 'character' ? charRule : sceneRule
+  const rule = await assetRule(asset.kind)
+  const head = await styleHead(project)
   try {
     const text = await askText(
-      `${rule}\n\n按上面的规矩，把这个资产写成一段可直接用于出图的提示词：\n` +
-      `- 只输出这一段提示词本身（英文，逗号分隔的短语），不要解释、不要标题、不要 markdown、不要编号；\n` +
-      `- 描述里的服装和配饰颜色必须原样保留，不许换款式。`,
+      `${rule}\n\n` +
+      `【本次任务】把这个资产写成**一条可以直接出图**的最终提示词，按下面的顺序：\n` +
+      `1. **第一段必须是画风（原样照抄，一个字都不要改、不要翻译）**：${head || '（这个项目没选画风，用写实电影感代替）'}\n` +
+      `2. **画风之后用中文写资产本身**：名字 → 样貌（脸/身形，颜色写死唯一值）→ 妆造（服装/配饰，颜色与款式逐字保留）→ 场景（地点/时间/光线/色调/氛围，人物资产才写，场景资产写描述里的全部要点）。\n` +
+      `3. 构图按上面那份规范的规矩写清楚（${asset.kind === 'character' ? '一帧四格横版参考板：格1脸部特写 / 格2无头正面全身 / 格3无头左侧面全身 / 格4无头背面全身，纯白背景' : '固定视角，前景/中景/后景分层，画面里不出现任何人'}）。\n` +
+      `4. 画风段照抄，后面中文字段必须完整保留；最后可以再跟一小段英文关键词（可选）。\n` +
+      `只输出提示词本身，不要解释、不要标题、不要编号、不要 markdown、不要引号包裹。`,
       `资产类型：${asset.kind === 'character' ? '人物' : '场景'}\n` +
-      `名称：${asset.name || '（未命名）'}\n` +
+      `名字：${asset.name || '（未命名）'}\n` +
+      `样貌：${asset.appearance || '（未填）'}\n` +
+      `妆造：${asset.styling || '（未填）'}\n` +
       `描述：${desc}`,
-      1500,
+      2000,
     )
     const prompt = text.trim()
     if (!prompt) throw new Error('文本模型返回空')
@@ -506,7 +516,9 @@ app.post('/projects/:id/assets/:aid/image', async (c) => {
       .where(eq(schema.mvAssets.id, aid))
   }
   const head = await styleHead(project)
-  const prompt = [head, assetPrompt].filter(Boolean).join('\n')
+  // 提示词里已经含画风头（生成时就照抄进去了，与短剧 final_prompt 一致）⇒ 这里不再重复拼风格头；
+  // 万一是手写的、不含风格头，就补一次
+  const prompt = assetPrompt.includes(head.slice(0, 20)) || !head ? assetPrompt : [head, assetPrompt].join('\n')
   const imgSize = imageSizeForAsset(project, asset.kind)
   const kind = asset.kind
   const assetId = asset.id
