@@ -916,9 +916,17 @@ app.post('/projects/:id/separate', async (c) => {
       '/v2/mv/separate', { audio_file: remote, tag: `p${id}`, force: !!project.vocalStem && false },
     )
     const stem = String(out?.vocals || '')
+    // 新分离出来的音轨 = 旧的切分判据失效 → 清掉旧分镜（分镜/提示词/生成记录），让用户重切
+    let cleared = 0
+    if (!out?.cached) {
+      const rows = await shotsOf(id)
+      cleared = rows.length
+      if (cleared) await db.delete(schema.mvShots).where(eq(schema.mvShots.projectId, id))
+      await db.update(schema.mvProjects).set({ status: 'outline', updatedAt: now() }).where(eq(schema.mvProjects.id, id))
+    }
     await db.update(schema.mvProjects).set({ vocalStem: stem, updatedAt: now() }).where(eq(schema.mvProjects.id, id))
-    logTaskSuccess('MV', 'separate', { id, seconds: out?.seconds, cached: out?.cached })
-    return success(c, { vocalStem: stem, noVocals: out?.no_vocals || null, seconds: out?.seconds || 0, cached: !!out?.cached })
+    logTaskSuccess('MV', 'separate', { id, seconds: out?.seconds, cached: out?.cached, cleared })
+    return success(c, { vocalStem: stem, noVocals: out?.no_vocals || null, seconds: out?.seconds || 0, cached: !!out?.cached, cleared })
   } catch (err: any) {
     logTaskError('MV', 'separate', { id, error: err?.message })
     return serverError(c, err?.message || '人声分离失败')

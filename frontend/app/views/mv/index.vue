@@ -867,8 +867,8 @@ const askAssemble = () => askConfirm('合成成片',
   `会把 ${shots.value.filter((s) => s.videoUrl).length}/${shots.value.length} 段拼接并混入原曲。没生成完会拦下。继续？`, '开始合成', assemble)
 const askSeparate = () => askConfirm('人声分离',
   pj.value.vocalStem
-    ? '这首歌已经分离过，会直接复用已有的人声轨。继续？'
-    : '会用 demucs 分离人声（首次约 1~3 分钟，之后秒回）。分离结果用来判断分镜的「唱/非唱」。继续？',
+    ? '这首歌已经分离过，会直接复用已有的人声轨（现有分镜不动）。继续？'
+    : `会用 demucs 分离人声（首次约 1~3 分钟）。分离完会清空现有 ${shots.value.length} 段分镜（含提示词和生成记录），因为旧切分是按旧判据做的，需要重新「拆分分镜」。继续？`,
   pj.value.vocalStem ? '复用' : '开始分离', separateVocals)
 
 const checking = ref(false)
@@ -903,7 +903,10 @@ async function separateVocals() {
       '正在分离人声（首次会下载模型，约 1~3 分钟）…')
     if (r) {
       current.value = { ...current.value, project: { ...pj.value, vocalStem: r.vocalStem } }
-      alert(r.cached ? '人声已分离过，直接复用' : `人声分离完成，用时 ${Number(r.seconds || 0).toFixed(1)} 秒`)
+      await refresh()
+      alert(r.cached
+        ? '人声已分离过，直接复用（现有分镜未改动）'
+        : `人声分离完成，用时 ${Number(r.seconds || 0).toFixed(1)} 秒` + (r.cleared ? `；已清空旧分镜 ${r.cleared} 段，请点「拆分分镜」重切` : ''))
     }
   } finally { separating.value = false }
 }
