@@ -259,104 +259,144 @@
         </div>
       </div>
 
-      <!-- 第 4 页 · 视频制作（结构照短剧：左「视频任务列表」+ 右「预览 / 绑定参考图」） -->
-      <div v-else class="video-task-workbench">
+      <!-- 第 4 页 · 视频制作（照短剧三栏 workbench：左任务列表 / 中编辑区 / 右播放器） -->
+      <div v-else class="video-task-workbench has-player" :style="{ '--vleft': '250px', '--vright': '340px' }">
         <section class="video-task-list">
           <div class="video-task-head">
             <div>
               <div class="video-task-title">视频任务列表</div>
-              <div class="video-task-meta">共 {{ shots.length }} 段 · 按歌曲段落切分（唱/非唱已标）</div>
+              <div class="video-task-meta">共 {{ shots.length }} 段 · 按歌曲段落切分</div>
             </div>
             <div class="video-task-metrics">
-              <span class="video-task-metric is-pending">{{ videoStats.pending }} 生成中</span>
-              <span class="video-task-metric is-done">{{ videoStats.done }} 完成</span>
-              <span class="video-task-metric is-failed">{{ videoStats.failed }} 失败</span>
-            </div>
-            <div class="video-task-tools">
-              <input v-model.number="maxSeconds" class="input mv-num" type="number" min="5" max="15" step="0.5" title="最长切分（秒，H3 上限 15）" />
-              <button class="shot-quick-btn" @click="genShots" :disabled="busy">切分详细分镜</button>
-              <button class="shot-quick-btn" @click="genPrompts" :disabled="busy">编译全部提示词</button>
-              <button class="shot-quick-btn" @click="renderAll" :disabled="busy">生成全部</button>
-              <button class="shot-quick-btn" @click="assemble" :disabled="busy">合成成片</button>
+              <button type="button" class="video-task-metric is-pending" :class="{ on: videoFilter === 'pending' }" @click="videoFilter = videoFilter === 'pending' ? '' : 'pending'">{{ videoStats.pending }} 生成中</button>
+              <button type="button" class="video-task-metric is-done" :class="{ on: videoFilter === 'done' }" @click="videoFilter = videoFilter === 'done' ? '' : 'done'">{{ videoStats.done }} 完成</button>
+              <button type="button" class="video-task-metric is-failed" :class="{ on: videoFilter === 'failed' }" @click="videoFilter = videoFilter === 'failed' ? '' : 'failed'">{{ videoStats.failed }} 失败</button>
             </div>
           </div>
           <div class="video-task-table">
-            <div v-for="(s, i) in shots" :key="s.id" class="video-task-row"
-              :class="{ active: activeShotId === s.id, 'is-pending': s.status === 'processing', 'is-failed': s.status === 'failed' }"
-              @click="activeShotId = s.id">
+            <div v-for="(s, i) in videoRows" :key="s.id" class="video-task-row"
+              :class="['is-' + shotState(s), { active: activeShotId === s.id }]"
+              role="button" tabindex="0" @click="activeShotId = s.id" @keydown.enter.prevent="activeShotId = s.id">
               <div class="video-task-preview">
-                <video v-if="s.videoUrl" :src="staticUrl(s.videoUrl)" muted preload="metadata"></video>
-                <img v-else-if="shotThumb(s)" :src="staticUrl(shotThumb(s))" alt="" />
-                <div v-else class="video-task-empty-thumb">空</div>
+                <video v-if="s.videoUrl" :src="staticUrl(s.videoUrl)" preload="none" playsinline muted tabindex="-1"></video>
+                <img v-else-if="shotThumb(s)" :src="staticUrl(shotThumb(s))" alt="" loading="lazy" />
+                <div v-else class="video-task-empty"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg></div>
+                <span class="video-task-index">#{{ String(i + 1).padStart(2, '0') }}</span>
               </div>
               <div class="video-task-main">
-                <div class="video-task-line">
-                  <span class="video-task-index">#{{ String(i + 1).padStart(2, '0') }}</span>
-                  <strong class="video-task-name">{{ s.lyric || (s.vocalState === 'vocal_active' ? '唱段' : '间奏') }}</strong>
-                  <span class="video-task-status" :class="s.status === 'completed' ? 'is-done' : (s.status === 'failed' ? 'is-failed' : 'is-pending')">{{ statusZh(s.status) }}</span>
-                </div>
+                <div class="video-task-line"><strong class="video-task-name">{{ s.lyric || (s.vocalState === 'vocal_active' ? '唱段' : '间奏') }}</strong></div>
                 <div class="video-task-meta-line">
-                  {{ Number(s.startSeconds || 0).toFixed(2) }}s 起 · {{ Number(s.seconds || 0).toFixed(2) }}s · {{ s.frames }} 帧
-                  <span class="video-task-sep">·</span>{{ s.shotSize }}
-                  <span class="video-task-sep">·</span>{{ s.vocalState === 'vocal_active' ? '唱' : '非唱' }}
-                  <span class="video-task-sep">·</span>绑定参考图 {{ refCards.length }} 张
+                  <span class="video-task-state" :class="'is-' + shotState(s)"><i class="dot" :class="{ ok: shotState(s) === 'done', pending: shotState(s) === 'pending' }" />{{ shotStateLabel(s) }}</span>
+                  <span class="video-task-sep">·</span><span>{{ Number(s.seconds || 0).toFixed(2) }}s</span>
+                  <span class="video-task-sep">·</span><span class="truncate">{{ s.shotSize }} · {{ s.vocalState === 'vocal_active' ? '唱' : '非唱' }}</span>
                 </div>
-                <div class="video-task-prompt">{{ s.prompt || '还没编译提示词' }}</div>
-                <div v-if="s.errorMsg" class="video-task-error">{{ s.errorMsg.slice(0, 80) }}</div>
+                <div v-if="s.errorMsg" class="video-task-error" :title="s.errorMsg">{{ s.errorMsg.slice(0, 100) }}</div>
               </div>
-              <div class="video-task-actions">
-                <button class="btn btn-sm" @click.stop="render(s)" :disabled="busy || s.status === 'processing'">
-                  {{ s.videoUrl ? '重绘' : '生成' }}
-                </button>
-              </div>
+              <button class="btn btn-icon btn-sm video-task-action" :title="s.videoUrl ? '重绘' : '生成'" :disabled="busy || s.status === 'processing'" @click.stop="render(s)">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+              </button>
             </div>
-            <div v-if="!shots.length" class="video-task-empty">还没有分镜 —— 先点上面「切分详细分镜」</div>
+            <div v-if="!videoRows.length" class="video-task-empty">{{ shots.length ? '这个筛选下没有段落' : '还没有分镜 —— 先点下发按钮切分详细分镜' }}</div>
+          </div>
+          <div class="video-task-foot">
+            <input v-model.number="maxSeconds" class="input mv-num" type="number" min="5" max="15" step="0.5" title="最长切分（秒，H3 上限 15）" />
+            <button class="shot-quick-btn" @click="genShots" :disabled="busy">切分详细分镜</button>
+            <button class="shot-quick-btn" @click="genPrompts" :disabled="busy">编译全部提示词</button>
+            <button class="shot-quick-btn" @click="renderAll" :disabled="busy">生成全部</button>
+            <button class="shot-quick-btn" @click="assemble" :disabled="busy">合成成片</button>
           </div>
         </section>
 
-        <aside class="video-task-side">
-          <div class="video-task-player">
+        <div v-if="activeShot" class="video-task-side">
+          <div class="video-main-col">
+            <div class="video-main-scroll">
+              <div class="video-main-grid">
+                <section class="video-inspector-section">
+                  <span class="video-inspector-label">本段内容</span>
+                  <label class="field">
+                    <span class="field-label">歌词 / 这一段在唱的句子</span>
+                    <textarea v-model="activeShot.lyric" class="textarea" rows="6" placeholder="这段的歌词（没唱就留空）" @blur="saveShot(activeShot)" />
+                  </label>
+                  <label class="field">
+                    <span class="field-label">段落内容 <span class="dim">(来自初步分镜)</span></span>
+                    <pre class="mv-outline-pre">{{ outlineTextOf(activeShot) || '—' }}</pre>
+                  </label>
+                </section>
+
+                <section class="video-inspector-section">
+                  <div class="video-inspector-prompt-head">
+                    <span class="video-inspector-label">绑定参考图</span>
+                    <span class="tag mono">已绑定 {{ refCards.length }} 张</span>
+                  </div>
+                  <div class="storyboard-ref-list is-embedded">
+                    <div v-for="a in refCards" :key="a.id" class="storyboard-ref-item bound">
+                      <button type="button" class="storyboard-ref-thumb" @click.stop="openViewerUrl(a.url, a.name)">
+                        <img :src="staticUrl(a.url)" class="previewable-image" loading="lazy" />
+                      </button>
+                      <div class="storyboard-ref-main">
+                        <span class="storyboard-ref-name">{{ a.name }}</span>
+                        <span class="storyboard-ref-meta">{{ a.kindLabel }}</span>
+                        <span class="storyboard-ref-state is-ready">已绑定 · 可用于生成</span>
+                      </div>
+                    </div>
+                    <div v-if="!refCards.length" class="storyboard-ref-empty">还没有人物/场景图 —— 先去「资产制作」出图</div>
+                  </div>
+                </section>
+              </div>
+
+              <section class="video-inspector-section">
+                <div class="video-inspector-prompt-head">
+                  <span class="video-inspector-label video-inspector-label-hero">视频提示词</span>
+                  <div class="video-inspector-actions">
+                    <button type="button" class="btn btn-sm" @click="genPrompts" :disabled="busy">编译全部提示词</button>
+                    <button type="button" class="btn btn-sm" @click="saveShot(activeShot)">保存这条</button>
+                  </div>
+                </div>
+                <textarea v-model="activeShot.prompt" class="textarea video-inspector-prompt" rows="14"
+                  placeholder="还没有提示词 —— 点「编译全部提示词」整批生成；生成后可在这里直接改" />
+                <div class="video-inspector-prompt-extra">
+                  <div class="video-inspector-fields">
+                    <select v-model="activeShot.vocalState" class="input" @change="saveShot(activeShot)">
+                      <option value="vocal_active">唱</option><option value="non_vocal">非唱</option>
+                    </select>
+                    <select v-model="activeShot.shotSize" class="input" @change="saveShot(activeShot)">
+                      <option value="中远景">中远景</option><option value="中景">中景</option>
+                      <option value="近景">近景</option><option value="特写">特写</option>
+                    </select>
+                    <input v-model="activeShot.camera" class="input" placeholder="机位（英文，留空用默认固定机位）" @blur="saveShot(activeShot)" />
+                  </div>
+                </div>
+              </section>
+            </div>
+          </div>
+
+          <aside class="video-task-player">
             <div class="video-player-head">
               <div class="video-player-head-info">
-                <span class="video-player-title">预览 {{ activeShot ? '分镜' + String(activeShot.shotNumber).padStart(2, '0') : '' }}</span>
-                <span class="video-player-sub" v-if="activeShot">{{ Number(activeShot.seconds || 0).toFixed(2) }}s · {{ activeShot.shotSize }}</span>
+                <div class="video-player-title">预览 分镜{{ String(activeShot.shotNumber).padStart(2, '0') }}</div>
+                <span class="video-task-status" :class="'is-' + shotState(activeShot)">
+                  <span class="dot" :class="{ ok: shotState(activeShot) === 'done', pending: shotState(activeShot) === 'pending' }" />{{ shotStateLabel(activeShot) }}
+                </span>
+                <span class="video-player-sub">{{ Number(activeShot.seconds || 0).toFixed(2) }}s</span>
               </div>
+              <a v-if="activeShot.videoUrl" class="btn btn-sm" :href="staticUrl(activeShot.videoUrl)" download>下载</a>
             </div>
             <div class="video-player-stage">
-              <video v-if="activeShot?.videoUrl" :src="staticUrl(activeShot.videoUrl)" controls></video>
-              <div v-else class="video-task-empty">{{ activeShot ? (activeShot.status === 'processing' ? '生成中…' : '还没生成') : '选一段看预览' }}</div>
+              <video v-if="activeShot.videoUrl" :src="staticUrl(activeShot.videoUrl)" controls></video>
+              <div v-else class="video-task-empty">{{ activeShot.status === 'processing' ? '生成中…' : '还没生成' }}</div>
             </div>
-          </div>
-          <div class="video-inspector">
-            <div class="video-inspector-label">绑定参考图（{{ refCards.length }}）</div>
-            <div class="video-ref-row">
-              <img v-for="c in refCards" :key="c.id" :src="staticUrl(c.url)" :title="c.name" />
-              <span v-if="!refCards.length" class="dim">还没有人物/场景参考图</span>
+            <div class="video-inspector">
+              <div class="mv-row">
+                <button class="btn btn-primary btn-sm" @click="render(activeShot)" :disabled="busy || activeShot.status === 'processing'">{{ activeShot.videoUrl ? '重绘这一段' : '生成这一段' }}</button>
+              </div>
+              <template v-if="pj.outputUrl">
+                <div class="video-inspector-label">成片</div>
+                <video class="mv-video" :src="staticUrl(pj.outputUrl)" controls />
+                <a class="btn btn-sm" :href="staticUrl(pj.outputUrl)" target="_blank">打开成片</a>
+              </template>
             </div>
-            <div class="video-inspector-label">视频提示词</div>
-            <div v-if="activeShot" class="video-inspector-fields">
-              <select v-model="activeShot.vocalState" class="input" @change="saveShot(activeShot)">
-                <option value="vocal_active">唱</option><option value="non_vocal">非唱</option>
-              </select>
-              <select v-model="activeShot.shotSize" class="input" @change="saveShot(activeShot)">
-                <option value="中远景">中远景</option><option value="中景">中景</option>
-                <option value="近景">近景</option><option value="特写">特写</option>
-              </select>
-              <input v-model="activeShot.camera" class="input" placeholder="机位（英文）" @blur="saveShot(activeShot)" />
-              <input v-model="activeShot.lyric" class="input" placeholder="这段的歌词" @blur="saveShot(activeShot)" />
-            </div>
-            <pre class="video-prompt-box">{{ activeShot?.prompt || '—' }}</pre>
-            <div class="mv-row">
-              <button class="btn btn-sm" @click="genPrompts" :disabled="busy">重新编译全部</button>
-              <button class="btn btn-primary btn-sm" @click="render(activeShot)" :disabled="busy || !activeShot">重绘</button>
-              <a v-if="activeShot?.videoUrl" class="btn btn-ghost btn-sm" :href="staticUrl(activeShot.videoUrl)" target="_blank">下载这段</a>
-            </div>
-            <template v-if="pj.outputUrl">
-              <div class="video-inspector-label">成片</div>
-              <video class="mv-video" :src="staticUrl(pj.outputUrl)" controls />
-            </template>
-          </div>
-        </aside>
+          </aside>
+        </div>
       </div>
         </div>
       </div>
@@ -671,8 +711,26 @@ const videoStats = computed(() => ({
   done: shots.value.filter((s) => s.videoUrl).length,
   failed: shots.value.filter((s) => s.status === 'failed').length,
 }))
-const refCards = computed(() => assets.value.filter((a) => a.image).map((a) => ({ id: a.id, url: a.image, name: a.name })))
+const refCards = computed(() => assets.value.filter((a) => a.image)
+  .map((a) => ({ id: a.id, url: a.image, name: a.name, kindLabel: a.kind === 'character' ? '人物卡' : '场景卡' })))
 const shotThumb = (s) => s.firstFrameImage || characters.value.find((a) => a.image)?.image || null
+// 列表筛选 / 状态（照短剧：done / pending / failed / ready）
+const videoFilter = ref('')
+const shotState = (s) => s.status === 'processing' ? 'pending' : (s.videoUrl ? 'done' : (s.status === 'failed' ? 'failed' : 'ready'))
+const shotStateLabel = (s) => ({ pending: '生成中', done: '已完成', failed: '失败', ready: '待生成' })[shotState(s)]
+const videoRows = computed(() => {
+  if (!videoFilter.value) return shots.value
+  if (videoFilter.value === 'done') return shots.value.filter((s) => !!s.videoUrl)
+  if (videoFilter.value === 'pending') return shots.value.filter((s) => s.status === 'processing')
+  return shots.value.filter((s) => s.status === 'failed')
+})
+const openViewerUrl = (src, title) => { viewer.value = { open: true, src, title } }
+const outlineTextOf = (s) => {
+  const list = outline.value
+  if (!list.length) return ''
+  const hit = list.find((o) => Number(o.start) <= Number(s.startSeconds) && Number(o.end) >= Number(s.endSeconds))
+  return hit?.what || list[Math.min((Number(s.shotNumber) || 1) - 1, list.length - 1)]?.what || ''
+}
 const outline = computed(() => {
   try { return JSON.parse(pj.value.outline || '[]') } catch { return [] }
 })
@@ -1424,5 +1482,83 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 .video-ref-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .video-ref-row img { width: 78px; aspect-ratio: 16 / 9; object-fit: cover; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-1); }
 .video-prompt-box { margin: 0; padding: 10px; max-height: 220px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-1); color: var(--text-2); font-size: 11px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+
+/* ===== 视频制作：三栏 workbench（照短剧 .video-task-* / .video-main-* / .video-inspector-*） ===== */
+.video-task-workbench.has-player { display: grid; grid-template-columns: var(--vleft, 250px) minmax(0, 1fr) var(--vright, 340px); min-height: 560px; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-1); }
+.video-task-workbench { display: grid; grid-template-columns: minmax(0, 1fr); min-height: 560px; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-1); }
+.video-task-side { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) var(--vright, 340px); border-left: 1px solid var(--border); background: var(--bg-2); }
+.video-task-list { min-height: 0; overflow: hidden; display: flex; flex-direction: column; background: var(--bg-1); }
+.video-task-head { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.video-task-title { font-size: 13px; line-height: 1.2; font-weight: 850; color: var(--text-0); }
+.video-task-meta { margin-top: 3px; font-size: 11px; color: var(--text-3); }
+.video-task-metrics { display: flex; gap: 6px; flex-wrap: wrap; }
+.video-task-metric, .video-task-status, .video-task-state { display: inline-flex; align-items: center; gap: 5px; min-height: 22px; padding: 0 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-2); color: var(--text-2); font-size: 11px; font-weight: 750; white-space: nowrap; }
+button.video-task-metric { cursor: pointer; font-family: inherit; }
+button.video-task-metric:hover { box-shadow: 0 0 0 2px var(--accent); }
+button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); color: var(--accent-text, var(--accent)); }
+.video-task-metric.is-done, .video-task-status.is-done, .video-task-state.is-done { color: #3fb950; border-color: rgba(63,185,80,.35); background: rgba(63,185,80,.12); }
+.video-task-metric.is-pending, .video-task-status.is-pending, .video-task-state.is-pending { color: var(--accent-text, var(--accent)); border-color: var(--accent); background: rgba(120,140,255,.12); }
+.video-task-metric.is-failed, .video-task-status.is-failed, .video-task-state.is-failed { color: #d29922; border-color: rgba(210,153,34,.35); background: rgba(210,153,34,.12); }
+.video-task-state.is-ready { color: var(--text-3); }
+.video-task-state { min-height: 18px; padding: 0; border: 0; background: none; font-weight: 700; font-size: 11px; }
+.dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; display: inline-block; opacity: .55; }
+.dot.ok { background: #3fb950; opacity: 1; }
+.dot.pending { background: var(--accent); opacity: 1; animation: mv-pulse 1.2s infinite; }
+@keyframes mv-pulse { 0%, 100% { opacity: 1 } 50% { opacity: .25 } }
+.video-task-table { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
+.video-task-row { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 6px 8px; border-top: 1px solid var(--border); cursor: pointer; transition: background .16s; }
+.video-task-row:first-child { border-top: 0; }
+.video-task-row:hover, .video-task-row.is-pending { background: var(--bg-hover, var(--bg-2)); }
+.video-task-row.is-failed { background: rgba(248,81,73,.1); }
+.video-task-row.active { background: rgba(120,140,255,.12); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.video-task-preview { position: relative; width: 56px; aspect-ratio: 16 / 9; overflow: hidden; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-2); }
+.video-task-preview video, .video-task-preview img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.video-task-preview .video-task-empty { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-3); padding: 0; }
+.video-task-index { position: absolute; left: 3px; bottom: 3px; padding: 0 4px; border-radius: 3px; background: rgba(0,0,0,.65); color: #fff; font-family: var(--font-mono, monospace); font-size: 9px; }
+.video-task-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.video-task-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.video-task-name { font-size: 12px; font-weight: 700; color: var(--text-0); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.video-task-meta-line { display: flex; align-items: center; gap: 2px; font-size: 11px; color: var(--text-3); min-width: 0; }
+.video-task-sep { margin: 0 3px; }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.video-task-error { font-size: 11px; color: #d29922; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.video-task-action { flex-shrink: 0; }
+.video-task-empty { padding: 20px 12px; text-align: center; font-size: 12px; color: var(--text-3); }
+.video-task-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; border-top: 1px solid var(--border); }
+.shot-quick-btn { background: none; border: 0; padding: 0; color: var(--accent-text, var(--accent)); font-size: 11px; font-weight: 700; cursor: pointer; font-family: inherit; white-space: nowrap; }
+.shot-quick-btn:hover { text-decoration: underline; }
+.shot-quick-btn:disabled { opacity: .45; cursor: default; text-decoration: none; }
+.video-main-col { min-width: 0; min-height: 0; display: flex; }
+.video-main-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 14px 16px 16px; background: var(--bg-1); }
+.video-main-grid { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+.video-inspector-section { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.video-inspector-label { font-size: 10.5px; font-weight: 780; letter-spacing: .04em; color: var(--text-3); text-transform: uppercase; }
+.video-inspector-label-hero { font-size: 11.5px; color: var(--text-2); }
+.video-inspector-prompt-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.video-inspector-actions { display: flex; gap: 6px; }
+.video-inspector-prompt { min-height: 260px; font-size: 11.5px; line-height: 1.6; }
+.video-inspector-prompt-extra { display: flex; flex-direction: column; gap: 8px; }
+.video-inspector-fields { display: grid; grid-template-columns: 92px 92px minmax(0, 1fr); gap: 6px; }
+.video-inspector-fields .input { height: 30px; font-size: 11.5px; }
+.mv-outline-pre { margin: 0; padding: 8px 10px; max-height: 120px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-2); color: var(--text-2); font-size: 11.5px; line-height: 1.55; white-space: pre-wrap; }
+.storyboard-ref-list.is-embedded { max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.storyboard-ref-item { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 8px; align-items: center; padding: 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-2); }
+.storyboard-ref-item.bound { border-color: var(--accent); }
+.storyboard-ref-thumb { width: 56px; aspect-ratio: 16 / 9; padding: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-1); cursor: pointer; }
+.storyboard-ref-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.storyboard-ref-main { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.storyboard-ref-name { font-size: 11.5px; font-weight: 700; color: var(--text-0); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.storyboard-ref-meta { font-size: 10.5px; color: var(--text-3); }
+.storyboard-ref-state { font-size: 10.5px; font-weight: 700; color: var(--text-3); }
+.storyboard-ref-state.is-ready { color: #3fb950; }
+.storyboard-ref-empty { padding: 16px 8px; text-align: center; font-size: 11.5px; color: var(--text-3); }
+.video-task-player { min-width: 0; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--border); background: var(--bg-1); overflow-y: auto; }
+.video-player-head { min-height: 44px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 12px; padding: 8px 14px; border-bottom: 1px solid var(--border); }
+.video-player-head-info { min-width: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.video-player-title { color: var(--text-0); font-size: 13px; font-weight: 700; white-space: nowrap; }
+.video-player-sub { color: var(--text-3); font-size: 11px; white-space: nowrap; }
+.video-player-stage { aspect-ratio: 16 / 9; display: flex; align-items: center; justify-content: center; background: #000; flex: none; }
+.video-player-stage video { width: 100%; height: 100%; object-fit: contain; display: block; }
+.video-inspector { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
 
 </style>
