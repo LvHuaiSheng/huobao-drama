@@ -1150,18 +1150,18 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 }
 
 .mv-asset-err { font-size: 11.5px; margin: 0 10px 8px; line-height: 1.5; }
-/* 看大图（必须压在最上层：编辑弹窗是 70，大图要 90，否则被挡住） */
-.mv-modal.mv-viewer-overlay { z-index: 90; padding: 16px; }
-.mv-viewer { width: min(1280px, calc(100vw - 48px)); max-height: calc(100vh - 32px); padding: 12px; }
+/* 看大图（压在最上层；尺寸贴近短剧但不比它小） */
+.mv-modal.mv-viewer-overlay { z-index: 90; padding: 12px; }
+.mv-viewer { width: min(1600px, calc(100vw - 24px)); max-height: calc(100vh - 24px); padding: 12px; }
 .mv-viewer-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .mv-viewer-title { font-size: 13px; font-weight: 600; }
-.mv-viewer-img { width: 100%; max-height: calc(100vh - 130px); object-fit: contain; border-radius: var(--radius); background: var(--bg-2); display: block; }
+.mv-viewer-img { width: 100%; max-height: calc(100vh - 110px); object-fit: contain; border-radius: var(--radius); background: var(--bg-2); display: block; }
 
-/* 编辑资产弹窗 —— 与短剧素材详情弹窗（.mat-detail-*）同款结构与数值 */
-.mv-modal.mv-detail-overlay { z-index: 70; padding: 28px; }
+/* 编辑资产弹窗 —— 与短剧素材详情弹窗（.mat-detail-*）同款结构；预览区放得更大，贴近短剧看到的大小 */
+.mv-modal.mv-detail-overlay { z-index: 70; padding: 24px; }
 .mv-detail-dialog {
-  width: min(1040px, calc(100vw - 56px));
-  max-height: calc(100vh - 56px);
+  width: min(1180px, calc(100vw - 40px));
+  max-height: calc(100vh - 48px);
   display: flex; flex-direction: column; overflow: hidden;
 }
 .mv-detail-head {
@@ -1176,8 +1176,8 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 .mv-detail-body { min-height: 0; overflow: auto; padding: 16px; }
 .mv-detail-shell {
   display: grid;
-  grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
-  gap: 14px; align-items: start;
+  grid-template-columns: minmax(440px, 620px) minmax(0, 1fr);   /* 预览区放大（短剧那种大图观感） */
+  gap: 16px; align-items: start;
 }
 .mv-detail-preview-panel,
 .mv-detail-editor-panel { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
