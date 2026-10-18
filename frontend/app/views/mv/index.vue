@@ -40,12 +40,12 @@
           <input v-model.number="maxSeconds" class="input mv-num" type="number" min="5" max="15" step="0.5" title="最长切分（秒，H3 上限 15）" />
           <button class="btn btn-sm" @click="genShots" :disabled="busy || !pj.vocalStem"
             :title="pj.vocalStem ? '按人声轨切分并标唱/非唱' : '先点右边「人声分离」——分镜的唱/非唱要靠人声轨判断'">切分详细分镜</button>
-          <button class="btn btn-sm" @click="genPrompts" :disabled="busy">编译全部提示词</button>
-          <button class="btn btn-sm" @click="renderAll" :disabled="busy">生成全部</button>
-          <button class="btn btn-sm" @click="assemble" :disabled="busy">合成成片</button>
+          <button class="btn btn-sm" @click="askGenPrompts" :disabled="busy">编译全部提示词</button>
+          <button class="btn btn-sm" @click="askRenderAll" :disabled="busy">生成全部</button>
+          <button class="btn btn-sm" @click="askAssemble" :disabled="busy">合成成片</button>
           <button class="btn btn-sm" :class="{ 'is-on': selectMode }" @click="toggleSelectMode">{{ selectMode ? '退出批量' : '批量选择' }}</button>
         </template>
-        <button v-if="current" class="btn btn-sm" :class="{ 'is-on': !!pj.vocalStem }" @click="separateVocals" :disabled="busy || separating"
+        <button v-if="current" class="btn btn-sm" :class="{ 'is-on': !!pj.vocalStem }" @click="askSeparate" :disabled="busy || separating"
           :title="pj.vocalStem ? '已分离：' + pj.vocalStem : '用 demucs 分出人声轨，供唱/非唱判据用'">
           {{ separating ? '分离中…' : (pj.vocalStem ? '已分离人声' : '人声分离') }}
         </button>
@@ -368,7 +368,7 @@
                 <div class="video-inspector-prompt-head">
                   <span class="video-inspector-label video-inspector-label-hero">视频提示词</span>
                   <div class="video-inspector-actions">
-                    <button type="button" class="btn btn-sm" @click="genPrompts" :disabled="busy">编译全部提示词</button>
+                    <button type="button" class="btn btn-sm" @click="askGenPrompts" :disabled="busy">编译全部提示词</button>
                     <button type="button" class="btn btn-sm" @click="runCheck" :disabled="busy || checking">{{ checking ? '体检中…' : '体检' }}</button>
                     <button type="button" class="btn btn-sm" @click="saveShot(activeShot)">保存这条</button>
                   </div>
@@ -480,6 +480,17 @@
           <div v-if="!taskRows.length" class="video-task-empty">还没有生成记录</div>
         </div>
       </aside>
+    </div>
+    <!-- 通用确认弹窗（危险/耗时操作先确认） -->
+    <div v-if="confirmDlg" class="mv-modal" @click.self="confirmDlg = null">
+      <div class="card mv-modal-box mv-modal-sm">
+        <h3>{{ confirmDlg.title }}</h3>
+        <p class="mv-desc">{{ confirmDlg.body }}</p>
+        <div class="mv-modal-actions">
+          <button class="btn btn-sm" @click="confirmDlg = null">取消</button>
+          <button class="btn btn-sm btn-primary" @click="runConfirm">{{ confirmDlg.okText || '确定' }}</button>
+        </div>
+      </div>
     </div>
     <!-- 删除项目确认 -->
     <div v-if="deleteTarget" class="mv-modal" @click.self="deleteTarget = null">
@@ -820,6 +831,28 @@ const videoRows = computed(() => {
 const openViewerUrl = (src, title) => { viewer.value = { open: true, src, title } }
 // 任务抽屉（照短剧）：只列本项目各段的生成记录
 const taskDrawer = ref(false)
+const confirmDlg = ref(null)
+function askConfirm(title, body, okText, action) { confirmDlg.value = { title, body, okText, action } }
+function runConfirm() {
+  const fn = confirmDlg.value?.action
+  confirmDlg.value = null
+  if (typeof fn === 'function') fn()
+}
+const askGenPrompts = () => askConfirm('编译全部提示词',
+  `会用当前文本模型重写这 ${shots.value.length} 段的提示词，手改过的内容会被覆盖。继续？`, '开始编译', genPrompts)
+const askRenderAll = () => {
+  const left = shots.value.filter((s) => !s.videoUrl).length
+  askConfirm('生成全部',
+    `还有 ${left} 段没生成，每段约 2~4 分钟，共约 ${left * 3} 分钟，期间队列串行跑。继续？`, '开始生成', renderAll)
+}
+const askAssemble = () => askConfirm('合成成片',
+  `会把 ${shots.value.filter((s) => s.videoUrl).length}/${shots.value.length} 段拼接并混入原曲。没生成完会拦下。继续？`, '开始合成', assemble)
+const askSeparate = () => askConfirm('人声分离',
+  pj.value.vocalStem
+    ? '这首歌已经分离过，会直接复用已有的人声轨。继续？'
+    : '会用 demucs 分离人声（首次约 1~3 分钟，之后秒回）。分离结果用来判断分镜的「唱/非唱」。继续？',
+  pj.value.vocalStem ? '复用' : '开始分离', separateVocals)
+
 const checking = ref(false)
 const separating = ref(false)
 async function separateVocals() {
