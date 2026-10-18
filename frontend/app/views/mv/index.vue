@@ -36,6 +36,9 @@
       </div>
       <div class="head-actions">
         <span v-if="busy && stepMsg" class="busy-hint">{{ stepMsg }}</span>
+        <button v-if="current" class="btn btn-sm" @click="taskDrawer = true">
+          任务<span v-if="activeTaskCount" class="mv-task-badge">{{ activeTaskCount }}</span>
+        </button>
         <button class="btn btn-sm" @click="loadProjects" :disabled="busy">刷新</button>
         <button v-if="!current" class="btn btn-primary btn-sm" @click="showCreate = true" :disabled="busy">新建 MV</button>
       </div>
@@ -412,6 +415,44 @@
     <!-- 全部弹层都 Teleport 到 body：.page 有 animation(fill both) 会残留 transform，
          会让 position:fixed 变成相对 .page 定位 → 大图被裁小、被编辑弹窗挡住 -->
     <Teleport to="body">
+    <!-- 任务抽屉：照短剧右侧抽屉，只看这个 MV 项目的生成任务 -->
+    <div v-if="taskDrawer" class="mv-drawer-overlay" @click.self="taskDrawer = false">
+      <aside class="mv-drawer" role="dialog" aria-modal="true" aria-label="任务">
+        <header class="mv-drawer-head">
+          <div>
+            <div class="video-task-title">任务</div>
+            <div class="video-task-meta">本项目的 {{ taskRows.length }} 条生成记录</div>
+          </div>
+          <div class="mv-drawer-head-actions">
+            <button class="btn btn-sm" @click="refresh">刷新</button>
+            <button class="btn btn-ghost btn-sm" @click="taskDrawer = false">关闭</button>
+          </div>
+        </header>
+        <div class="video-task-metrics mv-drawer-metrics">
+          <span class="video-task-metric is-pending">{{ videoStats.pending }} 生成中</span>
+          <span class="video-task-metric is-done">{{ videoStats.done }} 完成</span>
+          <span class="video-task-metric is-failed">{{ videoStats.failed }} 失败</span>
+        </div>
+        <div class="video-task-table">
+          <div v-for="r in taskRows" :key="r.id" class="video-task-row" :class="'is-' + r.state" @click="taskDrawer = false; tab = 'video'; activeShotId = r.id">
+            <div class="video-task-preview">
+              <video v-if="r.videoUrl" :src="staticUrl(r.videoUrl)" muted preload="metadata"></video>
+              <div v-else class="video-task-empty"><span>{{ r.kind }}</span></div>
+              <span class="video-task-index">#{{ String(r.shotNumber).padStart(2, '0') }}</span>
+            </div>
+            <div class="video-task-main">
+              <div class="video-task-line"><strong class="video-task-name">{{ r.title }}</strong></div>
+              <div class="video-task-meta-line">
+                <span class="video-task-state" :class="'is-' + r.state"><i class="dot" :class="{ ok: r.state === 'done', pending: r.state === 'pending' }" />{{ r.label }}</span>
+                <span class="video-task-sep">·</span><span>{{ r.duration }}</span>
+              </div>
+              <div v-if="r.errorMsg" class="video-task-error" :title="r.errorMsg">{{ r.errorMsg.slice(0, 90) }}</div>
+            </div>
+          </div>
+          <div v-if="!taskRows.length" class="video-task-empty">还没有生成记录</div>
+        </div>
+      </aside>
+    </div>
     <!-- 删除项目确认 -->
     <div v-if="deleteTarget" class="mv-modal" @click.self="deleteTarget = null">
       <div class="card mv-modal-box mv-modal-sm">
@@ -749,6 +790,18 @@ const videoRows = computed(() => {
   return shots.value.filter((s) => s.status === 'failed')
 })
 const openViewerUrl = (src, title) => { viewer.value = { open: true, src, title } }
+// 任务抽屉（照短剧）：只列本项目各段的生成记录
+const taskDrawer = ref(false)
+const taskRows = computed(() => shots.value
+  .filter((s) => s.status === 'processing' || s.videoUrl || s.status === 'failed' || s.taskId)
+  .map((s) => ({
+    id: s.id, shotNumber: s.shotNumber, kind: '视频',
+    title: s.lyric || (s.vocalState === 'vocal_active' ? '唱段' : '间奏'),
+    state: shotState(s), label: shotStateLabel(s),
+    duration: s.videoUrl ? Number(s.seconds || 0).toFixed(2) + 's' : '—',
+    videoUrl: s.videoUrl, errorMsg: s.errorMsg,
+  })))
+const activeTaskCount = computed(() => videoStats.value.pending + videoStats.value.failed)
 const outlineTextOf = (s) => {
   const list = outline.value
   if (!list.length) return ''
@@ -1587,5 +1640,13 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); color: var(--
 .video-player-stage { aspect-ratio: 16 / 9; display: flex; align-items: center; justify-content: center; background: #000; flex: none; }
 .video-player-stage video { width: 100%; height: 100%; object-fit: contain; display: block; }
 .video-inspector { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+
+/* 任务按钮 + 右侧任务抽屉（照短剧 .task-drawer） */
+.mv-task-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 16px; height: 16px; margin-left: 5px; padding: 0 4px; border-radius: 999px; background: var(--accent); color: #fff; font-size: 10px; font-weight: 800; line-height: 1; }
+.mv-drawer-overlay { position: fixed; inset: 0; z-index: 120; display: flex; justify-content: flex-end; background: rgba(0,0,0,.42); }
+.mv-drawer { width: min(420px, calc(100vw - 40px)); height: 100%; display: flex; flex-direction: column; background: var(--bg-1); border-left: 1px solid var(--border); }
+.mv-drawer-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.mv-drawer-head-actions { display: flex; gap: 6px; }
+.mv-drawer-metrics { padding: 8px 14px; border-bottom: 1px solid var(--border); }
 
 </style>
