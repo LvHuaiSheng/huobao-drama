@@ -116,6 +116,11 @@ export class MiniMaxVideoAdapter implements VideoProviderAdapter {
       body.chain_enabled = true
     }
 
+    // 音乐 MV（2026-10-18）：MV 路由填的专用字段原样并进请求体（短剧不传 → 这一行等于没有）
+    if (record.mvExtras && typeof record.mvExtras === 'object') {
+      Object.assign(body, record.mvExtras)
+    }
+
     return {
       url: joinProviderUrl(config.baseUrl, '/v2', '/video_generation'),
       method: 'POST',

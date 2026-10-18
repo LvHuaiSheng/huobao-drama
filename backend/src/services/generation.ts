@@ -85,6 +85,9 @@ interface GenerateVideoParams {
   chainSegments?: number
   /** 续拍链计划（仅首段携带）：按序的分镜 payload 数组，runner 逐段取用 */
   chainPlan?: ChainSegmentPayload[]
+  /** 音乐 MV（2026-10-18）：MV 专用透传字段（mv_audio / mv_start_seconds / mv_frames / mv_width / mv_height），
+   *  由 mv 路由填，适配器原样并进请求体；短剧路径不传 → 行为不变。 */
+  mvExtras?: Record<string, unknown>
 }
 
 /** 链内单段 payload（与 tasks 入口字段对齐的子集） */
@@ -308,6 +311,7 @@ export async function generateVideo(params: GenerateVideoParams): Promise<number
     chainSegment: params.chainSegment,
     chainSegments: params.chainSegments,
     chainPlan: params.chainPlan,
+    mvExtras: params.mvExtras,
   })
 
   logTaskStart('VideoTask', 'enqueue', {
@@ -535,6 +539,7 @@ async function processTask(id: number, config: AIConfig) {
         chainId: params.chainId,
         chainSegment: params.chainSegment,
         chainSegments: params.chainSegments,
+        mvExtras: params.mvExtras,
       }))
     }
 
