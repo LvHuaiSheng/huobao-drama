@@ -1486,7 +1486,6 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 .video-task-error { font-size: 11px; color: var(--warning, #d29922); }
 .video-task-actions { display: flex; align-items: center; gap: 6px; }
 .video-task-empty { padding: 24px 12px; text-align: center; font-size: 12px; color: var(--text-3); }
-.video-task-side { min-width: 0; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--border); background: var(--bg-2); overflow-y: auto; }
 .video-task-player { display: flex; flex-direction: column; border-bottom: 1px solid var(--border); }
 .video-player-head { min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 6px 12px; padding: 8px 14px; border-bottom: 1px solid var(--border); }
 .video-player-head-info { min-width: 0; display: flex; align-items: center; gap: 8px; }
@@ -1503,9 +1502,9 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 .video-prompt-box { margin: 0; padding: 10px; max-height: 220px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-1); color: var(--text-2); font-size: 11px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
 
 /* ===== 视频制作：三栏 workbench（照短剧 .video-task-* / .video-main-* / .video-inspector-*） ===== */
-.video-task-workbench.has-player { display: grid; grid-template-columns: var(--vleft, 250px) minmax(0, 1fr) var(--vright, 340px); min-height: 560px; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-1); }
+.video-task-workbench.has-player { display: grid; grid-template-columns: var(--vleft, 250px) minmax(0, 1fr); min-height: 560px; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-1); }
 .video-task-workbench { display: grid; grid-template-columns: minmax(0, 1fr); min-height: 560px; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-1); }
-.video-task-side { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) var(--vright, 340px); border-left: 1px solid var(--border); background: var(--bg-2); }
+.video-task-side { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(280px, 1fr) minmax(300px, var(--vright, 340px)); border-left: 1px solid var(--border); background: var(--bg-2); }
 .video-task-list { min-height: 0; overflow: hidden; display: flex; flex-direction: column; background: var(--bg-1); }
 .video-task-head { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
 .video-task-title { font-size: 13px; line-height: 1.2; font-weight: 850; color: var(--text-0); }
