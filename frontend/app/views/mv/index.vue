@@ -307,37 +307,95 @@
       </div>
     </div>
 
-    <!-- 编辑资产（点卡片弹出，照短剧：左边大图 + 右边表单） -->
+    <!-- 编辑资产（与短剧素材详情弹窗同款：顶部标题栏 + 左侧预览 + 右侧编辑 + 底部最终提示词 + 操作栏） -->
     <Teleport to="body">
-      <div v-if="editAsset" class="mv-modal" @click.self="editAsset = null">
-        <div class="card mv-dialog">
-          <div class="mv-dialog-media">
-            <img v-if="editAsset.image" :src="staticUrl(editAsset.image)" :alt="editAsset.name" @click="openViewer(editAsset)" />
-            <div v-else class="mv-cover-empty">未出图</div>
-          </div>
-          <div class="mv-dialog-form">
-            <h3>{{ editAsset.kind === 'character' ? '编辑人物' : '编辑场景' }}</h3>
-            <label class="mv-label">名字</label>
-            <input v-model="editAsset.name" class="input" />
-            <template v-if="editAsset.kind === 'character'">
-              <label class="mv-label">样貌（脸 / 身形；颜色写唯一值，别写「或」）</label>
-              <textarea v-model="editAsset.appearance" class="input textarea" rows="3"></textarea>
-              <label class="mv-label">妆造（服装 / 配饰）</label>
-              <textarea v-model="editAsset.styling" class="input textarea" rows="3"></textarea>
-            </template>
-            <label class="mv-label">{{ editAsset.kind === 'character' ? '描述（提取时写的原文，可留空）' : '场景描述（地点 / 时间 / 光线 / 色调 / 氛围）' }}</label>
-            <textarea v-model="editAsset.description" class="input textarea" rows="4"></textarea>
-            <label class="mv-label">最终提示词（点「生成提示词」写入，也可以手改）</label>
-            <textarea v-model="editAsset.prompt" class="input textarea" rows="5" placeholder="还没生成"></textarea>
-            <div class="mv-modal-actions">
-              <button class="btn btn-sm" @click="editAsset = null">取消</button>
-              <button class="btn btn-sm" @click="genPrompt(editAsset)" :disabled="promptBusy === editAsset.id">
-                {{ promptBusy === editAsset.id ? '生成中…' : '生成提示词' }}
-              </button>
-              <button class="btn btn-primary btn-sm" @click="saveAssetFull">保存</button>
+      <div v-if="editAsset" class="mv-modal mv-detail-overlay" @click.self="editAsset = null">
+        <section class="card mv-detail-dialog">
+          <header class="mv-detail-head">
+            <div class="mv-detail-title-block">
+              <span class="mv-detail-kicker">{{ editAsset.kind === 'character' ? '人物' : '场景' }}</span>
+              <h2 class="mv-detail-title">{{ editAsset.name || '未命名' }}</h2>
+            </div>
+            <div class="mv-detail-head-actions">
+              <span :class="['mv-detail-state', editAsset.image ? 'is-ready' : '']">{{ editAsset.image ? '已生成' : '待生成' }}</span>
+              <button class="btn btn-ghost btn-sm" @click="editAsset = null">关闭</button>
+            </div>
+          </header>
+
+          <div class="mv-detail-body">
+            <div class="mv-detail-shell">
+              <!-- 左侧：视觉预览（固定 16:9 横屏，点开看大图） -->
+              <aside class="mv-detail-preview-panel">
+                <div class="mv-detail-section-title">
+                  <span>视觉预览</span>
+                  <span :class="['mv-detail-state', editAsset.image ? 'is-ready' : '']">{{ editAsset.image ? '已生成' : '待生成' }}</span>
+                </div>
+                <button type="button" class="mv-detail-media-frame" :disabled="!editAsset.image" @click.stop="openViewer(editAsset)">
+                  <img v-if="editAsset.image" :src="staticUrl(editAsset.image)" :alt="editAsset.name" />
+                  <span v-else class="mv-detail-media-empty">{{ editAsset.kind === 'character' ? '未出形象图' : '未出场景图' }}</span>
+                </button>
+                <div class="mv-detail-meta-row">
+                  <div class="mv-detail-meta-item">
+                    <span>类型</span>
+                    <strong>{{ editAsset.kind === 'character' ? '人物形象（16:9 三视图）' : '场景图（跟随项目画幅）' }}</strong>
+                  </div>
+                  <div class="mv-detail-meta-item">
+                    <span>生卡</span>
+                    <strong>{{ editAsset.card || '未生成' }}</strong>
+                  </div>
+                </div>
+              </aside>
+
+              <!-- 右侧：编辑信息 -->
+              <section class="mv-detail-editor-panel">
+                <div class="mv-detail-section-title">
+                  <span>编辑信息</span>
+                  <span class="dim">改完点下面「保存修改」</span>
+                </div>
+
+                <div class="mv-detail-edit-grid" :class="editAsset.kind === 'character' ? 'is-character' : 'is-scene'">
+                  <label class="mv-detail-edit-field">
+                    <span>名字</span>
+                    <input v-model="editAsset.name" class="input" placeholder="名字" />
+                  </label>
+                  <template v-if="editAsset.kind === 'character'">
+                    <label class="mv-detail-edit-field">
+                      <span>样貌</span>
+                      <textarea v-model="editAsset.appearance" class="textarea mv-detail-textarea" rows="5" placeholder="脸 / 身形；颜色写唯一值，别写「或」"></textarea>
+                    </label>
+                    <label class="mv-detail-edit-field">
+                      <span>妆造</span>
+                      <textarea v-model="editAsset.styling" class="textarea mv-detail-textarea" rows="5" placeholder="服装 / 配饰（颜色 + 款式）"></textarea>
+                    </label>
+                  </template>
+                  <label class="mv-detail-edit-field">
+                    <span>{{ editAsset.kind === 'character' ? '描述（提取原文，可留空）' : '场景描述' }}</span>
+                    <textarea v-model="editAsset.description" class="textarea mv-detail-textarea" rows="5"
+                      :placeholder="editAsset.kind === 'character' ? '提取时写下的那段描述' : '地点 / 时间 / 光线 / 色调 / 氛围'"></textarea>
+                  </label>
+                </div>
+
+                <!-- 最终提示词面板 -->
+                <div class="mv-detail-prompt-panel">
+                  <div class="mv-detail-section-title">
+                    <span>{{ editAsset.kind === 'character' ? '最终提示词 · 三视图' : '最终提示词 · 场景图' }}</span>
+                    <button class="btn btn-sm mv-detail-prompt-gen" @click="genPrompt(editAsset)" :disabled="promptBusy === editAsset.id">
+                      {{ promptBusy === editAsset.id ? '生成中…' : (editAsset.prompt ? '重新生成' : '生成提示词') }}
+                    </button>
+                  </div>
+                  <textarea v-model="editAsset.prompt" class="mv-detail-prompt-text" rows="6" placeholder="还没生成 —— 先点右上角「生成提示词」"></textarea>
+                </div>
+              </section>
             </div>
           </div>
-        </div>
+
+          <footer class="mv-detail-foot">
+            <div class="mv-detail-actions">
+              <button class="btn btn-sm" @click="editAsset = null">取消</button>
+              <button class="btn btn-primary btn-sm" @click="saveAssetFull">保存修改</button>
+            </div>
+          </footer>
+        </section>
       </div>
     </Teleport>
 
@@ -929,21 +987,86 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 .mv-viewer-title { font-size: 13px; font-weight: 600; }
 .mv-viewer-img { width: 100%; max-height: 76vh; object-fit: contain; border-radius: var(--radius); background: var(--bg-2); display: block; }
 
-/* 编辑资产弹窗（照短剧：左图 + 右表单） */
-.mv-dialog {
-  width: min(1040px, calc(100vw - 56px)); max-height: calc(100vh - 56px);
-  padding: 14px; display: grid; grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
-  gap: 14px; overflow: auto;
+/* 编辑资产弹窗 —— 与短剧素材详情弹窗（.mat-detail-*）同款结构与数值 */
+.mv-modal.mv-detail-overlay { z-index: 70; padding: 28px; }
+.mv-detail-dialog {
+  width: min(1040px, calc(100vw - 56px));
+  max-height: calc(100vh - 56px);
+  display: flex; flex-direction: column; overflow: hidden;
 }
-.mv-dialog-media {
+.mv-detail-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 14px 16px;
+  border-bottom: 1px solid var(--surface-outline);
+}
+.mv-detail-title-block { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.mv-detail-kicker { color: var(--text-3); font-size: 10px; font-weight: 800; letter-spacing: 0.12em; }
+.mv-detail-title { margin: 0; color: var(--text-0); font-size: 18px; line-height: 1.2; }
+.mv-detail-head-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.mv-detail-body { min-height: 0; overflow: auto; padding: 16px; }
+.mv-detail-shell {
+  display: grid;
+  grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
+  gap: 14px; align-items: start;
+}
+.mv-detail-preview-panel,
+.mv-detail-editor-panel { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.mv-detail-preview-panel { position: sticky; top: 0; }
+.mv-detail-section-title {
+  min-height: 24px; display: flex; align-items: center;
+  justify-content: space-between; gap: 10px;
+  color: var(--text-1); font-size: 12px; font-weight: 820; letter-spacing: 0.02em;
+}
+.mv-detail-section-title .dim { font-size: 11px; font-weight: 560; text-align: right; }
+.mv-detail-state {
+  min-height: 20px; display: inline-flex; align-items: center;
+  padding: 0 7px; border-radius: 999px;
+  background: var(--overlay-track); color: var(--text-3);
+  font-size: 10px; font-weight: 760; white-space: nowrap;
+}
+.mv-detail-state.is-ready { color: var(--success); background: var(--success-bg); }
+.mv-detail-media-frame {
+  position: relative; width: 100%; aspect-ratio: 16 / 9;   /* 预览框固定横屏 16:9（与短剧一致） */
+  display: block; padding: 0;
+  border: 1px solid var(--surface-outline);
+  border-radius: var(--radius); background: var(--bg-2);
+  color: var(--text-3); overflow: hidden; cursor: zoom-in;
+}
+.mv-detail-media-frame:disabled { cursor: default; opacity: 1; }
+.mv-detail-media-frame img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.mv-detail-media-empty { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--text-3); }
+.mv-detail-meta-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.mv-detail-meta-item {
+  min-width: 0; padding: 9px 10px;
+  border: 1px solid var(--surface-outline);
+  border-radius: var(--radius); background: var(--surface-muted, var(--bg-2));
+}
+.mv-detail-meta-item span { display: block; color: var(--text-3); font-size: 10px; font-weight: 780; letter-spacing: 0.04em; }
+.mv-detail-meta-item strong {
+  display: block; margin-top: 4px; min-width: 0;
+  color: var(--text-0); font-size: 12px; line-height: 1.35;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mv-detail-edit-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.mv-detail-edit-grid.is-character,
+.mv-detail-edit-grid.is-scene { grid-template-columns: 1fr; }
+.mv-detail-edit-field { min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+.mv-detail-edit-field > span { color: var(--text-3); font-size: 10px; font-weight: 780; letter-spacing: 0.04em; }
+.mv-detail-textarea { min-height: 164px; resize: vertical; }
+.mv-detail-prompt-panel { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 16px; }
+.mv-detail-prompt-gen { margin-left: auto; flex-shrink: 0; }
+.mv-detail-prompt-text {
+  width: 100%; margin-top: 10px; padding: 10px 12px;
   border: 1px solid var(--border); border-radius: var(--radius);
-  background: var(--bg-2); overflow: hidden; align-self: start; min-height: 140px;
+  background: var(--surface, var(--bg-input)); color: var(--text-0);
+  font-size: 12.5px; line-height: 1.6; resize: vertical; min-height: 112px; font-family: inherit;
 }
-.mv-dialog-media img { width: 100%; display: block; cursor: zoom-in; }
-.mv-dialog-form { display: flex; flex-direction: column; min-width: 0; }
-.mv-dialog-form h3 { margin: 0 0 6px; font-size: 15px; }
-.mv-dialog-form .mv-label { display: block; margin: 10px 0 4px; }
-.mv-dialog-form .textarea { font-size: 12.5px; }
+.mv-detail-foot {
+  display: flex; align-items: center; justify-content: flex-end;
+  gap: 8px; padding: 12px 16px;
+  border-top: 1px solid var(--surface-outline);
+}
+.mv-detail-actions { display: flex; align-items: center; gap: 8px; }
 
 /* 弹窗 */
 .mv-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center; z-index: 50; }
