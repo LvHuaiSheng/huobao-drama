@@ -147,6 +147,43 @@ async function waitTask(taskId: number, timeoutMs = 600_000) {
   throw new Error(`任务 ${taskId} 超时未完成`)
 }
 
+/** 本地读时长（ffprobe），建项目时就能给粗分镜用，不必先送 4080 */
+function probeSeconds(file: string): Promise<number> {
+  return new Promise((resolve) => {
+    try {
+      ffmpeg.ffprobe(file, (err: any, meta: any) => {
+        const d = Number(meta?.format?.duration)
+        resolve(err || !Number.isFinite(d) ? 0 : Math.round(d * 1000) / 1000)
+      })
+    } catch { resolve(0) }
+  })
+}
+
+/**
+ * 原曲送 4080 —— **只在第一次真正需要时做**（切分镜 / 提交片段），建项目时只落本地。
+ * 做一次就记住文件名，之后每段只带名字。
+ */
+async function ensureRemoteSong(project: any): Promise<string> {
+  if (project?.songRemoteName) return String(project.songRemoteName)
+  if (!project?.songFile) throw new Error('项目里没有歌文件')
+  const rel = mvDir(Number(project.id))
+  const wavRel = `${rel}/song_32k.wav`
+  await to32kWav(getAbsolutePath(project.songFile), getAbsolutePath(wavRel))
+  const name = `mv_p${project.id}_song_32k.wav`
+  const info = await shimPost<{ name: string; seconds: number }>('/v2/mv/audio', {
+    name, data: readAsDataUrl(wavRel, 'audio/wav'),
+  })
+  const remote = String(info?.name || name)
+  await db.update(schema.mvProjects).set({
+    songRemoteName: remote,
+    songSeconds: Number(info?.seconds || project.songSeconds || 0),
+    updatedAt: now(),
+  }).where(eq(schema.mvProjects.id, Number(project.id)))
+  project.songRemoteName = remote
+  logTaskSuccess('MV', 'song-pushed', { id: project.id, name: remote, seconds: info?.seconds })
+  return remote
+}
+
 // ---------------------------------------------------------------- 项目
 
 app.get('/config', async (c) => {
@@ -197,7 +234,8 @@ app.post('/projects', async (c) => {
   const maxShot = Math.min(HARD_MAX_S, Math.max(5, Number(body.max_shot_seconds) || DEFAULT_MAX_S))
   const ts = now()
   try {
-    const id = await getInsertId(db.insert(schema.mvProjects).values({
+    // 建项目只做本地的事：落库 + 存歌 + 读时长。**不碰 4080**（原曲等切分镜时才送）
+    const res = await db.insert(schema.mvProjects).values({
       title: String(body.title || '未命名 MV').slice(0, 80),
       idea: String(body.idea || '').slice(0, 2000),
       lyrics: String(body.lyrics || '').slice(0, 8000),
@@ -205,23 +243,17 @@ app.post('/projects', async (c) => {
       maxShotSeconds: maxShot,
       status: 'draft',
       createdAt: ts, updatedAt: ts,
-    }))
+    })
+    const id = getInsertId(res)
     const rel = mvDir(id)
     const srcExt = String(body.song.name || '').toLowerCase().endsWith('.wav') ? '.wav' : '.mp3'
-    const srcAbs = path.join(STORAGE_ROOT, rel, `song_src${srcExt}`)
-    fs.writeFileSync(srcAbs, b64ToBuffer(String(body.song.data)))
-    const wavRel = `${rel}/song_32k.wav`
-    await to32kWav(srcAbs, getAbsolutePath(wavRel))
-    const remoteName = `mv_p${id}_song_32k.wav`
-    const info = await shimPost<{ name: string; seconds: number }>('/v2/mv/audio', {
-      name: remoteName, data: readAsDataUrl(wavRel, 'audio/wav'),
-    })
-    await db.update(schema.mvProjects).set({
-      songFile: wavRel, songRemoteName: String(info?.name || remoteName),
-      songSeconds: Number(info?.seconds || 0), updatedAt: now(),
-    }).where(eq(schema.mvProjects.id, id))
-    logTaskSuccess('MV', 'create-project', { id, song: info?.name, seconds: info?.seconds })
-    return created(c, { id, song_seconds: Number(info?.seconds || 0), song_remote_name: String(info?.name || remoteName) })
+    const songRel = `${rel}/song_src${srcExt}`
+    fs.writeFileSync(getAbsolutePath(songRel), b64ToBuffer(String(body.song.data)))
+    const seconds = await probeSeconds(getAbsolutePath(songRel))
+    await db.update(schema.mvProjects).set({ songFile: songRel, songSeconds: seconds, updatedAt: now() })
+      .where(eq(schema.mvProjects.id, id))
+    logTaskSuccess('MV', 'create-project', { id, seconds })
+    return created(c, { id, song_seconds: seconds, song_remote_name: '' })
   } catch (err: any) {
     logTaskError('MV', 'create-project', { error: err?.message })
     return serverError(c, err?.message || '建 MV 项目失败')
@@ -349,12 +381,18 @@ app.post('/projects/:id/shots', async (c) => {
   const id = Number(c.req.param('id'))
   const project = await loadProject(id)
   if (!project) return notFound(c, 'MV 项目不存在')
-  if (!project.songRemoteName) return badRequest(c, '原曲还没推到 4080')
   const body = await c.req.json().catch(() => ({} as any))
   const maxS = Math.min(HARD_MAX_S, Number(body.max_seconds || project.maxShotSeconds) || DEFAULT_MAX_S)
+  // 到这一步才第一次把原曲转 32k 送 4080（建项目时不碰它）
+  let remoteSong = ''
+  try {
+    remoteSong = await ensureRemoteSong(project)
+  } catch (err: any) {
+    return serverError(c, `原曲送 4080 失败：${err?.message || err}`)
+  }
   let plan: { shots: any[]; grid?: number[] }
   try {
-    plan = await shimPost('/v2/mv/plan', { audio_file: project.songRemoteName, max_seconds: maxS, target_seconds: 7 })
+    plan = await shimPost('/v2/mv/plan', { audio_file: remoteSong, max_seconds: maxS, target_seconds: 7 })
   } catch (err: any) {
     return serverError(c, `切段失败：${err?.message}`)
   }
@@ -472,7 +510,6 @@ app.post('/projects/:id/shots/:sid/render', async (c) => {
     .where(and(eq(schema.mvShots.id, sid), eq(schema.mvShots.projectId, id)))
   if (!shot) return notFound(c, '分镜不存在')
   if (!shot.prompt) return badRequest(c, '这一段还没提示词，先编译提示词')
-  if (!project.songRemoteName) return badRequest(c, '原曲没在 4080 上')
   const body = await c.req.json().catch(() => ({} as any))
   const refs: string[] = []
   if (project.characterImage) refs.push(readAsDataUrl(project.characterImage, 'image/png'))
@@ -489,7 +526,7 @@ app.post('/projects/:id/shots/:sid/render', async (c) => {
       seed: body.seed ? Number(body.seed) : undefined,
       // MV 专用字段（适配器原样并进请求体；短剧路径不传这些）
       mvExtras: {
-        mv_audio: { name: project.songRemoteName },
+        mv_audio: { name: await ensureRemoteSong(project) },
         mv_start_seconds: Number(shot.startSeconds) || 0,
         mv_frames: Number(shot.frames) || snapFrames(Number(shot.seconds) || 5.167),
         mv_width: 768, mv_height: 1344,
