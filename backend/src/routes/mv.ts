@@ -654,7 +654,7 @@ app.post('/projects/:id/shots', async (c) => {
   try {
     remoteSong = await ensureRemoteSong(project)
   } catch (err: any) {
-    return serverError(c, `原曲送 4080 失败：${err?.message || err}`)
+    return serverError(c, `原曲上传失败：${err?.message || err}`)
   }
   let plan: { shots: any[]; grid?: number[] }
   try {

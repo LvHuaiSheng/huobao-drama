@@ -250,7 +250,7 @@
       <!-- 第 4 页 · 视频制作 -->
       <div v-else class="mv-block">
         <div class="card mv-block">
-          <div class="mv-block-title">详细分镜（4080 按歌切段 → 配景别/机位/歌词 → 编译六段式提示词）</div>
+          <div class="mv-block-title">详细分镜（按歌切段 → 配景别/机位/歌词 → 编译六段式提示词）</div>
           <div v-if="!hasOutline() || !hasCharImage()" class="mv-warn">
             {{ !hasOutline() ? '还没有初步分镜' : '还没有人物图' }} —— 先去第 {{ !hasOutline() ? 2 : 3 }} 步做完。
             <button class="btn btn-sm" @click="tab = !hasOutline() ? 'outline' : 'assets'">去第 {{ !hasOutline() ? 2 : 3 }} 步</button>
