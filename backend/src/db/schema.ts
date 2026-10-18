@@ -332,6 +332,7 @@ export const mvAssets = sqliteTable('mv_assets', {
   styling: text('styling'),
   image: text('image'),                  // static/ 相对路径（人物板 / 场景图）
   card: text('card'),                    // RefMod 卡名
+  imageStatus: text('image_status'),     // processing | failed（后台排队出图）
   sortOrder: integer('sort_order').default(0),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),

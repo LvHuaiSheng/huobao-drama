@@ -113,7 +113,7 @@
 
       <!-- 第 3 页 · 资产制作 -->
       <div v-else-if="tab === 'assets'" class="card mv-block">
-        <div class="mv-block-title">资产制作（从分镜提示词提取人物和场景 → 出图 → 抽卡）</div>
+        <div class="mv-block-title">资产制作（从分镜提示词提取人物和场景 → 出图 → 生卡）</div>
         <div v-if="!hasStory() || !hasOutline()" class="mv-warn">
           {{ !hasStory() ? '还没有分镜提示词' : '还没有初步分镜' }} —— 先把前面步骤做完。
           <button class="btn btn-sm" @click="tab = !hasStory() ? 'origin' : 'outline'">去第 {{ !hasStory() ? 1 : 2 }} 步</button>
@@ -134,10 +134,15 @@
             <div v-else class="mv-asset-ph">未出图</div>
             <textarea v-model="a.description" class="input textarea" rows="4" @blur="saveAsset(a)"></textarea>
             <div class="mv-asset-foot">
-              <button class="btn btn-sm" @click="makeImage(a)" :disabled="busy">出图</button>
-              <button class="btn btn-sm" @click="makeCard(a)" :disabled="busy || !a.image">抽卡</button>
-              <span v-if="a.card" class="tag tag-success">卡已抽</span>
+              <button class="btn btn-sm" @click="makeImage(a)" :disabled="a.imageStatus === 'processing'">
+                {{ a.imageStatus === 'processing' ? '出图中…' : '出图' }}
+              </button>
+              <button class="btn btn-sm" @click="makeCard(a)" :disabled="!a.image || cardBusy === a.id">生卡</button>
+              <span v-if="a.card" class="tag tag-success">卡已生成</span>
             </div>
+            <p v-if="a.imageStatus && a.imageStatus.startsWith('failed')" class="bad mv-asset-err">
+              出图失败：{{ a.imageStatus.slice(8) }}
+            </p>
           </div>
         </div>
         <div class="mv-row mv-row-end">
@@ -285,6 +290,7 @@ const stepMsg = ref('')
 const showCreate = ref(false)
 const showRename = ref(false)
 const renameTitle = ref('')
+const cardBusy = ref(null)
 const tab = ref('origin')
 const maxSeconds = ref(10)
 const storyPrompt = ref('')
@@ -467,18 +473,33 @@ async function removeAsset(a) {
   if (r) assets.value = r.assets || []
 }
 
+/** 出图：提交后立刻返回，真出图在后台按项目排队（一张在跑，别的卡照样能点） */
 async function makeImage(a) {
   if (!need(!!String(a.description || '').trim(), '这个资产还没有描述 —— 先写清外貌/场景，再出图')) return
-  const r = await call(() => api.post(`/mv/projects/${pj.value.id}/assets/${a.id}/image`, {
-    name: a.name, description: a.description,
-  }), '正在出图（约 1 分钟）…')
-  if (r) assets.value = r.assets || []
+  try {
+    const r = await api.post(`/mv/projects/${pj.value.id}/assets/${a.id}/image`, {
+      name: a.name, description: a.description,
+    })
+    if (r) assets.value = r.assets || []
+    syncTimer()
+  } catch (err) {
+    alert(String(err?.message || err))
+  }
 }
 
+/** 生卡：单张几秒，只锁这一张的按钮 */
 async function makeCard(a) {
-  if (!need(!!a.image, '先给这个资产「出图」，再抽卡')) return
-  const r = await call(() => api.post(`/mv/projects/${pj.value.id}/assets/${a.id}/card`, {}), '正在抽卡…')
-  if (r) assets.value = r.assets || []
+  if (!need(!!a.image, '先给这个资产「出图」，再生卡')) return
+  if (cardBusy.value === a.id) return
+  cardBusy.value = a.id
+  try {
+    const r = await api.post(`/mv/projects/${pj.value.id}/assets/${a.id}/card`, {})
+    if (r) assets.value = r.assets || []
+  } catch (err) {
+    alert(String(err?.message || err))
+  } finally {
+    cardBusy.value = null
+  }
 }
 
 async function genOutline() {
@@ -533,12 +554,21 @@ async function assemble() {
 async function pollOnce() {
   if (!current.value || busy.value) return
   const r = await api.get(`/mv/projects/${pj.value.id}`).catch(() => null)
-  if (r) { current.value = r; shots.value = r.shots || [] }
+  if (!r) return
+  current.value = r
+  shots.value = r.shots || []
+  // 资产只同步「出图状态 / 图 / 卡」，别把正在编辑的名字和描述冲掉
+  for (const na of r.assets || []) {
+    const cur = assets.value.find((x) => x.id === na.id)
+    if (cur) { cur.image = na.image; cur.imageStatus = na.imageStatus; cur.card = na.card }
+    else assets.value.push(na)
+  }
   syncTimer()
 }
 
 function syncTimer() {
   const needPoll = shots.value.some((s) => s.status === 'processing')
+    || assets.value.some((a) => a.imageStatus === 'processing')
   if (needPoll && !timer) timer = setInterval(pollOnce, 6000)
   if (!needPoll && timer) { clearInterval(timer); timer = null }
 }
@@ -661,6 +691,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
   border: 1px dashed var(--border); border-radius: var(--radius); margin-bottom: 8px;
 }
 .mv-asset .textarea { font-size: 12px; margin-bottom: 8px; }
+.mv-asset-err { font-size: 11.5px; margin: 6px 0 0; line-height: 1.5; }
 .mv-asset-foot { display: flex; align-items: center; gap: 6px; }
 
 .mv-outline { margin: 6px 0 0; padding-left: 20px; font-size: 12.5px; line-height: 1.8; }

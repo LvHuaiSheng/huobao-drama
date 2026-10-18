@@ -401,6 +401,18 @@ app.delete('/projects/:id/assets/:aid', async (c) => {
  * 人物 = 四格定妆板（左1 正脸特写 + 正视/左侧/背面全身，纯白底，只出现一张脸）
  * 场景 = 一张场景图；两者都拼上项目的风格头
  */
+/**
+ * 后台出图排队：同一个项目里的出图请求按点击顺序**串行**跑（图片通道一次只吃一个任务），
+ * 每个资产各自记状态，所以一张卡在出图时别的卡照样能点。
+ */
+const renderQueue = new Map<number, Promise<unknown>>()
+function enqueueRender(pid: number, job: () => Promise<unknown>) {
+  const prev = renderQueue.get(pid) ?? Promise.resolve()
+  const next = prev.then(job, job)
+  renderQueue.set(pid, next.catch(() => { }))
+  return next
+}
+
 app.post('/projects/:id/assets/:aid/image', async (c) => {
   const id = Number(c.req.param('id'))
   const aid = Number(c.req.param('aid'))
@@ -427,31 +439,39 @@ app.post('/projects/:id/assets/:aid/image', async (c) => {
     : [rawRule, '']
   const rule = asset.kind === 'character' ? charRule : sceneRule
   const prompt = [head, rule, desc].filter(Boolean).join('\n')
-  const rel = mvDir(id)
-  try {
-    const size = '1152x2048'   // 9:16（32 的倍数，比例精确）
-    const taskId = await generateImage({ prompt, size })
-    const task = await waitTask(taskId)
-    if (!task.localPath) throw new Error('图片任务完成但没拿到文件路径')
-    const imageRel = `${rel}/${asset.kind}-${asset.id}.png`
-    fs.copyFileSync(getAbsolutePath(task.localPath), getAbsolutePath(imageRel))
-    await db.update(schema.mvAssets).set({ image: imageRel, updatedAt: now() }).where(eq(schema.mvAssets.id, aid))
-    logTaskSuccess('MV', 'asset-image', { id, aid, kind: asset.kind, task: taskId })
-    return success(c, { assets: await assetsOf(id) })
-  } catch (err: any) {
-    logTaskError('MV', 'asset-image', { id, aid, error: err?.message })
-    return serverError(c, `出图失败：${err?.message}`)
-  }
+  const kind = asset.kind
+  const assetId = asset.id
+  // 立刻回「已排队」，真实出图在后台按项目串行跑（接口不再阻塞一分钟）
+  await db.update(schema.mvAssets).set({ imageStatus: 'processing', updatedAt: now() })
+    .where(eq(schema.mvAssets.id, aid))
+  enqueueRender(id, async () => {
+    try {
+      const size = '1152x2048'   // 9:16（32 的倍数，比例精确）
+      const taskId = await generateImage({ prompt, size })
+      const task = await waitTask(taskId)
+      if (!task.localPath) throw new Error('图片任务完成但没拿到文件路径')
+      const imageRel = `${mvDir(id)}/${kind}-${assetId}.png`
+      fs.copyFileSync(getAbsolutePath(task.localPath), getAbsolutePath(imageRel))
+      await db.update(schema.mvAssets).set({ image: imageRel, imageStatus: null, updatedAt: now() })
+        .where(eq(schema.mvAssets.id, aid))
+      logTaskSuccess('MV', 'asset-image', { id, aid, kind, task: taskId })
+    } catch (err: any) {
+      await db.update(schema.mvAssets).set({ imageStatus: `failed: ${String(err?.message ?? err).slice(0, 160)}`, updatedAt: now() })
+        .where(eq(schema.mvAssets.id, aid))
+      logTaskError('MV', 'asset-image', { id, aid, error: err?.message })
+    }
+  })
+  return success(c, { assets: await assetsOf(id) })
 })
 
-/** 给资产抽卡（卡保证人物/场景锁得住；声音卡不接，音轨就是原曲） */
+/** 给资产生卡（卡保证人物/场景锁得住；声音卡不接，音轨就是原曲） */
 app.post('/projects/:id/assets/:aid/card', async (c) => {
   const id = Number(c.req.param('id'))
   const aid = Number(c.req.param('aid'))
   const [asset] = await db.select().from(schema.mvAssets)
     .where(and(eq(schema.mvAssets.id, aid), eq(schema.mvAssets.projectId, id)))
   if (!asset) return notFound(c, '资产不存在')
-  if (!asset.image) return badRequest(c, '先出图，再抽卡')
+  if (!asset.image) return badRequest(c, '先出图，再生卡')
   const cardName = `refmod_${asset.kind}-mv${id}a${aid}_v1`
   try {
     await shimPost('/v2/refmod/extract', {

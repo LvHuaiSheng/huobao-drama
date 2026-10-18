@@ -380,11 +380,14 @@ export const sqliteSchemaStatements = [
     styling TEXT,
     image TEXT,                    -- static/ 相对路径（人物板 / 场景图）
     card TEXT,                     -- RefMod 卡名
+    image_status TEXT,             -- processing | failed（后台出图排队状态，NULL = 空闲）
     sort_order INTEGER DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_mv_assets_project ON mv_assets (project_id, kind, sort_order)`,
+  // 2026-10-18 后台排队出图：一张卡点了出图，别的卡还能接着点（服务端按项目串行排队）
+  `ALTER TABLE mv_assets ADD COLUMN image_status TEXT`,
 ]
 
 /**
