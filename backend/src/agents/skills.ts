@@ -46,6 +46,11 @@ const AGENT_SKILL_MAP: Record<string, string[]> = {
     'prompt-generator/prop-prompt',
     'prompt-generator/video-prompt',
   ],
+  // 音乐 MV（2026-10-18）：4 个 MV Agent 各带一份写法规范，设置页里可看可改
+  mv_extractor: ['mv-extractor'],
+  mv_storyboard: ['mv-storyboard'],
+  mv_camera: ['mv-camera'],
+  mv_asset_image: ['mv-asset-image'],
 }
 
 /** 每个 Agent 的 Workspace（filesystem 工作目录 + 原生技能注册）

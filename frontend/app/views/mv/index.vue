@@ -44,27 +44,30 @@
 
     <!-- 项目详情：四页（照短剧的分页做法） -->
     <template v-else>
-      <nav class="page-tabs">
-        <button type="button" :class="['tab-btn', { on: tab === 'origin' }]" @click="tab = 'origin'">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3z"/></svg>
-          原始内容
-        </button>
-        <button type="button" :class="['tab-btn', { on: tab === 'outline' }]" @click="tab = 'outline'">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>
-          初步分镜
-          <span class="tab-count">{{ outline.length }}</span>
-        </button>
-        <button type="button" :class="['tab-btn', { on: tab === 'assets' }]" @click="tab = 'assets'">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-          资产制作
-          <span v-if="assets.length" class="tab-count">{{ assets.length }}</span>
-        </button>
-        <button type="button" :class="['tab-btn', { on: tab === 'video' }]" @click="tab = 'video'">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
-          视频制作
-          <span v-if="shots.length" class="tab-count">{{ shots.length }}</span>
-        </button>
-      </nav>
+      <div class="mv-layout">
+        <aside class="mv-side">
+          <div class="mv-side-title">MV 制作流程</div>
+          <button type="button" :class="['mv-side-item', { active: tab === 'origin' }]" @click="tab = 'origin'">
+            <span class="mv-side-icon">🎵</span>
+            <span class="mv-side-label">原始内容</span>
+          </button>
+          <button type="button" :class="['mv-side-item', { active: tab === 'outline' }]" @click="tab = 'outline'">
+            <span class="mv-side-icon">📜</span>
+            <span class="mv-side-label">初步分镜</span>
+            <span v-if="outline.length" class="mv-side-count">{{ outline.length }}</span>
+          </button>
+          <button type="button" :class="['mv-side-item', { active: tab === 'assets' }]" @click="tab = 'assets'">
+            <span class="mv-side-icon">🧑‍🎤</span>
+            <span class="mv-side-label">资产制作</span>
+            <span v-if="assets.length" class="mv-side-count">{{ assets.length }}</span>
+          </button>
+          <button type="button" :class="['mv-side-item', { active: tab === 'video' }]" @click="tab = 'video'">
+            <span class="mv-side-icon">🎥</span>
+            <span class="mv-side-label">视频制作</span>
+            <span v-if="shots.length" class="mv-side-count">{{ shots.length }}</span>
+          </button>
+        </aside>
+        <div class="mv-main">
 
       <!-- 第 1 页 · 原始内容 -->
       <div v-if="tab === 'origin'" class="card mv-block">
@@ -111,9 +114,9 @@
       <!-- 第 3 页 · 资产制作 -->
       <div v-else-if="tab === 'assets'" class="card mv-block">
         <div class="mv-block-title">资产制作（从分镜提示词提取人物和场景 → 出图 → 抽卡）</div>
-        <div v-if="!storyPrompt.trim()" class="mv-warn">
-          还没有分镜提示词 —— 先去第 1 步「原始内容」写好。
-          <button class="btn btn-sm" @click="tab = 'origin'">去第 1 步</button>
+        <div v-if="!hasStory() || !hasOutline()" class="mv-warn">
+          {{ !hasStory() ? '还没有分镜提示词' : '还没有初步分镜' }} —— 先把前面步骤做完。
+          <button class="btn btn-sm" @click="tab = !hasStory() ? 'origin' : 'outline'">去第 {{ !hasStory() ? 1 : 2 }} 步</button>
         </div>
         <div class="mv-row">
           <button class="btn btn-primary btn-sm" @click="extract" :disabled="busy">提取人物和场景</button>
@@ -146,9 +149,9 @@
       <div v-else class="mv-block">
         <div class="card mv-block">
           <div class="mv-block-title">详细分镜（4080 按歌切段 → 配景别/机位/歌词 → 编译六段式提示词）</div>
-          <div v-if="!characters.some((c) => c.image)" class="mv-warn">
-            还没有人物图 —— 先去第 3 步「资产制作」提取人物并出图。
-            <button class="btn btn-sm" @click="tab = 'assets'">去第 3 步</button>
+          <div v-if="!hasOutline() || !hasCharImage()" class="mv-warn">
+            {{ !hasOutline() ? '还没有初步分镜' : '还没有人物图' }} —— 先去第 {{ !hasOutline() ? 2 : 3 }} 步做完。
+            <button class="btn btn-sm" @click="tab = !hasOutline() ? 'outline' : 'assets'">去第 {{ !hasOutline() ? 2 : 3 }} 步</button>
           </div>
           <div class="mv-row">
             <span class="mv-label">最长切分（秒，H3 上限 15）</span>
@@ -218,6 +221,8 @@
           <div v-if="pj.outputUrl" class="mv-row">
             <a class="btn btn-sm" :href="staticUrl(pj.outputUrl)" target="_blank">打开成片</a>
           </div>
+        </div>
+      </div>
         </div>
       </div>
     </template>
@@ -311,12 +316,20 @@ function need(ok, msg) {
   return false
 }
 const hasStory = () => !!storyPrompt.value.trim()
+const hasOutline = () => outline.value.length > 0
 const hasCharImage = () => characters.value.some((a) => a.image)
 
+/** 全链路门禁：第 2 步要原始内容，第 3 步要初步分镜，第 4 步要人物图 */
+function guardStep(n) {
+  if (n >= 2 && !hasStory()) return need(false, '先去第 1 步「原始内容」写好分镜提示词')
+  if (n >= 3 && !hasOutline()) return need(false, '先去第 2 步「初步分镜」点「AI 改写成分镜」')
+  if (n >= 4 && !hasCharImage()) return need(false, '先去第 3 步「资产制作」提取人物并出图')
+  return true
+}
+
 function goNext(to) {
-  if (to === 'outline' && !need(hasStory(), '先去「原始内容」写好分镜提示词，再进「初步分镜」')) return
-  if (to === 'assets' && !need(outline.value.length, '先去「初步分镜」点「AI 改写成分镜」，再进「资产制作」')) return
-  if (to === 'video' && !need(hasCharImage(), '先去「资产制作」提取人物并出图，再进「视频制作」')) return
+  const step = to === 'outline' ? 2 : to === 'assets' ? 3 : 4
+  if (!guardStep(step)) return
   tab.value = to
 }
 
@@ -434,7 +447,7 @@ async function saveStyle(v) {
 }
 
 async function extract() {
-  if (!need(hasStory(), '先去第 1 步「原始内容」写好分镜提示词，再来提取人物和场景')) return
+  if (!guardStep(3)) return
   const r = await call(() => api.post(`/mv/projects/${pj.value.id}/extract`, { story_prompt: storyPrompt.value }),
     'LLM 正在提取人物和场景…')
   if (r) {
@@ -469,20 +482,20 @@ async function makeCard(a) {
 }
 
 async function genOutline() {
-  if (!need(hasStory(), '先去第 1 步「原始内容」写好分镜提示词')) return
+  if (!guardStep(2)) return
   const r = await call(() => api.post(`/mv/projects/${pj.value.id}/plan`, {}), 'LLM 正在写初步分镜…')
   if (r) await refresh()
 }
 
 async function genShots() {
-  if (!need(hasCharImage(), '先去第 3 步「资产制作」提取人物并出图，再切分详细分镜')) return
+  if (!guardStep(4)) return
   const r = await call(() => api.post(`/mv/projects/${pj.value.id}/shots`, { max_seconds: maxSeconds.value }), '正在按歌切段…')
   if (r) await refresh()
 }
 
 async function genPrompts() {
+  if (!guardStep(4)) return
   if (!need(shots.value.length, '先点「切分详细分镜」，再来编译提示词')) return
-  if (!need(hasCharImage(), '先去第 3 步「资产制作」提取人物并出图')) return
   const r = await call(() => api.post(`/mv/projects/${pj.value.id}/prompts`, {}), '正在编译六段式提示词…')
   if (r) await refresh()
 }
@@ -577,57 +590,38 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 .page-meta { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .meta-item { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-2); }
 
-/* 主 Tab 导航（与 drama/detail.vue 同款） */
-.page-tabs {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 14px;
+/* 左侧流程导航 + 右侧内容（照短剧 episode/detail 的左导航布局） */
+.mv-layout { display: flex; gap: 16px; align-items: flex-start; }
+.mv-side {
+  width: 210px; flex-shrink: 0;
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 10px;
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  position: sticky; top: 0;
 }
-.tab-btn {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  border: none;
-  background: transparent;
-  padding: 8px 4px 10px;
-  margin-right: 20px;
-  font-size: 13.5px;
-  font-weight: 600;
-  color: var(--text-2);
-  cursor: pointer;
-  transition: color 0.16s var(--ease-out);
+.mv-side-title {
+  font-size: 11px; font-weight: 650; letter-spacing: 0.06em;
+  color: var(--text-3); padding: 6px 10px 4px;
 }
-.tab-btn svg { opacity: 0.75; }
-.tab-btn::after {
-  content: '';
-  position: absolute;
-  left: 0; right: 0; bottom: -1px;
-  height: 2px;
-  border-radius: 2px;
-  background: transparent;
-  transition: background 0.16s var(--ease-out);
+.mv-side-item {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  padding: 8px 10px; font-size: 13px; font-weight: 550; cursor: pointer;
+  border: none; border-radius: var(--radius); background: transparent; color: var(--text-1);
+  transition: all 0.16s var(--ease-out);
 }
-.tab-btn:hover { color: var(--text-0); }
-.tab-btn.on { color: var(--text-0); font-weight: 650; }
-.tab-btn.on::after { background: var(--accent); }
-.tab-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 9px;
-  font-size: 11px;
-  font-weight: 700;
-  font-family: var(--font-mono);
-  background: var(--bg-2);
-  color: var(--text-2);
+.mv-side-item:hover { background: var(--bg-hover); color: var(--text-0); }
+.mv-side-item.active { background: var(--accent-bg); color: var(--accent-text); font-weight: 650; }
+.mv-side-item:focus-visible { outline: none; box-shadow: 0 0 0 3.5px var(--button-focus); }
+.mv-side-icon { width: 26px; text-align: center; font-size: 15px; }
+.mv-side-label { flex: 1; min-width: 0; }
+.mv-side-count {
+  font-size: 10px; font-weight: 700; font-family: var(--font-mono);
+  background: var(--bg-active); color: var(--text-2);
+  padding: 1px 6px; border-radius: 99px;
 }
-.tab-btn.on .tab-count { background: var(--accent-bg); color: var(--accent-text); }
+.mv-side-item.active .mv-side-count { background: var(--accent-bg); color: var(--accent-text); }
+.mv-main { flex: 1; min-width: 0; }
 
 /* 列表 */
 .mv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
