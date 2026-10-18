@@ -140,6 +140,16 @@ async function shotsOf(projectId: number) {
   return db.select().from(schema.mvShots).where(eq(schema.mvShots.projectId, projectId)).orderBy(schema.mvShots.shotNumber)
 }
 
+/** 这一段的参考图：绑了就用绑的（按 id 顺序），没绑沿用「第一个人物 + 第一个场景」 */
+async function shotRefs(projectId: number, shot: any) {
+  const rows = await assetsOf(projectId)
+  let ids: number[] = []
+  try { const v = JSON.parse(String(shot?.refIds || '[]')); if (Array.isArray(v)) ids = v.map(Number).filter(Boolean) } catch { ids = [] }
+  let picked = ids.length ? ids.map((id) => rows.find((r) => r.id === id)).filter(Boolean) as any[] : []
+  if (!picked.length) picked = [rows.find((r) => r.kind === 'character'), rows.find((r) => r.kind === 'scene')].filter(Boolean) as any[]
+  return picked
+}
+
 async function assetsOf(projectId: number, kind?: Kind) {
   const rows = await db.select().from(schema.mvAssets).where(
     kind ? and(eq(schema.mvAssets.projectId, projectId), eq(schema.mvAssets.kind, kind)) : eq(schema.mvAssets.projectId, projectId))
@@ -448,7 +458,9 @@ app.put('/projects/:id/assets/:aid', async (c) => {
   if (body.description !== undefined) patch.description = String(body.description).slice(0, 4000)
   if (body.appearance !== undefined) patch.appearance = String(body.appearance).slice(0, 2000)
   if (body.styling !== undefined) patch.styling = String(body.styling).slice(0, 2000)
-  if (body.prompt !== undefined) patch.prompt = String(body.prompt).slice(0, 4000)
+  if (body.prompt !== undefined) patch.prompt = String(body.prompt)
+  if (body.ref_ids !== undefined) patch.refIds = JSON.stringify(
+    (Array.isArray(body.ref_ids) ? body.ref_ids : []).map(Number).filter(Boolean)).slice(0, 4000)
   await db.update(schema.mvAssets).set(patch).where(eq(schema.mvAssets.id, aid))
   return success(c, { assets: await assetsOf(id) })
 })
@@ -774,10 +786,16 @@ app.post('/projects/:id/prompts', async (c) => {
       scene_note: scene?.description ? String(scene.description) : '',
       language: 'Chinese',
       lyrics: shots.map((s) => s.lyric || ''),
-      shots: shots.map((s) => ({
-        index: s.shotNumber - 1,
-        start: s.startSeconds, end: s.endSeconds, frames: s.frames, seconds: s.seconds,
-        shot: s.shotSize || '', camera: s.camera || '', vocal_state: s.vocalState || 'vocal_active',
+      shots: await Promise.all(shots.map(async (s) => {
+        const picked = (await shotRefs(id, s)).filter((a) => a.image)
+        const scene = picked.find((a) => a.kind === 'scene')
+        return {
+          index: s.shotNumber - 1,
+          start: s.startSeconds, end: s.endSeconds, frames: s.frames, seconds: s.seconds,
+          shot: s.shotSize || '', camera: s.camera || '', vocal_state: s.vocalState || 'vocal_active',
+          pictures: Math.max(1, picked.length),
+          scene_note: scene?.description ? String(scene.description) : '',
+        }
       })),
     })
     const items = out?.shots || []
@@ -807,12 +825,11 @@ app.post('/projects/:id/shots/:sid/render', async (c) => {
   if (!shot) return notFound(c, '分镜不存在')
   if (!shot.prompt) return badRequest(c, '这一段还没提示词，先编译提示词')
   const body = await c.req.json().catch(() => ({} as any))
-  const { character, scene } = await primaryAssets(id)
-  if (!character?.image) return badRequest(c, '还没有人物图（先提取人物并出图）')
-  // 参考图与卡按「人物在前、场景在后」送上；没图/没卡的就不占槽位
-  const refs: string[] = [readAsDataUrl(character.image, 'image/png')]
-  if (scene?.image) refs.push(readAsDataUrl(scene.image, 'image/png'))
-  const cards = [character.card, scene?.card].filter(Boolean) as string[]
+  // 这一段自己绑定的参考图（人物/场景/其它都可能），没绑就用人物卡+场景卡
+  const picked = (await shotRefs(id, shot)).filter((a) => a.image)
+  if (!picked.length) return badRequest(c, '这一段还没有可用的参考图（先给人物/场景出图，或在这一段勾选绑定）')
+  const refs: string[] = picked.map((a) => readAsDataUrl(a.image, 'image/png'))
+  const cards = picked.map((a) => a.card).filter(Boolean) as string[]
   try {
     const taskId = await generateVideo({
       prompt: shot.prompt,

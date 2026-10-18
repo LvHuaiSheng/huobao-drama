@@ -130,6 +130,7 @@ export const storyboards = sqliteTable('storyboards', {
   description: text('description'),
   duration: integer('duration').default(0),
   composedImage: text('composed_image'),
+  refIds: text('ref_ids'),          // 这一段绑定的参考图（资产 id，JSON 数组；空=人物卡+场景卡）
   firstFrameImage: text('first_frame_image'),
   lastFrameImage: text('last_frame_image'),
   referenceImages: text('reference_images'),

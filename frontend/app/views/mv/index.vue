@@ -288,7 +288,7 @@
                 <div class="video-task-meta-line">
                   <span class="video-task-state" :class="'is-' + shotState(s)"><i class="dot" :class="{ ok: shotState(s) === 'done', pending: shotState(s) === 'pending' }" />{{ shotStateLabel(s) }}</span>
                   <span class="video-task-sep">·</span><span>{{ Number(s.seconds || 0).toFixed(2) }}s</span>
-                  <span class="video-task-sep">·</span><span class="truncate">{{ s.shotSize }} · {{ s.vocalState === 'vocal_active' ? '唱' : '非唱' }}</span>
+                  <span class="video-task-sep">·</span><span class="truncate">{{ s.shotSize }} · {{ s.vocalState === 'vocal_active' ? '唱' : '非唱' }} · 图{{ boundRefs(s).length }}</span>
                 </div>
                 <div v-if="s.errorMsg" class="video-task-error" :title="s.errorMsg">{{ s.errorMsg.slice(0, 100) }}</div>
               </div>
@@ -326,20 +326,21 @@
                 <section class="video-inspector-section">
                   <div class="video-inspector-prompt-head">
                     <span class="video-inspector-label">绑定参考图</span>
-                    <span class="tag mono">已绑定 {{ refCards.length }} 张</span>
+                    <span class="tag mono">已绑定 {{ boundRefs(activeShot).length }} / {{ allRefAssets.length }}</span>
                   </div>
                   <div class="storyboard-ref-list is-embedded">
-                    <div v-for="a in refCards" :key="a.id" class="storyboard-ref-item bound">
+                    <div v-for="a in allRefAssets" :key="a.id" class="storyboard-ref-item" :class="{ bound: isBound(activeShot, a.id) }"
+                      :title="isBound(activeShot, a.id) ? '点一下取消绑定' : '点一下绑定到这一段'" @click="toggleRef(activeShot, a.id)">
                       <button type="button" class="storyboard-ref-thumb" @click.stop="openViewerUrl(a.url, a.name)">
                         <img :src="staticUrl(a.url)" class="previewable-image" loading="lazy" />
                       </button>
                       <div class="storyboard-ref-main">
                         <span class="storyboard-ref-name">{{ a.name }}</span>
                         <span class="storyboard-ref-meta">{{ a.kindLabel }}</span>
-                        <span class="storyboard-ref-state is-ready">已绑定 · 可用于生成</span>
+                        <span class="storyboard-ref-state" :class="{ 'is-ready': isBound(activeShot, a.id) }">{{ isBound(activeShot, a.id) ? '已绑定 · 可用于生成' : '未绑定' }}</span>
                       </div>
                     </div>
-                    <div v-if="!refCards.length" class="storyboard-ref-empty">还没有人物/场景图 —— 先去「资产制作」出图</div>
+                    <div v-if="!allRefAssets.length" class="storyboard-ref-empty">还没有人物/场景图 —— 先去「资产制作」出图</div>
                   </div>
                 </section>
               </div>
@@ -711,8 +712,25 @@ const videoStats = computed(() => ({
   done: shots.value.filter((s) => s.videoUrl).length,
   failed: shots.value.filter((s) => s.status === 'failed').length,
 }))
-const refCards = computed(() => assets.value.filter((a) => a.image)
-  .map((a) => ({ id: a.id, url: a.image, name: a.name, kindLabel: a.kind === 'character' ? '人物卡' : '场景卡' })))
+const allRefAssets = computed(() => assets.value.filter((a) => a.image)
+  .map((a) => ({ id: a.id, url: a.image, name: a.name, kind: a.kind, kindLabel: a.kind === 'character' ? '人物卡' : '场景卡' })))
+// 这一段绑了哪些图：存 refIds（JSON 数组）；没绑过 = 默认「人物卡 + 场景卡」
+const defaultRefIds = () => [characters.value.find((a) => a.image)?.id, scenes.value.find((a) => a.image)?.id].filter(Boolean)
+function shotRefIdList(s) {
+  let ids = []
+  try { const v = JSON.parse(String(s?.refIds || '[]')); if (Array.isArray(v)) ids = v.map(Number).filter(Boolean) } catch { ids = [] }
+  return ids.length ? ids : defaultRefIds()
+}
+const boundRefs = (s) => allRefAssets.value.filter((a) => shotRefIdList(s).includes(a.id))
+const isBound = (s, id) => shotRefIdList(s).includes(id)
+async function toggleRef(s, id) {
+  if (!s) return
+  const cur = shotRefIdList(s).slice()
+  const i = cur.indexOf(id)
+  if (i >= 0) cur.splice(i, 1); else cur.push(id)
+  s.refIds = JSON.stringify(cur)
+  await saveShot(s)
+}
 const shotThumb = (s) => s.firstFrameImage || characters.value.find((a) => a.image)?.image || null
 // 列表筛选 / 状态（照短剧：done / pending / failed / ready）
 const videoFilter = ref('')
@@ -1002,6 +1020,7 @@ async function genPrompts() {
 async function saveShot(s) {
   await api.put(`/mv/projects/${pj.value.id}/shots/${s.id}`, {
     shot_size: s.shotSize, camera: s.camera, lyric: s.lyric, vocal_state: s.vocalState,
+    ...(s.refIds !== undefined ? { ref_ids: JSON.parse(String(s.refIds || '[]')) } : {}),
   }).catch((err) => alert(String(err?.message || err)))
 }
 
