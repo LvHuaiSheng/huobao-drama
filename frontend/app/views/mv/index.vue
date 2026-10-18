@@ -1627,10 +1627,8 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 .video-task-workbench { display: grid; grid-template-columns: minmax(0, 1fr); min-height: 560px; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-1); }
 .video-task-side { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(280px, 1fr) minmax(300px, var(--vright, 340px)); border-left: 1px solid var(--border); background: var(--bg-2); }
 .video-task-list { min-height: 0; overflow: hidden; display: flex; flex-direction: column; background: var(--bg-1); }
-.video-task-head { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
 .video-task-title { font-size: 13px; line-height: 1.2; font-weight: 850; color: var(--text-0); }
 .video-task-meta { margin-top: 3px; font-size: 11px; color: var(--text-3); }
-.video-task-metrics { display: flex; gap: 6px; flex-wrap: wrap; }
 .video-task-metric, .video-task-status, .video-task-state { display: inline-flex; align-items: center; gap: 5px; min-height: 22px; padding: 0 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-2); color: var(--text-2); font-size: 11px; font-weight: 750; white-space: nowrap; }
 button.video-task-metric { cursor: pointer; font-family: inherit; }
 button.video-task-metric:hover { box-shadow: 0 0 0 2px var(--accent); }
