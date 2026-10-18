@@ -367,6 +367,24 @@ export const sqliteSchemaStatements = [
   `ALTER TABLE mv_projects ADD COLUMN outline TEXT`,
   `ALTER TABLE mv_shots ADD COLUMN outline_index INTEGER`,
   `ALTER TABLE mv_shots ADD COLUMN first_frame_image TEXT`,
+  `ALTER TABLE mv_projects ADD COLUMN story_prompt TEXT`,   // 2026-10-18 用户填的 MV 分镜提示词（人物/场景从它提取）
+
+  // MV 自带的人物 / 场景资产（不写短剧的 characters / scenes，避免污染）
+  `CREATE TABLE IF NOT EXISTS mv_assets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    kind TEXT NOT NULL,            -- character | scene
+    name TEXT,
+    description TEXT,              -- 外貌+妆造（人物）/ 地点时间光影（场景）
+    appearance TEXT,
+    styling TEXT,
+    image TEXT,                    -- static/ 相对路径（人物板 / 场景图）
+    card TEXT,                     -- RefMod 卡名
+    sort_order INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_mv_assets_project ON mv_assets (project_id, kind, sort_order)`,
 ]
 
 /**

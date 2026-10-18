@@ -41,6 +41,15 @@ async function loadPresetPrompt(dramaId: number | null | undefined): Promise<str
   return preset?.prompt || ''
 }
 
+/** 按风格 key 读启用中预设原文（音乐 MV 用）；查不到返回 '' */
+async function loadPresetPromptByValue(value: string | null | undefined): Promise<string> {
+  const v = String(value || '').trim()
+  if (!v) return ''
+  const [preset] = await db.select().from(schema.stylePresets)
+    .where(and(eq(schema.stylePresets.value, v), eq(schema.stylePresets.isActive, true)))
+  return preset?.prompt || ''
+}
+
 /**
  * 查询项目绑定的风格预设「风格头」；查不到返回 ''
  * 注意：只返回分隔标记之前的部分 —— 正文渲染语言（标记之后）只给提示词 Agent 用，
@@ -52,7 +61,16 @@ export async function getDramaStylePrompt(dramaId: number | null | undefined): P
 
 /** 查询项目绑定的风格预设完整规范（风格头 + 正文渲染语言，中英各一份） */
 export async function getDramaStyleSpec(dramaId: number | null | undefined): Promise<DramaStyleSpec> {
-  const raw = await loadPresetPrompt(dramaId)
+  return splitStyleSpec(await loadPresetPrompt(dramaId))
+}
+
+/** 按风格 key 直接取完整规范（音乐 MV 用：MV 不挂 dramas，只存 value） */
+export async function getStyleSpecByValue(value: string | null | undefined): Promise<DramaStyleSpec> {
+  return splitStyleSpec(await loadPresetPromptByValue(value))
+}
+
+/** 预设原文 → 规范对象（拆分标记；老预设没标记就整段当风格头） */
+function splitStyleSpec(raw: string): DramaStyleSpec {
   if (!raw) return { head: '', bodyRules: '', bodyRulesEn: '' }
   const idx = raw.indexOf(STYLE_BODY_SEP)
   if (idx < 0) return { head: raw.trim(), bodyRules: '', bodyRulesEn: '' }

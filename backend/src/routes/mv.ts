@@ -1,22 +1,21 @@
 /**
  * 音乐 MV 路由（2026-10-18 新增，独立模块）
  *
- * 与短剧链路彻底隔离：不写 storyboards、不碰短剧分镜，只用自己的 mv_projects / mv_shots 两张表。
- * 生成**全部走 App 现成的三条通道**（不写死地址和模型）：
- *   文本 = getTextConfig()（写人物设定 / 场景提示词 / 粗分镜 / 机位）
- *   图片 = generateImage()（人物定妆板 + 场景图）
- *   视频 = generateVideo(model = minimax-h3-mv)（中转按这个 model 名走 MV 模板）
- * ⇒ sys_task 任务表、轮询、断点续跑、设置页换模型全白送；MV 自己只做「MV 特有的事」。
+ * 与短剧链路彻底隔离：不写 storyboards / characters / scenes，只用自己的三张表
+ * （mv_projects / mv_assets / mv_shots）+ 4080 shim 的 /v2/mv/* 接口。
+ * 生成全部走 App 现成的三条通道（不写死地址和模型）：
+ *   文本 = getTextConfig()｜图片 = generateImage()｜视频 = generateVideo(model=minimax-h3-mv)
+ *
+ * 流程（与短剧同构）：
+ *   建项目（歌 + 风格 + 分镜提示词）→ 从分镜提示词提取人物/场景（mv_assets）
+ *   → 逐个出图 → 逐个抽卡 → 粗分镜（与歌等长）→ 详细分镜（景别/机位/歌词）
+ *   → 编译六段式提示词 → 逐段出片 → 无音轨拼接 + 原曲整段混入
  *
  * 4080 侧只用 shim 的 MV 专属接口（地址取自「视频通道」配置）：
  *   POST /v2/mv/audio        原曲 32k wav 落盘（只推一次）
  *   POST /v2/mv/plan         按能量/句界切段（H3 帧网格 5.167~14.375s，命中上限）
  *   POST /v2/mv/prompts      六段式提示词编译 + 硬校验
- *   POST /v2/refmod/extract  人物卡 / 场景卡抽卡（卡保证人物和场景锁住；声音卡不接，音轨就是原曲）
- *
- * 流程（页面按这个顺序点）：
- *   建项目(带歌) → write(写设定) → images(出图) → cards(抽卡) → plan(粗分镜) → shots(详细分镜)
- *   → prompts(编译六段式) → 逐段 render → assemble(无音轨拼接 + 混原曲 → 成片)
+ *   POST /v2/refmod/extract  资产抽卡（卡保证人物和场景锁住；声音卡不接，音轨就是原曲）
  */
 import { Hono } from 'hono'
 import { eq, desc, and, isNull } from 'drizzle-orm'
@@ -25,6 +24,7 @@ import path from 'path'
 import { db, schema, getInsertId } from '../db/index.js'
 import { generateImage, generateVideo } from '../services/generation.js'
 import { getTextConfig, getTextProviderBaseUrl, getActiveConfig } from '../services/ai.js'
+import { getStyleSpecByValue } from '../services/style-preset.js'
 import { extractChatText } from '../services/asset-describe-prompt.js'
 import { getAbsolutePath } from '../utils/storage.js'
 import { STORAGE_ROOT } from '../utils/paths.js'
@@ -37,6 +37,8 @@ const app = new Hono()
 const MV_MODEL = 'minimax-h3-mv'   // 中转按 model 名走 mv_shot.api.json
 const HARD_MAX_S = 15              // H3 单段极限（页面填的「最长切分」不得超）
 const DEFAULT_MAX_S = 10
+const KINDS = ['character', 'scene'] as const
+type Kind = typeof KINDS[number]
 
 // ---------------------------------------------------------------- 基础工具
 
@@ -124,6 +126,7 @@ function snapFrames(seconds: number): number {
 }
 
 const stamp = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+void stamp   // 保留：出图/上传文件名可能用到
 
 async function loadProject(id: number) {
   const [row] = await db.select().from(schema.mvProjects).where(and(eq(schema.mvProjects.id, id), isNull(schema.mvProjects.deletedAt)))
@@ -132,6 +135,28 @@ async function loadProject(id: number) {
 
 async function shotsOf(projectId: number) {
   return db.select().from(schema.mvShots).where(eq(schema.mvShots.projectId, projectId)).orderBy(schema.mvShots.shotNumber)
+}
+
+async function assetsOf(projectId: number, kind?: Kind) {
+  const rows = await db.select().from(schema.mvAssets).where(
+    kind ? and(eq(schema.mvAssets.projectId, projectId), eq(schema.mvAssets.kind, kind)) : eq(schema.mvAssets.projectId, projectId))
+  return rows.sort((a, b) => (Number(a.sortOrder || 0) - Number(b.sortOrder || 0)) || a.id - b.id)
+}
+
+/** 出片用的「主」资产：每一类取第一个 */
+async function primaryAssets(projectId: number) {
+  const rows = await assetsOf(projectId)
+  return {
+    character: rows.find((r) => r.kind === 'character') || null,
+    scene: rows.find((r) => r.kind === 'scene') || null,
+  }
+}
+
+/** 风格预设的「风格头」（给图片/提示词当画风句）；没选或已停用返回 '' */
+async function styleHead(project: any): Promise<string> {
+  try {
+    return (await getStyleSpecByValue(project?.style)).head
+  } catch { return '' }
 }
 
 /** 等 sys_task 跑完（图片/视频同一张表；MV 借它拿结果） */
@@ -186,14 +211,6 @@ async function ensureRemoteSong(project: any): Promise<string> {
 
 // ---------------------------------------------------------------- 项目
 
-app.get('/config', async (c) => {
-  try {
-    return success(c, { base: await shimBase() })
-  } catch (err: any) {
-    return success(c, { base: '', error: err?.message })
-  }
-})
-
 app.get('/projects', async (c) => {
   const rows = await db.select().from(schema.mvProjects).where(isNull(schema.mvProjects.deletedAt)).orderBy(desc(schema.mvProjects.id))
   return success(c, { items: rows })
@@ -217,7 +234,7 @@ app.get('/projects/:id', async (c) => {
       }
     }
   }
-  return success(c, { project, shots })
+  return success(c, { project, assets: await assetsOf(id), shots })
 })
 
 app.delete('/projects/:id', async (c) => {
@@ -226,7 +243,7 @@ app.delete('/projects/:id', async (c) => {
   return success(c, null)
 })
 
-/** 建项目：存歌 → 转 32k → 推到 4080（只推一次，之后每段只带文件名） */
+/** 建项目：只做本地的事（落库 + 存歌 + 读时长），不碰 4080 */
 app.post('/projects', async (c) => {
   let body: any
   try { body = await c.req.json() } catch (err: any) { return badRequest(c, `请求体不是 JSON: ${err?.message}`) }
@@ -234,12 +251,12 @@ app.post('/projects', async (c) => {
   const maxShot = Math.min(HARD_MAX_S, Math.max(5, Number(body.max_shot_seconds) || DEFAULT_MAX_S))
   const ts = now()
   try {
-    // 建项目只做本地的事：落库 + 存歌 + 读时长。**不碰 4080**（原曲等切分镜时才送）
     const res = await db.insert(schema.mvProjects).values({
       title: String(body.title || '未命名 MV').slice(0, 80),
       idea: String(body.idea || '').slice(0, 2000),
       lyrics: String(body.lyrics || '').slice(0, 8000),
-      style: String(body.style || '').slice(0, 400),
+      style: String(body.style || '').slice(0, 60),
+      storyPrompt: String(body.story_prompt || '').slice(0, 20000),
       maxShotSeconds: maxShot,
       status: 'draft',
       createdAt: ts, updatedAt: ts,
@@ -253,101 +270,185 @@ app.post('/projects', async (c) => {
     await db.update(schema.mvProjects).set({ songFile: songRel, songSeconds: seconds, updatedAt: now() })
       .where(eq(schema.mvProjects.id, id))
     logTaskSuccess('MV', 'create-project', { id, seconds })
-    return created(c, { id, song_seconds: seconds, song_remote_name: '' })
+    return created(c, { id, song_seconds: seconds })
   } catch (err: any) {
     logTaskError('MV', 'create-project', { error: err?.message })
     return serverError(c, err?.message || '建 MV 项目失败')
   }
 })
 
-// ---------------------------------------------------------------- 人物 / 场景
-
-/** 写人物设定 + 场景提示词（LLM；post 回来就落库，便于用户改完再存） */
-app.post('/projects/:id/write', async (c) => {
+/** 改项目（标题 / 风格 / 分镜提示词 / 想法 / 歌词 / 最长切分） */
+app.put('/projects/:id', async (c) => {
   const id = Number(c.req.param('id'))
   const project = await loadProject(id)
   if (!project) return notFound(c, 'MV 项目不存在')
   const body = await c.req.json().catch(() => ({} as any))
-  if (body.character_prompt || body.scene_prompt) {
-    await db.update(schema.mvProjects).set({
-      characterPrompt: String(body.character_prompt || ''), scenePrompt: String(body.scene_prompt || ''), updatedAt: now(),
-    }).where(eq(schema.mvProjects.id, id))
-    return success(c, { character_prompt: body.character_prompt, scene_prompt: body.scene_prompt, saved: true })
+  const patch: Record<string, any> = { updatedAt: now() }
+  if (body.title !== undefined) {
+    const t = String(body.title).trim().slice(0, 80)
+    if (!t) return badRequest(c, '标题不能为空')
+    patch.title = t
   }
-  const ask = `这首歌的 MV 想法：${project.idea || '(没写，按歌名发挥)'}
-歌名：${project.title}${project.lyrics ? `\n歌词：\n${String(project.lyrics).slice(0, 1200)}` : ''}
+  if (body.style !== undefined) patch.style = String(body.style).slice(0, 60)
+  if (body.story_prompt !== undefined) patch.storyPrompt = String(body.story_prompt).slice(0, 20000)
+  if (body.idea !== undefined) patch.idea = String(body.idea).slice(0, 2000)
+  if (body.lyrics !== undefined) patch.lyrics = String(body.lyrics).slice(0, 8000)
+  if (body.max_shot_seconds !== undefined) {
+    patch.maxShotSeconds = Math.min(HARD_MAX_S, Math.max(5, Number(body.max_shot_seconds) || DEFAULT_MAX_S))
+  }
+  await db.update(schema.mvProjects).set(patch).where(eq(schema.mvProjects.id, id))
+  return success(c, { project: await loadProject(id) })
+})
 
-请写两段：
-1) character_prompt：主角人物设定，用来生成「四格人物定妆板」——左起第 1 格正脸特写；第 2 格正视全身，画面裁掉头部以上；第 3 格左侧全身，同样裁掉头部以上；第 4 格背面全身，同样裁掉头部以上。纯白背景，整张只出现一张脸、同一个人同一套衣服。
-必须写清发色发型、肤色、服装颜色、配饰颜色；每个属性只给一个确定值，禁止「或」「可能」「皆可」这类模糊词。
-2) scene_prompt：主要场景的画面提示词（环境、光线、色调、氛围；写具体，不要写"或"）。
-只输出 JSON：{"character_prompt":"…","scene_prompt":"…"}`
+// ---------------------------------------------------------------- 人物 / 场景（MV 自己的资产表）
+
+/** 从分镜提示词提取人物 + 场景（覆盖式重建；不动短剧的 characters / scenes） */
+app.post('/projects/:id/extract', async (c) => {
+  const id = Number(c.req.param('id'))
+  const project = await loadProject(id)
+  if (!project) return notFound(c, 'MV 项目不存在')
+  const body = await c.req.json().catch(() => ({} as any))
+  const story = String(body.story_prompt ?? project.storyPrompt ?? '').trim()
+  if (!story) return badRequest(c, '先填分镜提示词，再提取人物和场景')
+  const ask = `下面是这支 MV 的分镜提示词（用户写的）：
+
+"""
+${story.slice(0, 12000)}
+"""
+
+请从中提取**人物**和**场景**，规则（与短剧一致）：
+1) 只提取这份分镜提示词里真实出现过的，不要自己发明、不要补充没写的东西。
+2) 人物 description：外貌 + 妆造（发型发色、肤色、脸型气质、服装颜色与款式、配饰颜色）。每条都必须写死唯一值，**禁止「或」「可能」「皆可」这类模糊词**。
+3) 场景 description：地点、时间、光线、色调、氛围（写具体）。
+4) name 用简短中文名（人物用名字或代称，场景用「地点+时间」）；同一个人的不同叫法合并成一个人。
+5) 没有人物就返回空数组。
+
+只输出 JSON：
+{"characters":[{"name":"","description":"","appearance":"","styling":""}],"scenes":[{"name":"","description":""}]}
+appearance 只写脸/身形容貌，styling 只写服装配饰；拆不出来就留空。`
   try {
-    const out = pickJson<{ character_prompt: string; scene_prompt: string }>(
-      await askText('你是 MV 视觉设定师。只输出 JSON，不要解释。', ask))
-    await db.update(schema.mvProjects).set({
-      characterPrompt: String(out.character_prompt || ''), scenePrompt: String(out.scene_prompt || ''), updatedAt: now(),
-    }).where(eq(schema.mvProjects.id, id))
-    return success(c, out)
+    const out = pickJson<{ characters?: any[]; scenes?: any[] }>(
+      await askText('你是 MV 资产提取助手。只输出 JSON，不要解释。', ask, 3000))
+    const ts = now()
+    await db.delete(schema.mvAssets).where(eq(schema.mvAssets.projectId, id))
+    let sort = 0
+    for (const kind of KINDS) {
+      const list = (kind === 'character' ? out.characters : out.scenes) || []
+      for (const a of list) {
+        const desc = String(a?.description || '').trim()
+        const name = String(a?.name || '').trim()
+        if (!desc && !name) continue
+        await db.insert(schema.mvAssets).values({
+          projectId: id,
+          kind,
+          name: name.slice(0, 60) || (kind === 'character' ? `人物${sort + 1}` : `场景${sort + 1}`),
+          description: desc.slice(0, 4000),
+          appearance: String(a?.appearance || '').slice(0, 2000),
+          styling: String(a?.styling || '').slice(0, 2000),
+          sortOrder: sort++,
+          createdAt: ts, updatedAt: ts,
+        })
+      }
+    }
+    logTaskSuccess('MV', 'extract', { id, characters: out.characters?.length || 0, scenes: out.scenes?.length || 0 })
+    return success(c, { assets: await assetsOf(id) })
   } catch (err: any) {
-    return serverError(c, err?.message || '写设定失败')
+    logTaskError('MV', 'extract', { id, error: err?.message })
+    return serverError(c, `提取失败：${err?.message}`)
   }
 })
 
-/** 出人物板 + 场景图（走 App 图片通道；出完复制进 MV 自己的目录，不动短剧资产） */
-app.post('/projects/:id/images', async (c) => {
+/** 改单个资产（名字 / 描述 / 容貌 / 服装） */
+app.put('/projects/:id/assets/:aid', async (c) => {
   const id = Number(c.req.param('id'))
+  const aid = Number(c.req.param('aid'))
+  const [asset] = await db.select().from(schema.mvAssets)
+    .where(and(eq(schema.mvAssets.id, aid), eq(schema.mvAssets.projectId, id)))
+  if (!asset) return notFound(c, '资产不存在')
+  const body = await c.req.json().catch(() => ({} as any))
+  const patch: Record<string, any> = { updatedAt: now() }
+  if (body.name !== undefined) patch.name = String(body.name).slice(0, 60)
+  if (body.description !== undefined) patch.description = String(body.description).slice(0, 4000)
+  if (body.appearance !== undefined) patch.appearance = String(body.appearance).slice(0, 2000)
+  if (body.styling !== undefined) patch.styling = String(body.styling).slice(0, 2000)
+  await db.update(schema.mvAssets).set(patch).where(eq(schema.mvAssets.id, aid))
+  return success(c, { assets: await assetsOf(id) })
+})
+
+app.delete('/projects/:id/assets/:aid', async (c) => {
+  const id = Number(c.req.param('id'))
+  const aid = Number(c.req.param('aid'))
+  await db.delete(schema.mvAssets).where(and(eq(schema.mvAssets.id, aid), eq(schema.mvAssets.projectId, id)))
+  return success(c, { assets: await assetsOf(id) })
+})
+
+/**
+ * 给资产出图（走 App 图片通道）
+ * 人物 = 四格定妆板（左1 正脸特写 + 正视/左侧/背面全身，纯白底，只出现一张脸）
+ * 场景 = 一张场景图；两者都拼上项目的风格头
+ */
+app.post('/projects/:id/assets/:aid/image', async (c) => {
+  const id = Number(c.req.param('id'))
+  const aid = Number(c.req.param('aid'))
   const project = await loadProject(id)
   if (!project) return notFound(c, 'MV 项目不存在')
+  const [asset] = await db.select().from(schema.mvAssets)
+    .where(and(eq(schema.mvAssets.id, aid), eq(schema.mvAssets.projectId, id)))
+  if (!asset) return notFound(c, '资产不存在')
   const body = await c.req.json().catch(() => ({} as any))
-  const charPrompt = String(body.character_prompt || project.characterPrompt || '').trim()
-  const scenePrompt = String(body.scene_prompt || project.scenePrompt || '').trim()
-  if (!charPrompt || !scenePrompt) return badRequest(c, '先写好人物设定和场景提示词（POST /write）')
+  const desc = String(body.description ?? asset.description ?? '').trim()
+  if (!desc) return badRequest(c, '这个资产还没有描述')
+  if (body.description !== undefined || body.name !== undefined) {
+    await db.update(schema.mvAssets).set({
+      description: desc.slice(0, 4000),
+      name: String(body.name ?? asset.name ?? '').slice(0, 60),
+      updatedAt: now(),
+    }).where(eq(schema.mvAssets.id, aid))
+  }
+  const head = await styleHead(project)
+  const prompt = asset.kind === 'character'
+    ? [head, '四格人物定妆板：左起第 1 格正脸特写；第 2 格正视全身，画面裁掉头部以上；第 3 格左侧全身，同样裁掉头部以上；第 4 格背面全身，同样裁掉头部以上。纯白背景，整张只出现一张脸、同一个人同一套衣服。', desc].filter(Boolean).join('\n')
+    : [head, desc].filter(Boolean).join('\n')
   const rel = mvDir(id)
   try {
     const size = '1152x2048'   // 9:16（32 的倍数，比例精确）
-    const t1 = await generateImage({ prompt: charPrompt, size })
-    const t2 = await generateImage({ prompt: scenePrompt, size })
-    const r1 = await waitTask(t1)
-    const r2 = await waitTask(t2)
-    if (!r1.localPath || !r2.localPath) throw new Error('图片任务完成但没拿到文件路径')
-    const charRel = `${rel}/character.png`
-    const sceneRel = `${rel}/scene.png`
-    fs.copyFileSync(getAbsolutePath(r1.localPath), getAbsolutePath(charRel))
-    fs.copyFileSync(getAbsolutePath(r2.localPath), getAbsolutePath(sceneRel))
-    await db.update(schema.mvProjects).set({
-      characterPrompt: charPrompt, scenePrompt: scenePrompt,
-      characterImage: charRel, sceneImage: sceneRel, updatedAt: now(),
-    }).where(eq(schema.mvProjects.id, id))
-    logTaskSuccess('MV', 'images', { id, tasks: [t1, t2] })
-    return success(c, { character_image: charRel, scene_image: sceneRel })
+    const taskId = await generateImage({ prompt, size })
+    const task = await waitTask(taskId)
+    if (!task.localPath) throw new Error('图片任务完成但没拿到文件路径')
+    const imageRel = `${rel}/${asset.kind}-${asset.id}.png`
+    fs.copyFileSync(getAbsolutePath(task.localPath), getAbsolutePath(imageRel))
+    await db.update(schema.mvAssets).set({ image: imageRel, updatedAt: now() }).where(eq(schema.mvAssets.id, aid))
+    logTaskSuccess('MV', 'asset-image', { id, aid, kind: asset.kind, task: taskId })
+    return success(c, { assets: await assetsOf(id) })
   } catch (err: any) {
-    logTaskError('MV', 'images', { id, error: err?.message })
+    logTaskError('MV', 'asset-image', { id, aid, error: err?.message })
     return serverError(c, `出图失败：${err?.message}`)
   }
 })
 
-/** 抽卡：人物卡 + 场景卡（音轨就是原曲，声音卡不需要） */
-app.post('/projects/:id/cards', async (c) => {
+/** 给资产抽卡（卡保证人物/场景锁得住；声音卡不接，音轨就是原曲） */
+app.post('/projects/:id/assets/:aid/card', async (c) => {
   const id = Number(c.req.param('id'))
-  const project = await loadProject(id)
-  if (!project) return notFound(c, 'MV 项目不存在')
-  if (!project.characterImage || !project.sceneImage) return badRequest(c, '先出人物板和场景图')
-  const charCard = `refmod_character-mv${id}_v1`
-  const sceneCard = `refmod_scene-mv${id}_v1`
+  const aid = Number(c.req.param('aid'))
+  const [asset] = await db.select().from(schema.mvAssets)
+    .where(and(eq(schema.mvAssets.id, aid), eq(schema.mvAssets.projectId, id)))
+  if (!asset) return notFound(c, '资产不存在')
+  if (!asset.image) return badRequest(c, '先出图，再抽卡')
+  const cardName = `refmod_${asset.kind}-mv${id}a${aid}_v1`
   try {
-    await shimPost('/v2/refmod/extract', { name: charCard, image: readAsDataUrl(project.characterImage, 'image/png'), concept_type: 'identity' })
-    await shimPost('/v2/refmod/extract', { name: sceneCard, image: readAsDataUrl(project.sceneImage, 'image/png'), concept_type: 'scene' })
-    await db.update(schema.mvProjects).set({ characterCard: charCard, sceneCard: sceneCard, updatedAt: now() })
-      .where(eq(schema.mvProjects.id, id))
-    logTaskSuccess('MV', 'cards', { id, charCard, sceneCard })
-    return success(c, { character_card: charCard, scene_card: sceneCard })
+    await shimPost('/v2/refmod/extract', {
+      name: cardName,
+      image: readAsDataUrl(asset.image, 'image/png'),
+      concept_type: asset.kind === 'character' ? 'identity' : 'scene',
+    })
+    await db.update(schema.mvAssets).set({ card: cardName, updatedAt: now() }).where(eq(schema.mvAssets.id, aid))
+    logTaskSuccess('MV', 'asset-card', { id, aid, cardName })
+    return success(c, { assets: await assetsOf(id) })
   } catch (err: any) {
-    logTaskError('MV', 'cards', { id, error: err?.message })
+    logTaskError('MV', 'asset-card', { id, aid, error: err?.message })
     return serverError(c, `抽卡失败：${err?.message}`)
   }
 })
-
 // ---------------------------------------------------------------- 分镜
 
 /** 粗分镜：与歌等长的内容时间轴（只写画什么，不写景别运镜） */
@@ -355,9 +456,12 @@ app.post('/projects/:id/plan', async (c) => {
   const id = Number(c.req.param('id'))
   const project = await loadProject(id)
   if (!project) return notFound(c, 'MV 项目不存在')
-  if (!project.songSeconds) return badRequest(c, '还没拿到歌曲时长（建项目时推歌失败？）')
-  const ask = `歌长 ${project.songSeconds} 秒，歌名《${project.title}》。MV 想法：${project.idea || '(没写，按歌名发挥)'}
-${project.lyrics ? `歌词（行，时间未知）：\n${String(project.lyrics).slice(0, 2000)}` : ''}
+  if (!project.songSeconds) return badRequest(c, '还没拿到歌曲时长')
+  const ask = `歌长 ${project.songSeconds} 秒，歌名《${project.title}》。
+${project.storyPrompt
+  ? `分镜提示词（用户写的）：\n"""\n${String(project.storyPrompt).slice(0, 8000)}\n"""`
+  : `MV 想法：${project.idea || '(没写，按歌名发挥)'}`}
+${project.lyrics ? `\n歌词（行，时间未知）：\n${String(project.lyrics).slice(0, 2000)}` : ''}
 
 请给一条「与歌等长」的粗分镜：把 0 到 ${project.songSeconds} 秒分成若干段，前后衔接、不重叠、不留空。
 每段只写「画面发生什么」（场景/动作/情绪，一句话），**不要写景别、不要写运镜**（下一步才配）。
@@ -468,14 +572,16 @@ app.post('/projects/:id/prompts', async (c) => {
   const project = await loadProject(id)
   if (!project) return notFound(c, 'MV 项目不存在')
   const shots = await shotsOf(id)
-  if (!shots.length) return badRequest(c, '还没有分镜表，先 POST /shots')
-  const body = await c.req.json().catch(() => ({} as any))
+  if (!shots.length) return badRequest(c, '还没有分镜表，先切分详细分镜')
+  const { character, scene } = await primaryAssets(id)
+  if (!character) return badRequest(c, '还没有人物资产（先提取人物并出图）')
+  const pictures = (character.image ? 1 : 0) + (scene?.image ? 1 : 0)
   try {
     const out = await shimPost<{ shots: any[] }>('/v2/mv/prompts', {
-      pictures: 2,     // <Picture 1> 人物图 + <Picture 2> 场景图
-      performer: String(body.performer || 'the same lead singer shown in the reference picture'),
-      style: project.style || body.style || undefined,
-      scene_note: project.scenePrompt ? 'the location and look come from <Picture 2>' : '',
+      pictures: Math.max(1, pictures),
+      performer: String(character.description || character.name || 'the lead singer').slice(0, 600),
+      style: (await styleHead(project)) || undefined,
+      scene_note: scene?.description ? String(scene.description) : '',
       language: 'Chinese',
       lyrics: shots.map((s) => s.lyric || ''),
       shots: shots.map((s) => ({
@@ -511,10 +617,12 @@ app.post('/projects/:id/shots/:sid/render', async (c) => {
   if (!shot) return notFound(c, '分镜不存在')
   if (!shot.prompt) return badRequest(c, '这一段还没提示词，先编译提示词')
   const body = await c.req.json().catch(() => ({} as any))
-  const refs: string[] = []
-  if (project.characterImage) refs.push(readAsDataUrl(project.characterImage, 'image/png'))
-  if (project.sceneImage) refs.push(readAsDataUrl(project.sceneImage, 'image/png'))
-  const cards = [project.characterCard, project.sceneCard].filter(Boolean) as string[]
+  const { character, scene } = await primaryAssets(id)
+  if (!character?.image) return badRequest(c, '还没有人物图（先提取人物并出图）')
+  // 参考图与卡按「人物在前、场景在后」送上；没图/没卡的就不占槽位
+  const refs: string[] = [readAsDataUrl(character.image, 'image/png')]
+  if (scene?.image) refs.push(readAsDataUrl(scene.image, 'image/png'))
+  const cards = [character.card, scene?.card].filter(Boolean) as string[]
   try {
     const taskId = await generateVideo({
       prompt: shot.prompt,

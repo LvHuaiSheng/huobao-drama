@@ -313,11 +313,28 @@ export const mvProjects = sqliteTable('mv_projects', {
   sceneCard: text('scene_card'),
   outline: text('outline'),          // JSON
   style: text('style'),
+  storyPrompt: text('story_prompt'), // 用户填的 MV 分镜提示词（人物/场景从它提取）
   status: text('status').default('draft'),
   outputUrl: text('output_url'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
   deletedAt: text('deleted_at'),
+})
+
+/** 音乐 MV 自带的人物 / 场景资产（不写短剧的 characters / scenes，避免污染） */
+export const mvAssets = sqliteTable('mv_assets', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  projectId: integer('project_id').notNull(),
+  kind: text('kind').notNull(),          // character | scene
+  name: text('name'),
+  description: text('description'),
+  appearance: text('appearance'),
+  styling: text('styling'),
+  image: text('image'),                  // static/ 相对路径（人物板 / 场景图）
+  card: text('card'),                    // RefMod 卡名
+  sortOrder: integer('sort_order').default(0),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
 })
 
 export const mvShots = sqliteTable('mv_shots', {
