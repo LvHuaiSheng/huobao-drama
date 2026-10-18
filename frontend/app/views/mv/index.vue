@@ -48,6 +48,7 @@
             :title="pj.vocalStem ? '按人声轨切分并标唱/非唱' : '先做人声分离——分镜的唱/非唱要靠人声轨判断'">拆分分镜</button>
           <span class="mv-step-hint">③</span>
           <button class="btn btn-sm" @click="askGenPrompts" :disabled="busy || !shots.length">编译全部提示词</button>
+          <button class="btn btn-sm" @click="askCheckAll" :disabled="busy || !shots.length">全部体检</button>
           <span class="mv-step-hint">④</span>
           <button class="btn btn-sm" @click="askRenderAll" :disabled="busy || !shots.length">生成全部</button>
           <button class="btn btn-sm" @click="askAssemble" :disabled="busy || !shots.length">合成成片</button>
@@ -307,7 +308,7 @@
                 <span class="video-task-index">#{{ String(i + 1).padStart(2, '0') }}</span>
               </div>
               <div class="video-task-main">
-                <div class="video-task-line"><strong class="video-task-name">{{ s.lyric || (s.vocalState === 'vocal_active' ? '唱段' : '间奏') }}</strong></div>
+                <div class="video-task-line"><strong class="video-task-name">{{ outlineTextOf(s) || (s.vocalState === 'vocal_active' ? '唱段' : '间奏') }}</strong></div>
                 <div class="video-task-meta-line">
                   <span class="video-task-state" :class="'is-' + shotState(s)"><i class="dot" :class="{ ok: shotState(s) === 'done', pending: shotState(s) === 'pending' }" />{{ shotStateLabel(s) }}</span>
                   <span class="video-task-sep">·</span><span>{{ shotSeconds(s).toFixed(3) }}s（{{ s.frames }}帧）</span>
@@ -336,14 +337,13 @@
               <div class="video-main-grid">
                 <section class="video-inspector-section">
                   <span class="video-inspector-label">本段内容</span>
-                  <label class="field">
-                    <span class="field-label">歌词 / 这一段在唱的句子</span>
-                    <textarea v-model="activeShot.lyric" class="textarea" rows="6" placeholder="这段的歌词（没唱就留空）" @blur="saveShot(activeShot)" />
-                  </label>
-                  <label class="field">
-                    <span class="field-label">段落内容 <span class="dim">(来自初步分镜)</span></span>
-                    <pre class="mv-outline-pre">{{ outlineTextOf(activeShot) || '—' }}</pre>
-                  </label>
+                  <pre class="mv-outline-pre">{{ outlineTextOf(activeShot) || '（初步分镜里这一段没有文字）' }}</pre>
+                  <div class="mv-inline-tags">
+                    <span class="tag" :class="activeShot.vocalState === 'non_vocal' ? '' : 'tag-accent'">{{ activeShot.vocalState === 'non_vocal' ? '间奏 · 无唱' : '唱段' }}</span>
+                    <span class="tag">{{ shotSeconds(activeShot).toFixed(3) }}s</span>
+                    <span class="tag">{{ activeShot.frames }}帧</span>
+                    <span class="tag">{{ activeShot.shotSize }}</span>
+                  </div>
                 </section>
 
                 <section class="video-inspector-section">
@@ -370,7 +370,7 @@
 
               <section class="video-inspector-section">
                 <div class="video-inspector-prompt-head">
-                  <span class="video-inspector-label video-inspector-label-hero">视频提示词</span>
+                  <span class="video-inspector-label video-inspector-label-hero">导演分镜稿（镜头编号 / 时间码 / 景别 / 机位）</span>
                   <div class="video-inspector-actions">
                     <button type="button" class="btn btn-sm" @click="genShotPrompt(activeShot)" :disabled="busy || shotPromptBusy === activeShot.id">
                       {{ shotPromptBusy === activeShot.id ? '生成中…' : (activeShot.prompt ? '重新生成' : 'AI 生成') }}
@@ -382,7 +382,7 @@
                   </div>
                 </div>
                 <textarea v-model="activeShot.prompt" class="textarea video-inspector-prompt" rows="14"
-                  placeholder="还没有提示词 —— 点上面的「AI 生成」，或顶部「编译全部提示词」；生成后在这里改成你要的中文稿" />
+                  placeholder="还没有分镜稿 —— 点上面的「AI 生成」，或顶部「编译全部提示词」；生成后可在这里手改" />
                 <div class="video-inspector-prompt-extra">
                   <button v-if="activeShot.promptEn" type="button" class="btn btn-sm video-inspector-prompt-en-toggle"
                     @click="showEn = !showEn">{{ showEn ? '收起英文提示词' : '显示英文提示词（发给 H3 的就是它）' }}</button>
@@ -897,13 +897,28 @@ async function genShotPrompt(s) {
 }
 async function checkShot(s) {
   if (!s) return
-  if (!s.prompt) { alert('这一段还没有提示词'); return }
-  checkingShot.value = s.id
-  try {
-    const r = await api.post(`/mv/projects/${pj.value.id}/shots/${s.id}/check`, {}).catch((e) => { alert(String(e?.message || e)); return null })
-    if (r) shotCheck.value = r
-  } finally { checkingShot.value = null }
+  if (!s.prompt && !s.promptEn) { alert('这一段还没有分镜稿'); return }
+  askConfirm(`体检 · 分镜${String(s.shotNumber).padStart(2, '0')}`,
+    '会检查这一段的结构（六段式是否齐、顺序、危险词、唱段嘴部约束）。不改数据。继续？', '开始体检',
+    async () => {
+      checkingShot.value = s.id
+      try {
+        const r = await api.post(`/mv/projects/${pj.value.id}/shots/${s.id}/check`, {})
+          .catch((e) => { alert('体检失败：' + String(e?.message || e)); return null })
+        if (r) shotCheck.value = r
+      } finally { checkingShot.value = null }
+    })
 }
+async function doCheckAll() {
+  checking.value = true
+  try {
+    const r = await call(() => api.post(`/mv/projects/${pj.value.id}/check`, {}), '正在体检全部分镜…')
+      .catch((e) => { alert('体检失败：' + String(e?.message || e)); return null })
+    if (r) { checkResult.value = r; shotCheck.value = null }
+  } finally { checking.value = false }
+}
+const askCheckAll = () => askConfirm('全部体检',
+  `会把 ${shots.value.length} 段逐条检查结构，返回问题清单（不改数据）。继续？`, '开始体检', doCheckAll)
 const separating = ref(false)
 async function separateVocals() {
   if (!current.value) return
@@ -961,7 +976,7 @@ const taskRows = computed(() => shots.value
   .filter((s) => s.status === 'processing' || s.videoUrl || s.status === 'failed' || s.taskId)
   .map((s) => ({
     id: s.id, shotNumber: s.shotNumber, kind: '视频',
-    title: s.lyric || (s.vocalState === 'vocal_active' ? '唱段' : '间奏'),
+    title: outlineTextOf(s) || (s.vocalState === 'vocal_active' ? '唱段' : '间奏'),
     state: shotState(s), label: shotStateLabel(s),
     duration: shotSeconds(s) ? shotSeconds(s).toFixed(3) + 's' : '—',
     videoUrl: s.videoUrl, errorMsg: s.errorMsg,
@@ -1836,5 +1851,8 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); color: var(--
 .video-inspector-prompt-en-toggle { align-self: flex-start; }
 .video-inspector-prompt-en-miss { font-size: 11px; }
 .video-inspector-prompt-en { margin: 6px 0 0; padding: 10px; max-height: 260px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-2); color: var(--text-2); font-family: var(--font-mono, monospace); font-size: 10.5px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+
+/* 本段内容的行内标签 */
+.mv-inline-tags { display: flex; gap: 6px; flex-wrap: wrap; }
 
 </style>

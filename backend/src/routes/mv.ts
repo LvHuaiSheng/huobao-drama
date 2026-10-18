@@ -70,6 +70,25 @@ async function shimPost<T = any>(p: string, body: any): Promise<T> {
   return json as T
 }
 
+/** 中文稿 = 导演分镜稿：镜头编号 + 时间码 + 景别 + 机位 + 画面内容（给用户看和改） */
+function renderZhStoryboard(shot: any, beats: any[], outlineText?: string): string {
+  const list = Array.isArray(beats) && beats.length ? beats : [{
+    start: 0, end: Number(shot.seconds) || 5.167,
+    size: shot.shotSize || '中景', camera: shot.camera || '', action_zh: '', action: '',
+  }]
+  const lines = list.map((b: any, i: number) => {
+    const head = `【镜头${i + 1}】${Number(b.start).toFixed(3)}–${Number(b.end).toFixed(3)}秒｜${b.size || ''}${b.camera ? '｜' + b.camera : ''}`
+    const act = String(b.action_zh || b.action || '').trim()
+    return act ? `${head}｜${act}` : head
+  })
+  const vocal = String(shot.vocalState || '') === 'non_vocal'
+    ? '本段无唱（间奏），嘴保持自然闭合，只做情绪与律动。'
+    : '本段有唱：脸和嘴全程可见、不遮挡、不出画，口型跟着原曲走。'
+  const extra = String(shot.promptExtra || '').trim()
+  const head = outlineText ? `【段落内容】${outlineText}` : ''
+  return [head, ...lines, `【人声】${vocal}`, extra ? `【补充】${extra}` : ''].filter(Boolean).join('\n')
+}
+
 /** 把英文六段稿翻成中文六段稿：分块（每块 4 条）+ 失败逐条重试，避免一次输出太长被截断 */
 async function toChinesePrompts(list: string[], configId?: number | null): Promise<string[]> {
   const out = new Array(list.length).fill('')
@@ -201,6 +220,31 @@ async function loadProject(id: number) {
 
 async function shotsOf(projectId: number) {
   return db.select().from(schema.mvShots).where(eq(schema.mvShots.projectId, projectId)).orderBy(schema.mvShots.shotNumber)
+}
+
+/** 把 LLM 给的拍点夹进段内：首尾相接、正好铺满 seconds（1~3 拍） */
+function fitBeats(raw: any, seconds: number, size: string, camera: string): any[] {
+  const list = Array.isArray(raw) ? raw : []
+  const total = Math.max(0.5, seconds)
+  const cuts: number[] = []
+  for (const b of list) {
+    const e = Number(b?.end)
+    if (Number.isFinite(e) && e > 0.2 && e < total - 0.2) cuts.push(e)
+  }
+  const uniq = [...new Set(cuts.map((c) => Math.round(c * 1000) / 1000))].sort((a, b) => a - b).slice(0, 2)
+  const bounds = [0, ...uniq, total]
+  return bounds.slice(1).map((end, k) => {
+    const start = bounds[k]
+    const src = Array.isArray(list) ? list[k] || {} : {}
+    return {
+      start: Math.round(start * 1000) / 1000,
+      end: Math.round(end * 1000) / 1000,
+      size: String(src.size || size).slice(0, 10),
+      camera: String(src.camera || camera).slice(0, 200),
+      action: String(src.action || '').slice(0, 300),
+      action_zh: String(src.action_zh || '').slice(0, 300),
+    }
+  })
 }
 
 /** 这一段的参考图：绑了就用绑的（按 id 顺序），没绑沿用「第一个人物 + 第一个场景」 */
@@ -786,12 +830,14 @@ ${raw.map((s, i) => `${i}: ${s.start}s 起 ${s.seconds}s（${s.frames}帧） ${s
 ${outlineLine || '(无)'}
 ${lyricLines.length ? `歌词行：\n${lyricLines.map((l, i) => `${i + 1}. ${l}`).join('\n')}` : ''}
 
-给每段按**标准 MV 分镜**配「景别 + 机位」：景别按这一段的歌词情绪与音乐节奏选（不要求交替、不硬性限制位置）。
-机位**用中文写**（给用户看的，编译时会自动转英文），必须一直看得清脸和嘴（有唱段尤其），例如
-"固定机位，中景，正脸三分之四侧面，平视，稳定构图"。
-一段里只能有一个景别、一种机位（这段只出一张参考图、一个镜头），不许在段内推拉变焦换景别。
+你就是这支 MV 的导演。给每段做**镜头编排**（beat），按这一段的时长把它切成 1~3 个镜头（≤5s 建议 1 个；6~9s 建议 1~2 个；10s 以上 2~3 个）：
+- 每个镜头要有起始秒、结束秒（必须首尾相接、从 0 开始、正好铺满这一段时长）
+- 景别/机位用**中文**写（机位像 "固定机位，平视，正脸三分之四"，允许 "缓慢推近" 这类运镜）
+- action 是这一段镜头里人物/画面**在做什么**，用英文一句短语（如 "she looks down and smiles"），action_zh 给同一句的中文
+- 有唱段必须保证脸和嘴全程可见；间奏段可以给空镜/背影/手部，但同一段内不要跳场
+
 只输出 JSON 数组，长度必须等于 ${raw.length}：
-[{"index":0,"shot_size":"中远景|中景|近景|特写","camera":"…","lyric":"这一段正在唱的那句歌词，没唱就留空"}, …]`
+[{"index":0,"shot_size":"中景","camera":"固定机位，平视","beats":[{"start":0,"end":4.2,"size":"中景","camera":"固定机位，平视","action":"she looks at the camera","action_zh":"她看着镜头"},{"start":4.2,"end":8.0,"size":"近景","camera":"缓慢推近","action":"she sings softly","action_zh":"她低声唱"}]}, …]`
     perShot = pickJson<any[]>(await askText(await mvPrompt('mv_camera'), ask, 3000, project.textConfigId))
   } catch { perShot = [] }
 
@@ -807,6 +853,7 @@ ${lyricLines.length ? `歌词行：\n${lyricLines.map((l, i) => `${i + 1}. ${l}`
         frames: Number(s.frames), seconds: Number(s.seconds),
         shotSize: SIZES.includes(String(extra?.shot_size || '')) ? String(extra.shot_size) : (sizes[i] || '中景'),
         camera: String(extra?.camera || '').slice(0, 300),
+        beats: JSON.stringify(fitBeats(extra?.beats, Number(s.seconds) || 5.167, String(extra?.shot_size || sizes[i] || '中景'), String(extra?.camera || ''))),
         vocalState: String(s.vocal_state || 'vocal_active'), lyric: String(extra?.lyric || '').slice(0, 300),
         status: 'pending', createdAt: ts, updatedAt: ts,
       })
@@ -869,6 +916,7 @@ app.post('/projects/:id/prompts', async (c) => {
           pictures: Math.max(1, picked.length),
           scene_note: scene?.description ? String(scene.description) : '',
           prompt_extra: extrasEn[s.shotNumber - 1] || '',
+          beats: JSON.parse(String(s.beats || '[]')),
         }
       })),
     })
@@ -878,14 +926,16 @@ app.post('/projects/:id/prompts', async (c) => {
       const ex = String(shots[i].promptExtra || '').trim()
       return String(it.prompt || '') + (ex ? `\n\n[extra notes] ${ex}` : '')
     })
-    const zhs = await toChinesePrompts(ens, project.textConfigId)
     for (let i = 0; i < shots.length; i++) {
+      const sh = shots[i]
+      let beats: any[] = []
+      try { beats = JSON.parse(String(sh.beats || '[]')) } catch { beats = [] }
       await db.update(schema.mvShots).set({
-        prompt: zhs[i] || ens[i],
+        prompt: renderZhStoryboard(sh, beats),
         promptEn: ens[i],
         updatedAt: now(),
       })
-        .where(eq(schema.mvShots.id, shots[i].id))
+        .where(eq(schema.mvShots.id, sh.id))
     }
     logTaskSuccess('MV', 'prompts', { id, count: items.length })
     return success(c, { count: items.length, shots: await shotsOf(id) })
@@ -922,13 +972,15 @@ app.post('/projects/:id/shots/:sid/prompt', async (c) => {
         pictures: Math.max(1, picked.length),
         scene_note: sc?.description ? String(sc.description) : '',
         prompt_extra: extrasEn[0] || '',
+        beats: JSON.parse(String(shot.beats || '[]')),
       }],
     })
     const extra1 = String(shot.promptExtra || '').trim()
     const en = String(out?.shots?.[0]?.prompt || '') + (extra1 ? `\n\n[extra notes] ${extra1}` : '')
     if (!en.trim()) throw new Error('编译结果为空')
-    const [zh] = await toChinesePrompts([en], project.textConfigId)
-    const prompt = zh || en
+    let beats: any[] = []
+    try { beats = JSON.parse(String(shot.beats || '[]')) } catch { beats = [] }
+    const prompt = renderZhStoryboard(shot, beats)
     await db.update(schema.mvShots).set({ prompt, promptEn: en, updatedAt: now() }).where(eq(schema.mvShots.id, sid))
     return success(c, { id: sid, prompt, promptEn: en })
   } catch (err: any) {
