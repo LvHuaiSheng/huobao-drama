@@ -573,7 +573,8 @@ app.post('/projects/:id/assets/:aid/image', async (c) => {
       const taskId = await generateImage({ prompt, size })
       const task = await waitTask(taskId)
       if (!task.localPath) throw new Error('图片任务完成但没拿到文件路径')
-      const imageRel = `${mvDir(id)}/${kind}-${assetId}.png`
+      // 文件名带时间戳：重绘后路径变了，界面才会真的换成新图（同路径会被浏览器缓存成旧图）
+      const imageRel = `${mvDir(id)}/${kind}-${assetId}-${Date.now()}.png`
       fs.copyFileSync(getAbsolutePath(task.localPath), getAbsolutePath(imageRel))
       await db.update(schema.mvAssets).set({ image: imageRel, imageStatus: null, updatedAt: now() })
         .where(eq(schema.mvAssets.id, aid))

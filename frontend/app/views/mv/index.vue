@@ -887,6 +887,11 @@ async function pollOnce() {
     if (cur) { cur.image = na.image; cur.imageStatus = na.imageStatus; cur.card = na.card }
     else assets.value.push(na)
   }
+  // 编辑弹窗开着时也要跟着换新图
+  if (editAsset.value) {
+    const f = (r.assets || []).find((x) => x.id === editAsset.value.id)
+    if (f) { editAsset.value.image = f.image; editAsset.value.imageStatus = f.imageStatus; editAsset.value.card = f.card }
+  }
   syncTimer()
 }
 
