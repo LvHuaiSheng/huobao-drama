@@ -346,7 +346,7 @@
 
     <!-- 图片放大（照短剧素材库：点图弹大图，点空白关掉） -->
     <div v-if="viewer.open" class="mv-modal mv-viewer-overlay" @click.self="viewer.open = false">
-      <div class="card mv-modal-box mv-viewer">
+      <div class="card mv-viewer">
         <div class="mv-viewer-head">
           <span class="mv-viewer-title">{{ viewer.title }}</span>
           <button class="btn btn-ghost btn-sm" @click="viewer.open = false">关闭</button>
@@ -1150,9 +1150,9 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 }
 
 .mv-asset-err { font-size: 11.5px; margin: 0 10px 8px; line-height: 1.5; }
-/* 看大图（压在最上层；尺寸贴近短剧但不比它小） */
+/* 看大图（压在最上层；尺寸贴近短剧但不比它小）—— 注意不要再套 .mv-modal-box（它的 width:560px 会把大图压小） */
 .mv-modal.mv-viewer-overlay { z-index: 90; padding: 12px; }
-.mv-viewer { width: min(1600px, calc(100vw - 24px)); max-height: calc(100vh - 24px); padding: 12px; }
+.mv-viewer { width: min(1600px, calc(100vw - 24px)); max-height: calc(100vh - 24px); padding: 12px; overflow: auto; }
 .mv-viewer-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .mv-viewer-title { font-size: 13px; font-weight: 600; }
 .mv-viewer-img { width: 100%; max-height: calc(100vh - 110px); object-fit: contain; border-radius: var(--radius); background: var(--bg-2); display: block; }
