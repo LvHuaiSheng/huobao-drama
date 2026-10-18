@@ -394,6 +394,10 @@ export const sqliteSchemaStatements = [
   // 项目画幅也在这一步落地（人物板固定 16:9；场景图与成片跟随 aspect_ratio）
   `ALTER TABLE mv_assets ADD COLUMN prompt TEXT`,
   `ALTER TABLE mv_projects ADD COLUMN aspect_ratio TEXT DEFAULT '9:16'`,
+  // 2026-10-18 按项目锁通道（顶部标签栏可改）：空 = 跟随「设置 → AI 服务」里当前启用的那条
+  `ALTER TABLE mv_projects ADD COLUMN text_config_id INTEGER`,
+  `ALTER TABLE mv_projects ADD COLUMN image_config_id INTEGER`,
+  `ALTER TABLE mv_projects ADD COLUMN video_config_id INTEGER`,
 ]
 
 /**

@@ -23,7 +23,7 @@ import fs from 'fs'
 import path from 'path'
 import { db, schema, getInsertId } from '../db/index.js'
 import { generateImage, generateVideo, imageSizeForAspect } from '../services/generation.js'
-import { getTextConfig, getTextProviderBaseUrl, getActiveConfig } from '../services/ai.js'
+import { getTextConfig, getTextProviderBaseUrl, getActiveConfig, getConfigById } from '../services/ai.js'
 import { getStyleSpecByValue } from '../services/style-preset.js'
 import { joinProviderUrl } from '../services/adapters/url.js'
 import { loadAgentPromptFile } from '../agents/prompts.js'
@@ -71,8 +71,8 @@ async function shimPost<T = any>(p: string, body: any): Promise<T> {
 }
 
 /** 调当前文本模型（OpenAI 形状 /chat/completions；不用 Agent，避免它的提示词风格污染） */
-async function askText(system: string, user: string, maxTokens = 2500): Promise<string> {
-  const cfg = await getTextConfig()
+async function askText(system: string, user: string, maxTokens = 2500, configId?: number | null): Promise<string> {
+  const cfg = (configId ? await getConfigById(Number(configId)) : null) ?? await getTextConfig()
   let model = ''
   try { model = (JSON.parse(cfg.model || '[]') as string[])[0] || '' } catch { model = String(cfg.model || '') }
   const resp = await fetch(joinProviderUrl(getTextProviderBaseUrl(cfg), '/v1', '/chat/completions'), {
@@ -359,6 +359,9 @@ app.put('/projects/:id', async (c) => {
   }
   if (body.style !== undefined) patch.style = String(body.style).slice(0, 60)
   if (body.aspect_ratio !== undefined) patch.aspectRatio = String(body.aspect_ratio).slice(0, 10)
+  for (const [k, col] of [['text_config_id', 'textConfigId'], ['image_config_id', 'imageConfigId'], ['video_config_id', 'videoConfigId']] as const) {
+    if (body[k] !== undefined) patch[col] = body[k] === null || body[k] === '' ? null : Number(body[k]) || null
+  }
   if (body.story_prompt !== undefined) patch.storyPrompt = String(body.story_prompt).slice(0, 20000)
   if (body.idea !== undefined) patch.idea = String(body.idea).slice(0, 2000)
   if (body.lyrics !== undefined) patch.lyrics = String(body.lyrics).slice(0, 8000)
@@ -402,7 +405,7 @@ appearance 只写脸/身形容貌，styling 只写服装配饰；拆不出来就
     const out = pickJson<{ characters?: any[]; scenes?: any[] }>(
       await askText(
         readSkillFile('extractor') || (await mvPrompt('mv_extractor')),
-        ask, 6000))
+        ask, 6000, project.textConfigId))
     const ts = now()
     await db.delete(schema.mvAssets).where(eq(schema.mvAssets.projectId, id))
     let sort = 0
@@ -508,6 +511,7 @@ app.post('/projects/:id/assets/:aid/prompt', async (c) => {
       `妆造：${asset.styling || '（未填）'}\n` +
       `描述：${desc}`,
       2000,
+      project.textConfigId,
     )
     const prompt = text.trim()
     if (!prompt) throw new Error('文本模型返回空')
@@ -589,7 +593,7 @@ app.post('/projects/:id/assets/:aid/image', async (c) => {
   enqueueRender(id, async () => {
     try {
       const size = imgSize      // 人物板固定 2048x1152（16:9）；场景图跟随项目画幅
-      const taskId = await generateImage({ prompt, size })
+      const taskId = await generateImage({ prompt, size, configId: project.imageConfigId ?? undefined })
       const task = await waitTask(taskId)
       if (!task.localPath) throw new Error('图片任务完成但没拿到文件路径')
       // 文件名带时间戳：重绘后路径变了，界面才会真的换成新图（同路径会被浏览器缓存成旧图）
@@ -649,7 +653,7 @@ ${project.lyrics ? `\n歌词（行，时间未知）：\n${String(project.lyrics
 段长参考歌曲结构（前奏/主歌/副歌/桥段/尾奏），每段 5~20 秒。
 只输出 JSON 数组：[{"start":0,"end":8.5,"what":"…"}, …]`
   try {
-    const outline = pickJson<any[]>(await askText(await mvPrompt('mv_storyboard'), ask, 3000))
+    const outline = pickJson<any[]>(await askText(await mvPrompt('mv_storyboard'), ask, 3000, project.textConfigId))
     if (!Array.isArray(outline) || !outline.length) throw new Error('粗分镜为空')
     await db.update(schema.mvProjects).set({ outline: JSON.stringify(outline), status: 'planned', updatedAt: now() })
       .where(eq(schema.mvProjects.id, id))
@@ -702,7 +706,7 @@ ${lyricLines.length ? `歌词行：\n${lyricLines.map((l, i) => `${i + 1}. ${l}`
 "locked-off static camera, medium shot, front three-quarter face view, stable framing"。
 只输出 JSON 数组，长度必须等于 ${raw.length}：
 [{"index":0,"camera":"…","lyric":"这一段正在唱的那句歌词，没唱就留空"}, …]`
-    perShot = pickJson<any[]>(await askText(await mvPrompt('mv_camera'), ask, 3000))
+    perShot = pickJson<any[]>(await askText(await mvPrompt('mv_camera'), ask, 3000, project.textConfigId))
   } catch { perShot = [] }
 
   try {
@@ -808,9 +812,10 @@ app.post('/projects/:id/shots/:sid/render', async (c) => {
     const taskId = await generateVideo({
       prompt: shot.prompt,
       model: MV_MODEL,
+      configId: project.videoConfigId ?? undefined,
       duration: Math.max(5.167, Number(shot.seconds) || 5.167),
-      aspectRatio: '9:16',
-      resolution: '768x1344',
+      aspectRatio: project.aspectRatio || '9:16',
+      resolution: `${videoSize(project)[0]}x${videoSize(project)[1]}`,
       referenceImageUrls: refs,
       seed: body.seed ? Number(body.seed) : undefined,
       // MV 专用字段（适配器原样并进请求体；短剧路径不传这些）

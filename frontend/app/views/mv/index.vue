@@ -24,14 +24,20 @@
         </div>
       </div>
       <div v-if="current" class="mv-top-selects">
-        <span class="mv-sel" :title="channels.text || '未配置（去 设置 → AI 服务 里配）'">
-          <span class="mv-sel-k">文本</span><span class="mv-sel-v">{{ shortModel(channels.text) }}</span>
+        <span class="mv-sel">
+          <span class="mv-sel-k">文本</span>
+          <BaseSelect :model-value="pj.textConfigId ? String(pj.textConfigId) : ''" :options="textOptions"
+            placeholder="跟随当前启用" @update:model-value="(v) => saveChannel('text_config_id', v)" />
         </span>
-        <span class="mv-sel" :title="channels.image || '未配置（去 设置 → AI 服务 里配）'">
-          <span class="mv-sel-k">图片</span><span class="mv-sel-v">{{ shortModel(channels.image) }}</span>
+        <span class="mv-sel">
+          <span class="mv-sel-k">图片</span>
+          <BaseSelect :model-value="pj.imageConfigId ? String(pj.imageConfigId) : ''" :options="imageOptions"
+            placeholder="跟随当前启用" @update:model-value="(v) => saveChannel('image_config_id', v)" />
         </span>
-        <span class="mv-sel" :title="channels.video || '未配置（去 设置 → AI 服务 里配）'">
-          <span class="mv-sel-k">视频</span><span class="mv-sel-v">{{ shortModel(channels.video) }}</span>
+        <span class="mv-sel">
+          <span class="mv-sel-k">视频</span>
+          <BaseSelect :model-value="pj.videoConfigId ? String(pj.videoConfigId) : ''" :options="videoOptions"
+            placeholder="跟随当前启用" @update:model-value="(v) => saveChannel('video_config_id', v)" />
         </span>
         <span class="mv-sel" title="画幅（在「原始内容」页改）">
           <span class="mv-sel-k">画幅</span><span class="mv-sel-v">{{ editRatio }}</span>
@@ -530,12 +536,32 @@ const cardBusy = ref(null)
 const promptBusy = ref(null)
 const viewer = ref({ open: false, src: '', title: '' })
 const editRatio = ref('9:16')
-// 顶部标签栏：当前启用的三条通道（只读展示，改在 设置 → AI 服务）
+// 顶部标签栏：三条通道可按项目切换（NULL = 跟随「设置 → AI 服务」当前启用）
 const channels = ref({ text: '', image: '', video: '' })
+const configs = ref([])
 const shortModel = (s) => (s ? (s.length > 20 ? s.slice(0, 20) + '…' : s) : '未配置')
 async function loadChannels() {
   const r = await api.get('/mv/channels').catch(() => null)
   if (r) channels.value = { text: r.text || '', image: r.image || '', video: r.video || '' }
+}
+async function loadConfigs() {
+  const r = await api.get('/ai-configs').catch(() => null)
+  configs.value = Array.isArray(r) ? r : (r?.items || [])
+}
+const optionsOf = (type) => {
+  const list = configs.value.filter((c) => c.serviceType === type || c.service_type === type)
+    .map((c) => ({ label: `${c.name || c.model || '未命名'}`, value: String(c.id) }))
+  return [{ label: `跟随当前启用${channels.value[type] ? '（' + shortModel(channels.value[type]) + '）' : ''}`, value: '' }, ...list]
+}
+const textOptions = computed(() => optionsOf('text'))
+const imageOptions = computed(() => optionsOf('image'))
+const videoOptions = computed(() => optionsOf('video'))
+
+async function saveChannel(field, value) {
+  const r = await call(() => api.put(`/mv/projects/${pj.value.id}`, {
+    [field]: value === '' ? null : Number(value),
+  }))
+  if (r) current.value = { ...current.value, project: r.project }
 }
 // 项目列表：搜索 / 状态筛选 / 三点菜单 / 删除确认（照短剧项目启动台）
 const q = ref('')
@@ -927,7 +953,7 @@ function syncTimer() {
 onMounted(async () => {
   await loadPresets()
   await loadProjects()
-  await loadChannels()
+  await Promise.all([loadChannels(), loadConfigs()])
 })
 onUnmounted(() => { if (timer) clearInterval(timer) })
 </script>
@@ -1009,13 +1035,14 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 .mv-top-selects { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex-shrink: 0; }
 .mv-sel {
   display: inline-flex; align-items: center; gap: 6px;
-  height: 26px; padding: 0 9px;
+  height: 30px; padding: 0 4px 0 9px;
   border: 1px solid var(--border); border-radius: 999px;
   font-size: 11.5px; color: var(--text-1); background: var(--bg-2);
-  max-width: 200px;
 }
-.mv-sel-k { color: var(--text-3); }
+.mv-sel-k { color: var(--text-3); flex-shrink: 0; }
 .mv-sel-v { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mv-sel :deep(.base-select) { min-width: 150px; max-width: 220px; }
+.mv-sel :deep(.base-select-trigger) { border: none; background: transparent; height: 24px; font-size: 11.5px; padding: 0 2px; }
 
 /* 项目列表（照短剧「项目启动台」） */
 .mv-launch-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }

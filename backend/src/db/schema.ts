@@ -305,6 +305,9 @@ export const mvProjects = sqliteTable('mv_projects', {
   songSeconds: real('song_seconds'),
   lyrics: text('lyrics'),
   aspectRatio: text('aspect_ratio'),      // 画幅 9:16 / 16:9（人物板固定 16:9；场景图与成片按它）
+  textConfigId: integer('text_config_id'),   // 按项目锁通道（NULL = 跟随当前启用）
+  imageConfigId: integer('image_config_id'),
+  videoConfigId: integer('video_config_id'),
   maxShotSeconds: real('max_shot_seconds'),
   characterPrompt: text('character_prompt'),
   scenePrompt: text('scene_prompt'),
