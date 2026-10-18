@@ -1190,12 +1190,12 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 }
 
 .mv-asset-err { font-size: 11.5px; margin: 0 10px 8px; line-height: 1.5; }
-/* 看大图（压在最上层；尺寸贴近短剧但不比它小）—— 注意不要再套 .mv-modal-box（它的 width:560px 会把大图压小） */
-.mv-modal.mv-viewer-overlay { z-index: 90; padding: 12px; }
-.mv-viewer { width: min(1600px, calc(100vw - 24px)); max-height: calc(100vh - 24px); padding: 12px; overflow: auto; }
+/* 看大图 —— 直接用短剧的数值（.viewer-dialog / .viewer-img）：宽 min(960px, 100vw-48px)，图高 76vh */
+.mv-modal.mv-viewer-overlay { z-index: 90; padding: 24px; }
+.mv-viewer { width: min(960px, calc(100vw - 48px)); padding: 14px; }
 .mv-viewer-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .mv-viewer-title { font-size: 13px; font-weight: 600; }
-.mv-viewer-img { width: 100%; max-height: calc(100vh - 110px); object-fit: contain; border-radius: var(--radius); background: var(--bg-2); display: block; }
+.mv-viewer-img { width: 100%; max-height: 76vh; object-fit: contain; border-radius: var(--radius); background: var(--bg-2); display: block; }
 
 /* 编辑资产弹窗 —— 与短剧素材详情弹窗（.mat-detail-*）同款结构与数值 */
 .mv-modal.mv-detail-overlay { z-index: 70; padding: 28px; }
