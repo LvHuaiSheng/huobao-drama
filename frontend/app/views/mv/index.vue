@@ -278,9 +278,12 @@
           </div>
           <div class="video-task-table">
             <div v-for="(s, i) in videoRows" :key="s.id" class="video-task-row"
-              :class="['is-' + shotState(s), { active: activeShotId === s.id }]"
-              role="button" tabindex="0" @click="activeShotId = s.id" @keydown.enter.prevent="activeShotId = s.id">
+              :class="['is-' + shotState(s), { active: !selectMode && activeShotId === s.id, 'is-selected': selectMode && selectedIds.includes(s.id) }]"
+              role="button" tabindex="0" @click="onRowClick(s)" @keydown.enter.prevent="onRowClick(s)">
               <div class="video-task-preview">
+                <span v-if="selectMode" class="shot-check" :class="{ on: selectedIds.includes(s.id) }">
+                  <svg v-if="selectedIds.includes(s.id)" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+                </span>
                 <video v-if="s.videoUrl" :src="staticUrl(s.videoUrl)" preload="none" playsinline muted tabindex="-1"></video>
                 <img v-else-if="shotThumb(s)" :src="staticUrl(shotThumb(s))" alt="" loading="lazy" />
                 <div v-else class="video-task-empty"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg></div>
@@ -307,6 +310,14 @@
             <button class="shot-quick-btn" @click="genPrompts" :disabled="busy">编译全部提示词</button>
             <button class="shot-quick-btn" @click="renderAll" :disabled="busy">生成全部</button>
             <button class="shot-quick-btn" @click="assemble" :disabled="busy">合成成片</button>
+            <button class="shot-quick-btn" @click="toggleSelectMode">{{ selectMode ? '退出批量' : '批量选择' }}</button>
+          </div>
+          <div v-if="selectMode" class="video-task-foot is-batch">
+            <button class="shot-quick-btn" @click="selectedIds = videoRows.map(x => x.id)">全选</button>
+            <button class="shot-quick-btn" @click="selectedIds = videoRows.filter(x => !x.videoUrl).map(x => x.id)">补缺失</button>
+            <button class="shot-quick-btn" @click="selectedIds = []">清空</button>
+            <span class="meta-item">已选 {{ selectedIds.length }} 段</span>
+            <button class="btn btn-primary btn-sm" @click="renderSelected" :disabled="busy || !selectedIds.length">生成选中（{{ selectedIds.length }}）</button>
           </div>
         </section>
 
@@ -813,6 +824,32 @@ async function runCheck() {
     const r = await call(() => api.post(`/mv/projects/${pj.value.id}/check`, {}), '正在体检全部提示词…')
     if (r) checkResult.value = r
   } finally { checking.value = false }
+}
+// 批量选择（照短剧 videoSelectMode）
+const selectMode = ref(false)
+const selectedIds = ref([])
+function toggleSelectMode() {
+  selectMode.value = !selectMode.value
+  if (!selectMode.value) selectedIds.value = []
+}
+function onRowClick(s) {
+  if (selectMode.value) {
+    const i = selectedIds.value.indexOf(s.id)
+    if (i >= 0) selectedIds.value.splice(i, 1); else selectedIds.value.push(s.id)
+  } else {
+    activeShotId.value = s.id
+  }
+}
+async function renderSelected() {
+  const list = shots.value.filter((s) => selectedIds.value.includes(s.id))
+  if (!need(list.length, '先勾选要生成的段')) return
+  const missing = list.filter((s) => !s.prompt)
+  if (missing.length) { alert(`有 ${missing.length} 段还没提示词，先编译提示词`); return }
+  for (const s of list) {
+    if (s.status === 'processing') continue
+    await render(s)
+    await new Promise((r) => setTimeout(r, 1200))
+  }
 }
 const VOCAL_OPTS = [{ label: '唱', value: 'vocal_active' }, { label: '非唱', value: 'non_vocal' }]
 const SIZE_OPTS = [{ label: '中远景', value: '中远景' }, { label: '中景', value: '中景' }, { label: '近景', value: '近景' }, { label: '特写', value: '特写' }]
@@ -1682,5 +1719,11 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); color: var(--
 .mv-check-idx { font-family: var(--font-mono, monospace); color: var(--text-3); }
 .mv-check-msg { line-height: 1.5; word-break: break-word; }
 .mv-check-ok { font-size: 11.5px; color: #3fb950; }
+
+/* 批量选择（照短剧 .shot-check / .is-selected） */
+.shot-check { position: absolute; top: 3px; left: 3px; z-index: 2; width: 14px; height: 14px; display: flex; align-items: center; justify-content: center; border: 1.5px solid rgba(255,255,255,.6); border-radius: 4px; background: rgba(0,0,0,.45); color: #fff; }
+.shot-check.on { background: var(--accent); border-color: var(--accent); }
+.video-task-row.is-selected { background: rgba(120,140,255,.16); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.video-task-foot.is-batch { border-top: 1px solid var(--accent); background: rgba(120,140,255,.08); }
 
 </style>
