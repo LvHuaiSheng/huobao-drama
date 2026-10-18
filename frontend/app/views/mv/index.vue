@@ -386,6 +386,7 @@
                 <div class="video-inspector-prompt-extra">
                   <button v-if="activeShot.promptEn" type="button" class="btn btn-sm video-inspector-prompt-en-toggle"
                     @click="showEn = !showEn">{{ showEn ? '收起英文提示词' : '显示英文提示词（发给 H3 的就是它）' }}</button>
+                  <span v-else-if="activeShot.prompt" class="dim video-inspector-prompt-en-miss">英文稿缺失（旧数据）—— 点「重新生成」会补上中英两份</span>
                   <pre v-if="showEn && activeShot.promptEn" class="video-inspector-prompt-en">{{ activeShot.promptEn }}</pre>
                 </div>
                 <div v-if="shotCheck" class="mv-check-panel" :class="{ 'is-bad': !shotCheck.ok }">
@@ -1831,6 +1832,7 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); color: var(--
 
 /* 英文提示词折叠区（照短剧 video-inspector-prompt-en） */
 .video-inspector-prompt-en-toggle { align-self: flex-start; }
+.video-inspector-prompt-en-miss { font-size: 11px; }
 .video-inspector-prompt-en { margin: 6px 0 0; padding: 10px; max-height: 260px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-2); color: var(--text-2); font-family: var(--font-mono, monospace); font-size: 10.5px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
 
 </style>

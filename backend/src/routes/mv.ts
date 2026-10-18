@@ -70,28 +70,48 @@ async function shimPost<T = any>(p: string, body: any): Promise<T> {
   return json as T
 }
 
-/** 把英文六段稿整批翻成中文六段稿（界面显示用；界面上改的是中文，发 H3 仍用英文） */
+/** 把英文六段稿翻成中文六段稿：分块（每块 4 条）+ 失败逐条重试，避免一次输出太长被截断 */
 async function toChinesePrompts(list: string[], configId?: number | null): Promise<string[]> {
-  const idx = list.map((t, i) => [t, i] as const).filter(([t]) => t)
-  if (!idx.length) return []
-  try {
-    const ask = `把下面每条视频提示词翻成中文，要求：
-1) 保留官方六段结构，段名用中文：主体定义 / 概要 / 保持分析 / 详细描述 / 整体声音 / 非叙事音乐
-2) 保留所有占位符原样（<Subject 1> <Picture 1> …）、时间码、引号内台词原文
-3) 只翻译说明文字，不要解释、不要加序号、不要改动结构
-4) 每条独立翻译，长度尽量对应
+  const out = new Array(list.length).fill('')
+  const ask1 = (text: string) => `把下面这条视频提示词翻成中文，要求：
+1) 保留官方六段结构，段名必须改成中文：主体定义 / 概要 / 保持分析 / 详细描述 / 整体声音 / 非叙事音乐
+2) 占位符原样保留（<Subject 1> <Picture 1> <Audio 1> [Shot 1]）、时间码原样、引号内台词原文不动
+3) 中文描述翻成通顺中文；只有人名的英文术语可保留
+4) 不要解释、不要加序号、不要改动段落顺序
 
-${idx.map(([t, i]) => `--- ${i} ---\n${t}`).join('\n')}
+${text}
+
+只输出 JSON 对象：{"zh":"…"}`
+  const run = async (text: string): Promise<string> => {
+    try {
+      const o = pickJson<any>(await askText('你是影视提示词翻译，只输出 JSON。', ask1(text), 4000, configId))
+      return String(o?.zh || '').trim()
+    } catch { return '' }
+  }
+  for (let i = 0; i < list.length; i += 4) {
+    const chunk = list.slice(i, i + 4)
+    try {
+      const ask = `把下面每条视频提示词翻成中文，要求：
+1) 保留官方六段结构，段名必须改成中文：主体定义 / 概要 / 保持分析 / 详细描述 / 整体声音 / 非叙事音乐
+2) 占位符原样保留（<Subject 1> <Picture 1> <Audio 1> [Shot 1]）、时间码原样、引号内台词原文不动
+3) 中文描述翻成通顺中文
+4) 不要解释、不要加序号
+
+${chunk.map((t, k) => `--- ${k} ---\n${t}`).join('\n')}
 
 只输出 JSON 数组：[{"index":0,"zh":"…"}]`
-    const out = pickJson<any[]>(await askText('你是影视提示词翻译，只输出 JSON。', ask, 6000, configId))
-    const arr = new Array(list.length).fill('')
-    for (const o of Array.isArray(out) ? out : []) {
-      const i = Number(o?.index)
-      if (Number.isFinite(i) && i >= 0 && i < arr.length) arr[i] = String(o?.zh || '').trim()
+      const arr = pickJson<any>(await askText('你是影视提示词翻译，只输出 JSON。', ask, 8000, configId))
+      const got = Array.isArray(arr) ? arr : []
+      for (const o of got) {
+        const k = Number(o?.index)
+        if (Number.isFinite(k) && k >= 0 && k < chunk.length) out[i + k] = String(o?.zh || '').trim()
+      }
+    } catch { /* 整块失败，下面逐条补 */ }
+    for (let k = 0; k < chunk.length; k++) {
+      if (!out[i + k]) out[i + k] = await run(chunk[k])
     }
-    return arr
-  } catch { return [] }
+  }
+  return out
 }
 
 /** 把中文补充说明整批翻成英文（一条 LLM 调用；失败返回空数组，编译照常跑） */
