@@ -24,21 +24,12 @@
         </div>
       </div>
       <div v-if="current" class="mv-top-selects">
-        <span class="mv-sel">
-          <span class="mv-sel-k">文本</span>
-          <BaseSelect :model-value="pj.textConfigId ? String(pj.textConfigId) : ''" :options="textOptions"
-            placeholder="跟随当前启用" @update:model-value="(v) => saveChannel('text_config_id', v)" />
-        </span>
-        <span class="mv-sel">
-          <span class="mv-sel-k">图片</span>
-          <BaseSelect :model-value="pj.imageConfigId ? String(pj.imageConfigId) : ''" :options="imageOptions"
-            placeholder="跟随当前启用" @update:model-value="(v) => saveChannel('image_config_id', v)" />
-        </span>
-        <span class="mv-sel">
-          <span class="mv-sel-k">视频</span>
-          <BaseSelect :model-value="pj.videoConfigId ? String(pj.videoConfigId) : ''" :options="videoOptions"
-            placeholder="跟随当前启用" @update:model-value="(v) => saveChannel('video_config_id', v)" />
-        </span>
+        <ModelSelect :label="'文本'" v-model="mvTextModel" :options="textModelOptions"
+          :default-label="'默认（' + (textModelOptions[0]?.model || '未配') + '）'" :show-config="hasMultiConfigs(textModelOptions)" />
+        <ModelSelect :label="'图片'" v-model="mvImageModel" :options="imageModelOptions"
+          :default-label="'默认（' + (imageModelOptions[0]?.model || '未配') + '）'" :show-config="hasMultiConfigs(imageModelOptions)" />
+        <ModelSelect :label="'视频'" v-model="mvVideoModel" :options="videoModelOptions"
+          :default-label="'默认（' + (videoModelOptions[0]?.model || '未配') + '）'" :show-config="hasMultiConfigs(videoModelOptions)" />
         <span class="mv-sel" title="画幅（在「原始内容」页改）">
           <span class="mv-sel-k">画幅</span><span class="mv-sel-v">{{ editRatio }}</span>
         </span>
@@ -519,7 +510,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
-import { api, stylePresetAPI } from '~/composables/useApi'
+import { api, stylePresetAPI, aiConfigAPI } from '~/composables/useApi'
 
 const projects = ref([])
 const current = ref(null)
@@ -536,31 +527,57 @@ const cardBusy = ref(null)
 const promptBusy = ref(null)
 const viewer = ref({ open: false, src: '', title: '' })
 const editRatio = ref('9:16')
-// 顶部标签栏：三条通道可按项目切换（NULL = 跟随「设置 → AI 服务」当前启用）
-const channels = ref({ text: '', image: '', video: '' })
-const configs = ref([])
-const shortModel = (s) => (s ? (s.length > 20 ? s.slice(0, 20) + '…' : s) : '未配置')
-async function loadChannels() {
-  const r = await api.get('/mv/channels').catch(() => null)
-  if (r) channels.value = { text: r.text || '', image: r.image || '', video: r.video || '' }
-}
+// 顶部三个模型选择器 —— 照短剧 ModelSelect 的口径：选项来自该类全部启用配置，选中值是可选的 'provider/model'
+const textConfigs = ref([])
+const imageConfigs = ref([])
+const videoConfigs = ref([])
 async function loadConfigs() {
-  const r = await api.get('/ai-configs').catch(() => null)
-  configs.value = Array.isArray(r) ? r : (r?.items || [])
+  const [t, i, v] = await Promise.all([
+    aiConfigAPI.list('text').catch(() => []),
+    aiConfigAPI.list('image').catch(() => []),
+    aiConfigAPI.list('video').catch(() => []),
+  ])
+  textConfigs.value = t || []; imageConfigs.value = i || []; videoConfigs.value = v || []
 }
-const optionsOf = (type) => {
-  const list = configs.value.filter((c) => c.serviceType === type || c.service_type === type)
-    .map((c) => ({ label: `${c.name || c.model || '未命名'}`, value: String(c.id) }))
-  return [{ label: `跟随当前启用${channels.value[type] ? '（' + shortModel(channels.value[type]) + '）' : ''}`, value: '' }, ...list]
+function configModels(cfg) {
+  const raw = cfg?.model
+  if (!raw) return []
+  if (Array.isArray(raw)) return raw.filter(Boolean)
+  try { const m = JSON.parse(raw); return Array.isArray(m) ? m.filter(Boolean) : [m].filter(Boolean) } catch { return [raw].filter(Boolean) }
 }
-const textOptions = computed(() => optionsOf('text'))
-const imageOptions = computed(() => optionsOf('image'))
-const videoOptions = computed(() => optionsOf('video'))
-
-async function saveChannel(field, value) {
-  const r = await call(() => api.put(`/mv/projects/${pj.value.id}`, {
-    [field]: value === '' ? null : Number(value),
-  }))
+function collectModelOptions(cfgs) {
+  const seen = new Set(); const out = []
+  for (const c of [...cfgs].filter((x) => x.is_active).sort((a, b) => (b.priority || 0) - (a.priority || 0))) {
+    for (const m of configModels(c)) {
+      const key = `${c.provider}/${m}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push({ key, model: m, provider: c.provider, configId: c.id, configName: c.name || c.provider })
+    }
+  }
+  return out
+}
+const hasMultiConfigs = (options) => new Set(options.map((o) => o.configId)).size > 1
+const textModelOptions = computed(() => collectModelOptions(textConfigs.value))
+const imageModelOptions = computed(() => collectModelOptions(imageConfigs.value))
+const videoModelOptions = computed(() => collectModelOptions(videoConfigs.value))
+// 选中值 ↔ 项目里锁的 config_id 互转
+const keyOfConfig = (options, id) => options.find((o) => o.configId === id)?.key || ''
+const configOfKey = (options, key) => (key ? options.find((o) => o.key === key)?.configId || null : null)
+const mvTextModel = computed({
+  get: () => keyOfConfig(textModelOptions.value, pj.value.textConfigId),
+  set: (v) => saveChannel('text_config_id', configOfKey(textModelOptions.value, v)),
+})
+const mvImageModel = computed({
+  get: () => keyOfConfig(imageModelOptions.value, pj.value.imageConfigId),
+  set: (v) => saveChannel('image_config_id', configOfKey(imageModelOptions.value, v)),
+})
+const mvVideoModel = computed({
+  get: () => keyOfConfig(videoModelOptions.value, pj.value.videoConfigId),
+  set: (v) => saveChannel('video_config_id', configOfKey(videoModelOptions.value, v)),
+})
+async function saveChannel(field, configId) {
+  const r = await call(() => api.put(`/mv/projects/${pj.value.id}`, { [field]: configId ?? null }))
   if (r) current.value = { ...current.value, project: r.project }
 }
 // 项目列表：搜索 / 状态筛选 / 三点菜单 / 删除确认（照短剧项目启动台）
@@ -953,7 +970,7 @@ function syncTimer() {
 onMounted(async () => {
   await loadPresets()
   await loadProjects()
-  await Promise.all([loadChannels(), loadConfigs()])
+  await loadConfigs()
 })
 onUnmounted(() => { if (timer) clearInterval(timer) })
 </script>

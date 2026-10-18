@@ -687,8 +687,11 @@ app.post('/projects/:id/shots', async (c) => {
   }
   const raw = plan?.shots || []
   if (!raw.length) return serverError(c, '切段结果为空')
-  // 景别规则（MV）：中间只用 中景/特写 交替，只有头尾允许中远景；段内不换景别
-  const sizes = raw.map((_s, i) => (i === 0 || i === raw.length - 1) ? '中远景' : (i % 2 ? '中景' : '特写'))
+  // 景别按 MV 分镜规范定（由模型按歌词情绪/音乐节奏选），这里只留兜底：有唱默认近景、间奏默认中景、首尾可中远景
+  const SIZES = ['中远景', '中景', '近景', '特写']
+  const fallbackSize = (i: number, n: number, vocal: string) =>
+    (i === 0 || i === n - 1) ? '中远景' : (vocal === 'vocal_active' ? '近景' : '中景')
+  const sizes = raw.map((s, i) => fallbackSize(i, raw.length, String(s.vocal_state || '')))
   let outline: any[] = []
   try { outline = JSON.parse(project.outline || '[]') } catch { outline = [] }
   const outlineLine = outline.map((o: any, i: number) => `${i + 1}. ${o.start}-${o.end}s：${o.what}`).join('\n')
@@ -702,10 +705,11 @@ ${raw.map((s, i) => `${i}: ${s.start}s 起 ${s.seconds}s（${s.frames}帧） ${s
 ${outlineLine || '(无)'}
 ${lyricLines.length ? `歌词行：\n${lyricLines.map((l, i) => `${i + 1}. ${l}`).join('\n')}` : ''}
 
-给每段配一个机位 camera：英文短句，必须一直看得清脸和嘴（有唱段尤其），例如
+给每段按**标准 MV 分镜**配「景别 + 机位」：景别按这一段的歌词情绪与音乐节奏选（不要求交替、不硬性限制位置），机位是英文短句，必须一直看得清脸和嘴（有唱段尤其），例如
 "locked-off static camera, medium shot, front three-quarter face view, stable framing"。
+一段里只能有一个景别、一种机位（这段只出一张参考图、一个镜头），不许在段内推拉变焦换景别。
 只输出 JSON 数组，长度必须等于 ${raw.length}：
-[{"index":0,"camera":"…","lyric":"这一段正在唱的那句歌词，没唱就留空"}, …]`
+[{"index":0,"shot_size":"中远景|中景|近景|特写","camera":"…","lyric":"这一段正在唱的那句歌词，没唱就留空"}, …]`
     perShot = pickJson<any[]>(await askText(await mvPrompt('mv_camera'), ask, 3000, project.textConfigId))
   } catch { perShot = [] }
 
@@ -719,7 +723,8 @@ ${lyricLines.length ? `歌词行：\n${lyricLines.map((l, i) => `${i + 1}. ${l}`
         projectId: id, shotNumber: i + 1,
         startSeconds: Number(s.start), endSeconds: Number(s.end),
         frames: Number(s.frames), seconds: Number(s.seconds),
-        shotSize: sizes[i] || '中景', camera: String(extra?.camera || '').slice(0, 300),
+        shotSize: SIZES.includes(String(extra?.shot_size || '')) ? String(extra.shot_size) : (sizes[i] || '中景'),
+        camera: String(extra?.camera || '').slice(0, 300),
         vocalState: String(s.vocal_state || 'vocal_active'), lyric: String(extra?.lyric || '').slice(0, 300),
         status: 'pending', createdAt: ts, updatedAt: ts,
       })
