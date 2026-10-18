@@ -19,8 +19,23 @@
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 16 14"/></svg>
             {{ Number(pj.songSeconds || 0).toFixed(1) }}s
           </span>
+          <span class="meta-item" v-if="current">{{ characters.length }} 人物 · {{ scenes.length }} 场景 · {{ shots.length }} 段</span>
           <span class="meta-item" v-if="!current">上传一首歌 + 分镜提示词 → 初步分镜 → 资产制作 → 视频制作</span>
         </div>
+      </div>
+      <div v-if="current" class="mv-top-selects">
+        <span class="mv-sel" :title="channels.text || '未配置（去 设置 → AI 服务 里配）'">
+          <span class="mv-sel-k">文本</span><span class="mv-sel-v">{{ shortModel(channels.text) }}</span>
+        </span>
+        <span class="mv-sel" :title="channels.image || '未配置（去 设置 → AI 服务 里配）'">
+          <span class="mv-sel-k">图片</span><span class="mv-sel-v">{{ shortModel(channels.image) }}</span>
+        </span>
+        <span class="mv-sel" :title="channels.video || '未配置（去 设置 → AI 服务 里配）'">
+          <span class="mv-sel-k">视频</span><span class="mv-sel-v">{{ shortModel(channels.video) }}</span>
+        </span>
+        <span class="mv-sel" title="画幅（在「原始内容」页改）">
+          <span class="mv-sel-k">画幅</span><span class="mv-sel-v">{{ editRatio }}</span>
+        </span>
       </div>
       <div class="head-actions">
         <span v-if="busy && stepMsg" class="busy-hint">{{ stepMsg }}</span>
@@ -515,6 +530,13 @@ const cardBusy = ref(null)
 const promptBusy = ref(null)
 const viewer = ref({ open: false, src: '', title: '' })
 const editRatio = ref('9:16')
+// 顶部标签栏：当前启用的三条通道（只读展示，改在 设置 → AI 服务）
+const channels = ref({ text: '', image: '', video: '' })
+const shortModel = (s) => (s ? (s.length > 20 ? s.slice(0, 20) + '…' : s) : '未配置')
+async function loadChannels() {
+  const r = await api.get('/mv/channels').catch(() => null)
+  if (r) channels.value = { text: r.text || '', image: r.image || '', video: r.video || '' }
+}
 // 项目列表：搜索 / 状态筛选 / 三点菜单 / 删除确认（照短剧项目启动台）
 const q = ref('')
 const statusFilter = ref('all')
@@ -905,6 +927,7 @@ function syncTimer() {
 onMounted(async () => {
   await loadPresets()
   await loadProjects()
+  await loadChannels()
 })
 onUnmounted(() => { if (timer) clearInterval(timer) })
 </script>
@@ -981,6 +1004,18 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 }
 .mv-side-item.active .mv-side-count { background: var(--accent-bg); color: var(--accent-text); }
 .mv-main { flex: 1; min-width: 0; }
+
+/* 顶部标签栏（照短剧：模型选择器一排） */
+.mv-top-selects { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex-shrink: 0; }
+.mv-sel {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 26px; padding: 0 9px;
+  border: 1px solid var(--border); border-radius: 999px;
+  font-size: 11.5px; color: var(--text-1); background: var(--bg-2);
+  max-width: 200px;
+}
+.mv-sel-k { color: var(--text-3); }
+.mv-sel-v { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 项目列表（照短剧「项目启动台」） */
 .mv-launch-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }

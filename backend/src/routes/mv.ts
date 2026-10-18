@@ -234,6 +234,25 @@ async function ensureRemoteSong(project: any): Promise<string> {
 
 // ---------------------------------------------------------------- 项目
 
+/**
+ * 当前启用的三条通道（顶部标签栏展示用；MV 不单独锁通道，改在「设置 → AI 服务」）
+ */
+app.get('/channels', async (c) => {
+  const name = (cfg: any) => {
+    if (!cfg) return ''
+    try {
+      const arr = JSON.parse(cfg.model || '[]')
+      return Array.isArray(arr) ? String(arr[0] || '') : String(cfg.model || '')
+    } catch { return String(cfg.model || '') }
+  }
+  const [text, image, video] = await Promise.all([
+    getTextConfig().catch(() => null),
+    getActiveConfig('image').catch(() => null),
+    getActiveConfig('video').catch(() => null),
+  ])
+  return success(c, { text: name(text), image: name(image), video: name(video) })
+})
+
 app.get('/projects', async (c) => {
   const rows = await db.select().from(schema.mvProjects).where(isNull(schema.mvProjects.deletedAt)).orderBy(desc(schema.mvProjects.id))
   // 列表卡片要封面和「N 人物 · M 场景 · K 段」，一次性算好（表小，直接全取内存里归并）
