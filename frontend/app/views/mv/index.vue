@@ -36,6 +36,14 @@
       </div>
       <div class="head-actions">
         <span v-if="busy && stepMsg" class="busy-hint">{{ stepMsg }}</span>
+        <template v-if="current && tab === 'video'">
+          <input v-model.number="maxSeconds" class="input mv-num" type="number" min="5" max="15" step="0.5" title="最长切分（秒，H3 上限 15）" />
+          <button class="btn btn-sm" @click="genShots" :disabled="busy">切分详细分镜</button>
+          <button class="btn btn-sm" @click="genPrompts" :disabled="busy">编译全部提示词</button>
+          <button class="btn btn-sm" @click="renderAll" :disabled="busy">生成全部</button>
+          <button class="btn btn-sm" @click="assemble" :disabled="busy">合成成片</button>
+          <button class="btn btn-sm" :class="{ 'is-on': selectMode }" @click="toggleSelectMode">{{ selectMode ? '退出批量' : '批量选择' }}</button>
+        </template>
         <button v-if="current" class="btn btn-sm" @click="taskDrawer = true">
           任务<span v-if="activeTaskCount" class="mv-task-badge">{{ activeTaskCount }}</span>
         </button>
@@ -302,15 +310,7 @@
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
               </button>
             </div>
-            <div v-if="!videoRows.length" class="video-task-empty">{{ shots.length ? '这个筛选下没有段落' : '还没有分镜 —— 先点下发按钮切分详细分镜' }}</div>
-          </div>
-          <div class="video-task-foot">
-            <input v-model.number="maxSeconds" class="input mv-num" type="number" min="5" max="15" step="0.5" title="最长切分（秒，H3 上限 15）" />
-            <button class="shot-quick-btn" @click="genShots" :disabled="busy">切分详细分镜</button>
-            <button class="shot-quick-btn" @click="genPrompts" :disabled="busy">编译全部提示词</button>
-            <button class="shot-quick-btn" @click="renderAll" :disabled="busy">生成全部</button>
-            <button class="shot-quick-btn" @click="assemble" :disabled="busy">合成成片</button>
-            <button class="shot-quick-btn" @click="toggleSelectMode">{{ selectMode ? '退出批量' : '批量选择' }}</button>
+            <div v-if="!videoRows.length" class="video-task-empty">{{ shots.length ? '这个筛选下没有段落' : '还没有分镜 —— 先点上方「切分详细分镜」' }}</div>
           </div>
           <div v-if="selectMode" class="video-task-foot is-batch">
             <button class="shot-quick-btn" @click="selectedIds = videoRows.map(x => x.id)">全选</button>
@@ -1278,6 +1278,8 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 .mv-main { flex: 1; min-width: 0; }
 
 /* 顶部标签栏（照短剧：模型选择器一排） */
+.head-actions { flex-wrap: wrap; }
+.btn.is-on { border-color: var(--accent); color: var(--accent-text, var(--accent)); background: rgba(120,140,255,.14); }
 .mv-top-selects { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex-shrink: 0; }
 .mv-sel {
   display: inline-flex; align-items: center; gap: 6px;
