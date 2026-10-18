@@ -19,8 +19,7 @@
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 16 14"/></svg>
             {{ Number(pj.songSeconds || 0).toFixed(1) }}s
           </span>
-          <span class="meta-item" v-if="current">人物 {{ characters.length }} · 场景 {{ scenes.length }} · 分镜 {{ shots.length }}</span>
-          <span class="meta-item" v-if="!current">上传一首歌 + 分镜提示词 → 提取人物和场景 → 出图抽卡 → 分镜 → 逐段出片</span>
+          <span class="meta-item" v-if="!current">上传一首歌 + 分镜提示词 → 初步分镜 → 资产制作 → 视频制作</span>
         </div>
       </div>
       <div class="head-actions">
@@ -43,33 +42,84 @@
       </div>
     </div>
 
-    <!-- 项目详情 -->
+    <!-- 项目详情：四页（照短剧的分页做法） -->
     <template v-else>
-      <!-- 1 分镜提示词 + 风格 -->
-      <div class="card mv-block">
-        <div class="mv-block-title">1 · 分镜提示词</div>
+      <nav class="page-tabs">
+        <button type="button" :class="['tab-btn', { on: tab === 'origin' }]" @click="tab = 'origin'">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3z"/></svg>
+          原始内容
+        </button>
+        <button type="button" :class="['tab-btn', { on: tab === 'outline' }]" @click="tab = 'outline'">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>
+          初步分镜
+          <span class="tab-count">{{ outline.length }}</span>
+        </button>
+        <button type="button" :class="['tab-btn', { on: tab === 'assets' }]" @click="tab = 'assets'">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          资产制作
+          <span v-if="assets.length" class="tab-count">{{ assets.length }}</span>
+        </button>
+        <button type="button" :class="['tab-btn', { on: tab === 'video' }]" @click="tab = 'video'">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+          视频制作
+          <span v-if="shots.length" class="tab-count">{{ shots.length }}</span>
+        </button>
+      </nav>
+
+      <!-- 第 1 页 · 原始内容 -->
+      <div v-if="tab === 'origin'" class="card mv-block">
+        <div class="mv-block-title">原始内容（歌 + 歌词 + 分镜提示词）</div>
         <div class="mv-row">
           <span class="mv-label">风格</span>
           <BaseSelect v-model="editStyle" :options="styleOptions" placeholder="选一个画风" searchable @update:model-value="saveStyle" />
           <span v-if="styleDesc" class="field-hint">{{ styleDesc }}</span>
-        </div>
-        <textarea v-model="storyPrompt" class="input textarea" rows="8"
-          placeholder="把这首歌的画面前后写清（开场什么画面、谁在做什么、场景怎么变、结尾怎么收）—— 提取人物和场景、写粗分镜都以它为准"></textarea>
-        <div class="mv-row mv-row-end">
-          <button class="btn btn-sm" @click="saveStory" :disabled="busy">保存</button>
-          <button class="btn btn-primary btn-sm" @click="extract" :disabled="busy">提取人物和场景</button>
+          <span class="field-hint">歌：{{ pj.songFile }}（{{ Number(pj.songSeconds || 0).toFixed(1) }}s）</span>
         </div>
         <label class="mv-label">歌词（可选，一行一句，用来把切点落在句界上）</label>
-        <textarea v-model="lyrics" class="input textarea" rows="4" placeholder="一行一句，可留空"></textarea>
+        <textarea v-model="lyrics" class="input textarea" rows="5" placeholder="一行一句，可留空"></textarea>
+        <label class="mv-label">分镜提示词（你写的这支 MV 的画面；初步分镜和人物场景都从它来）</label>
+        <textarea v-model="storyPrompt" class="input textarea" rows="10"
+          placeholder="把这首歌的画面前后写清（开场什么画面、谁在做什么、场景怎么变、结尾怎么收）"></textarea>
         <div class="mv-row mv-row-end">
-          <button class="btn btn-sm" @click="saveLyrics" :disabled="busy">保存歌词</button>
+          <button class="btn btn-sm" @click="saveAll" :disabled="busy">保存</button>
+          <button class="btn btn-primary btn-sm" @click="goNext('outline')" :disabled="busy">下一步：初步分镜 →</button>
         </div>
       </div>
 
-      <!-- 2 人物与场景 -->
-      <div class="card mv-block">
-        <div class="mv-block-title">2 · 人物与场景（从分镜提示词提取，可改）</div>
-        <div v-if="!assets.length" class="mv-hint">还没有资产 —— 填好上面的分镜提示词，点「提取人物和场景」。</div>
+      <!-- 第 2 页 · 初步分镜（AI 改写） -->
+      <div v-else-if="tab === 'outline'" class="card mv-block">
+        <div class="mv-block-title">初步分镜（AI 把原始内容改写成与歌等长的分镜，只写画面）</div>
+        <div v-if="!storyPrompt.trim()" class="mv-warn">
+          还没有分镜提示词 —— 先去第 1 步「原始内容」写好。
+          <button class="btn btn-sm" @click="tab = 'origin'">去第 1 步</button>
+        </div>
+        <div class="mv-row">
+          <button class="btn btn-primary btn-sm" @click="genOutline" :disabled="busy">AI 改写成分镜</button>
+          <span class="tag">{{ outline.length }} 段</span>
+          <span class="field-hint">不满意可以再点一次重写</span>
+        </div>
+        <ol class="mv-outline">
+          <li v-for="(o, i) in outline" :key="i">
+            <span class="meta-item">{{ Number(o.start).toFixed(1) }}–{{ Number(o.end).toFixed(1) }}s</span> {{ o.what }}
+          </li>
+        </ol>
+        <div class="mv-row mv-row-end">
+          <button class="btn btn-primary btn-sm" @click="goNext('assets')" :disabled="busy">下一步：资产制作 →</button>
+        </div>
+      </div>
+
+      <!-- 第 3 页 · 资产制作 -->
+      <div v-else-if="tab === 'assets'" class="card mv-block">
+        <div class="mv-block-title">资产制作（从分镜提示词提取人物和场景 → 出图 → 抽卡）</div>
+        <div v-if="!storyPrompt.trim()" class="mv-warn">
+          还没有分镜提示词 —— 先去第 1 步「原始内容」写好。
+          <button class="btn btn-sm" @click="tab = 'origin'">去第 1 步</button>
+        </div>
+        <div class="mv-row">
+          <button class="btn btn-primary btn-sm" @click="extract" :disabled="busy">提取人物和场景</button>
+          <span class="field-hint">重新提取会覆盖当前人物/场景（图和卡要重出）</span>
+        </div>
+        <div v-if="!assets.length" class="mv-hint">还没有资产 —— 点上面的「提取人物和场景」。</div>
         <div class="mv-assets">
           <div v-for="a in assets" :key="a.id" class="card mv-asset">
             <div class="mv-asset-head">
@@ -87,93 +137,87 @@
             </div>
           </div>
         </div>
+        <div class="mv-row mv-row-end">
+          <button class="btn btn-primary btn-sm" @click="goNext('video')" :disabled="busy">下一步：视频制作 →</button>
+        </div>
       </div>
 
-      <!-- 3 粗分镜 -->
-      <div class="card mv-block">
-        <div class="mv-block-title">3 · 粗分镜（与歌等长，只写画面内容）</div>
-        <div class="mv-row">
-          <button class="btn btn-primary btn-sm" @click="genOutline" :disabled="busy">生成粗分镜</button>
-          <span class="tag">{{ outline.length }} 段</span>
+      <!-- 第 4 页 · 视频制作 -->
+      <div v-else class="mv-block">
+        <div class="card mv-block">
+          <div class="mv-block-title">详细分镜（4080 按歌切段 → 配景别/机位/歌词 → 编译六段式提示词）</div>
+          <div v-if="!characters.some((c) => c.image)" class="mv-warn">
+            还没有人物图 —— 先去第 3 步「资产制作」提取人物并出图。
+            <button class="btn btn-sm" @click="tab = 'assets'">去第 3 步</button>
+          </div>
+          <div class="mv-row">
+            <span class="mv-label">最长切分（秒，H3 上限 15）</span>
+            <input v-model.number="maxSeconds" class="input mv-num" type="number" min="5" max="15" step="0.5" />
+            <button class="btn btn-primary btn-sm" @click="genShots" :disabled="busy">切分详细分镜</button>
+            <button class="btn btn-sm" @click="genPrompts" :disabled="busy">编译提示词</button>
+            <span class="meta-item">中景／特写交替，只有头尾允许中远景；段内不换景别</span>
+          </div>
+          <table class="mv-table" v-if="shots.length">
+            <thead>
+              <tr>
+                <th>#</th><th>起点</th><th>时长</th><th>帧</th><th>唱/非唱</th>
+                <th>景别</th><th>机位（英文，留空用默认固定机位）</th><th>歌词</th>
+                <th>提示词</th><th>状态</th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="s in shots" :key="s.id">
+                <td>{{ s.shotNumber }}</td>
+                <td>{{ Number(s.startSeconds || 0).toFixed(2) }}s</td>
+                <td>{{ Number(s.seconds || 0).toFixed(2) }}s</td>
+                <td>{{ s.frames }}</td>
+                <td>
+                  <select v-model="s.vocalState" class="input mv-cell" @change="saveShot(s)">
+                    <option value="vocal_active">唱</option>
+                    <option value="non_vocal">非唱</option>
+                  </select>
+                </td>
+                <td>
+                  <select v-model="s.shotSize" class="input mv-cell" @change="saveShot(s)">
+                    <option value="中远景">中远景</option>
+                    <option value="中景">中景</option>
+                    <option value="近景">近景</option>
+                    <option value="特写">特写</option>
+                  </select>
+                </td>
+                <td><input v-model="s.camera" class="input mv-cell-wide" @blur="saveShot(s)" /></td>
+                <td><input v-model="s.lyric" class="input mv-cell-wide" @blur="saveShot(s)" /></td>
+                <td><span class="ok" v-if="s.prompt">有</span><span class="dim" v-else>—</span></td>
+                <td>
+                  <span class="tag" :class="s.status === 'completed' ? 'tag-success' : (s.status === 'failed' ? 'tag-error' : '')">
+                    {{ statusZh(s.status) }}
+                  </span>
+                  <span v-if="s.errorMsg" class="bad"> {{ s.errorMsg.slice(0, 40) }}</span>
+                </td>
+                <td class="mv-actions">
+                  <button class="btn btn-sm" @click="render(s)" :disabled="busy || s.status === 'processing'">
+                    {{ s.videoUrl ? '重做' : '生成' }}
+                  </button>
+                  <a v-if="s.videoUrl" class="btn btn-ghost btn-sm" :href="staticUrl(s.videoUrl)" target="_blank">看</a>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <pre v-if="shots[0]?.prompt" class="mv-prompt">首段提示词预览：{{ shots[0].prompt }}</pre>
         </div>
-        <ol class="mv-outline">
-          <li v-for="(o, i) in outline" :key="i">
-            <span class="meta-item">{{ Number(o.start).toFixed(1) }}–{{ Number(o.end).toFixed(1) }}s</span> {{ o.what }}
-          </li>
-        </ol>
-      </div>
 
-      <!-- 4 详细分镜 -->
-      <div class="card mv-block">
-        <div class="mv-block-title">4 · 详细分镜（景别 / 机位 / 歌词）</div>
-        <div class="mv-row">
-          <span class="mv-label">最长切分（秒，H3 上限 15）</span>
-          <input v-model.number="maxSeconds" class="input mv-num" type="number" min="5" max="15" step="0.5" />
-          <button class="btn btn-primary btn-sm" @click="genShots" :disabled="busy">切分详细分镜</button>
-          <button class="btn btn-sm" @click="genPrompts" :disabled="busy || !shots.length">编译提示词</button>
-          <span class="meta-item">中景／特写交替，只有头尾允许中远景；段内不换景别</span>
-        </div>
-        <table class="mv-table" v-if="shots.length">
-          <thead>
-            <tr>
-              <th>#</th><th>起点</th><th>时长</th><th>帧</th><th>唱/非唱</th>
-              <th>景别</th><th>机位（英文，留空用默认固定机位）</th><th>歌词</th>
-              <th>提示词</th><th>状态</th><th></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="s in shots" :key="s.id">
-              <td>{{ s.shotNumber }}</td>
-              <td>{{ Number(s.startSeconds || 0).toFixed(2) }}s</td>
-              <td>{{ Number(s.seconds || 0).toFixed(2) }}s</td>
-              <td>{{ s.frames }}</td>
-              <td>
-                <select v-model="s.vocalState" class="input mv-cell" @change="saveShot(s)">
-                  <option value="vocal_active">唱</option>
-                  <option value="non_vocal">非唱</option>
-                </select>
-              </td>
-              <td>
-                <select v-model="s.shotSize" class="input mv-cell" @change="saveShot(s)">
-                  <option value="中远景">中远景</option>
-                  <option value="中景">中景</option>
-                  <option value="近景">近景</option>
-                  <option value="特写">特写</option>
-                </select>
-              </td>
-              <td><input v-model="s.camera" class="input mv-cell-wide" @blur="saveShot(s)" /></td>
-              <td><input v-model="s.lyric" class="input mv-cell-wide" @blur="saveShot(s)" /></td>
-              <td><span class="ok" v-if="s.prompt">有</span><span class="dim" v-else>—</span></td>
-              <td>
-                <span class="tag" :class="s.status === 'completed' ? 'tag-success' : (s.status === 'failed' ? 'tag-error' : '')">
-                  {{ statusZh(s.status) }}
-                </span>
-                <span v-if="s.errorMsg" class="bad"> {{ s.errorMsg.slice(0, 40) }}</span>
-              </td>
-              <td class="mv-actions">
-                <button class="btn btn-sm" @click="render(s)" :disabled="busy || s.status === 'processing'">
-                  {{ s.videoUrl ? '重做' : '生成' }}
-                </button>
-                <a v-if="s.videoUrl" class="btn btn-ghost btn-sm" :href="staticUrl(s.videoUrl)" target="_blank">看</a>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-        <pre v-if="shots[0]?.prompt" class="mv-prompt">首段提示词预览：{{ shots[0].prompt }}</pre>
-      </div>
-
-      <!-- 5 出片 -->
-      <div class="card mv-block">
-        <div class="mv-block-title">5 · 出片</div>
-        <div class="mv-row">
-          <button class="btn btn-primary btn-sm" @click="renderAll" :disabled="busy || !shots.length">依次生成全部片段</button>
-          <button class="btn btn-sm" @click="assemble" :disabled="busy || !shots.length">合成成片</button>
-          <span class="tag">已完成 {{ shots.filter(s => s.videoUrl).length }}/{{ shots.length }}</span>
-          <span class="meta-item">每段约 1~4 分钟，按段排队跑</span>
-        </div>
-        <video v-if="pj.outputUrl" class="mv-video" :src="staticUrl(pj.outputUrl)" controls />
-        <div v-if="pj.outputUrl" class="mv-row">
-          <a class="btn btn-sm" :href="staticUrl(pj.outputUrl)" target="_blank">打开成片</a>
+        <div class="card mv-block">
+          <div class="mv-block-title">出片</div>
+          <div class="mv-row">
+            <button class="btn btn-primary btn-sm" @click="renderAll" :disabled="busy">依次生成全部片段</button>
+            <button class="btn btn-sm" @click="assemble" :disabled="busy">合成成片</button>
+            <span class="tag">已完成 {{ shots.filter(s => s.videoUrl).length }}/{{ shots.length }}</span>
+            <span class="meta-item">每段约 1~4 分钟，按段排队跑</span>
+          </div>
+          <video v-if="pj.outputUrl" class="mv-video" :src="staticUrl(pj.outputUrl)" controls />
+          <div v-if="pj.outputUrl" class="mv-row">
+            <a class="btn btn-sm" :href="staticUrl(pj.outputUrl)" target="_blank">打开成片</a>
+          </div>
         </div>
       </div>
     </template>
@@ -236,6 +280,7 @@ const stepMsg = ref('')
 const showCreate = ref(false)
 const showRename = ref(false)
 const renameTitle = ref('')
+const tab = ref('origin')
 const maxSeconds = ref(10)
 const storyPrompt = ref('')
 const lyrics = ref('')
@@ -258,6 +303,22 @@ const ZH = { draft: '未开始', planned: '有粗分镜', shots: '有分镜', re
 function statusZh(s) { return ZH[s] || s || '' }
 function staticUrl(rel) { return rel ? `/static/${rel}` : '' }
 function styleLabel(key) { return presets.value.find((p) => p.value === key)?.name || key || '' }
+
+/** 前一步没做就别往下走：拦下来并告诉他去哪一步 */
+function need(ok, msg) {
+  if (ok) return true
+  alert(msg)
+  return false
+}
+const hasStory = () => !!storyPrompt.value.trim()
+const hasCharImage = () => characters.value.some((a) => a.image)
+
+function goNext(to) {
+  if (to === 'outline' && !need(hasStory(), '先去「原始内容」写好分镜提示词，再进「初步分镜」')) return
+  if (to === 'assets' && !need(outline.value.length, '先去「初步分镜」点「AI 改写成分镜」，再进「资产制作」')) return
+  if (to === 'video' && !need(hasCharImage(), '先去「资产制作」提取人物并出图，再进「视频制作」')) return
+  tab.value = to
+}
 
 async function call(fn, msg) {
   busy.value = true
@@ -318,6 +379,7 @@ async function openProject(id) {
   if (!r) return
   current.value = r
   sync(r)
+  tab.value = 'origin'
   syncTimer()
 }
 
@@ -355,22 +417,24 @@ async function doRename() {
   await loadProjects()
 }
 
+async function saveAll() {
+  const r = await call(() => api.put(`/mv/projects/${pj.value.id}`, {
+    story_prompt: storyPrompt.value, lyrics: lyrics.value,
+  }))
+  if (r) {
+    current.value = { ...current.value, project: r.project }
+    stepMsg.value = '已保存'
+    setTimeout(() => { if (stepMsg.value === '已保存') stepMsg.value = '' }, 1200)
+  }
+}
+
 async function saveStyle(v) {
   const r = await call(() => api.put(`/mv/projects/${pj.value.id}`, { style: v }))
   if (r) current.value = { ...current.value, project: r.project }
 }
 
-async function saveStory() {
-  const r = await call(() => api.put(`/mv/projects/${pj.value.id}`, { story_prompt: storyPrompt.value }))
-  if (r) current.value = { ...current.value, project: r.project }
-}
-
-async function saveLyrics() {
-  const r = await call(() => api.put(`/mv/projects/${pj.value.id}`, { lyrics: lyrics.value }))
-  if (r) current.value = { ...current.value, project: r.project }
-}
-
 async function extract() {
+  if (!need(hasStory(), '先去第 1 步「原始内容」写好分镜提示词，再来提取人物和场景')) return
   const r = await call(() => api.post(`/mv/projects/${pj.value.id}/extract`, { story_prompt: storyPrompt.value }),
     'LLM 正在提取人物和场景…')
   if (r) {
@@ -391,6 +455,7 @@ async function removeAsset(a) {
 }
 
 async function makeImage(a) {
+  if (!need(!!String(a.description || '').trim(), '这个资产还没有描述 —— 先写清外貌/场景，再出图')) return
   const r = await call(() => api.post(`/mv/projects/${pj.value.id}/assets/${a.id}/image`, {
     name: a.name, description: a.description,
   }), '正在出图（约 1 分钟）…')
@@ -398,21 +463,26 @@ async function makeImage(a) {
 }
 
 async function makeCard(a) {
+  if (!need(!!a.image, '先给这个资产「出图」，再抽卡')) return
   const r = await call(() => api.post(`/mv/projects/${pj.value.id}/assets/${a.id}/card`, {}), '正在抽卡…')
   if (r) assets.value = r.assets || []
 }
 
 async function genOutline() {
-  const r = await call(() => api.post(`/mv/projects/${pj.value.id}/plan`, {}), 'LLM 正在写粗分镜…')
+  if (!need(hasStory(), '先去第 1 步「原始内容」写好分镜提示词')) return
+  const r = await call(() => api.post(`/mv/projects/${pj.value.id}/plan`, {}), 'LLM 正在写初步分镜…')
   if (r) await refresh()
 }
 
 async function genShots() {
+  if (!need(hasCharImage(), '先去第 3 步「资产制作」提取人物并出图，再切分详细分镜')) return
   const r = await call(() => api.post(`/mv/projects/${pj.value.id}/shots`, { max_seconds: maxSeconds.value }), '正在按歌切段…')
   if (r) await refresh()
 }
 
 async function genPrompts() {
+  if (!need(shots.value.length, '先点「切分详细分镜」，再来编译提示词')) return
+  if (!need(hasCharImage(), '先去第 3 步「资产制作」提取人物并出图')) return
   const r = await call(() => api.post(`/mv/projects/${pj.value.id}/prompts`, {}), '正在编译六段式提示词…')
   if (r) await refresh()
 }
@@ -424,20 +494,25 @@ async function saveShot(s) {
 }
 
 async function render(s) {
+  if (!need(!!s.prompt, `第 ${s.shotNumber} 段还没有提示词 —— 先点「编译提示词」`)) return
   const r = await call(() => api.post(`/mv/projects/${pj.value.id}/shots/${s.id}/render`, {}))
   if (r) { s.status = 'processing'; syncTimer() }
 }
 
 async function renderAll() {
+  if (!need(shots.value.length, '先在「视频制作」页点「切分详细分镜」')) return
   for (const s of shots.value) {
     if (s.videoUrl) continue
-    if (!s.prompt) { alert(`第 ${s.shotNumber} 段还没提示词，先点「编译提示词」`); return }
+    if (!s.prompt) { alert(`第 ${s.shotNumber} 段还没提示词 —— 先点「编译提示词」`); return }
     await render(s)
     await new Promise((res) => setTimeout(res, 1200))
   }
 }
 
 async function assemble() {
+  if (!need(shots.value.length, '先在「视频制作」页点「切分详细分镜」并生成分段')) return
+  const done = shots.value.filter((s) => s.videoUrl).length
+  if (!need(done === shots.value.length, `还有 ${shots.value.length - done} 段没生成完，全部生成完才能合成`)) return
   const r = await call(() => api.post(`/mv/projects/${pj.value.id}/assemble`, {}), '正在拼接并混入原曲…')
   if (r) await refresh()
 }
@@ -450,9 +525,9 @@ async function pollOnce() {
 }
 
 function syncTimer() {
-  const need = shots.value.some((s) => s.status === 'processing')
-  if (need && !timer) timer = setInterval(pollOnce, 6000)
-  if (!need && timer) { clearInterval(timer); timer = null }
+  const needPoll = shots.value.some((s) => s.status === 'processing')
+  if (needPoll && !timer) timer = setInterval(pollOnce, 6000)
+  if (!needPoll && timer) { clearInterval(timer); timer = null }
 }
 
 onMounted(async () => {
@@ -463,7 +538,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 </script>
 
 <style scoped>
-/* 页壳照抄短剧页（app/views/drama/detail.vue 的 .page / .page-head / .page-title / .page-meta） */
+/* 页壳照抄短剧页（app/views/drama/detail.vue） */
 .page {
   padding: 20px 28px 40px;
   overflow-y: auto;
@@ -502,6 +577,58 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 .page-meta { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .meta-item { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-2); }
 
+/* 主 Tab 导航（与 drama/detail.vue 同款） */
+.page-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 14px;
+}
+.tab-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: none;
+  background: transparent;
+  padding: 8px 4px 10px;
+  margin-right: 20px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: color 0.16s var(--ease-out);
+}
+.tab-btn svg { opacity: 0.75; }
+.tab-btn::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background 0.16s var(--ease-out);
+}
+.tab-btn:hover { color: var(--text-0); }
+.tab-btn.on { color: var(--text-0); font-weight: 650; }
+.tab-btn.on::after { background: var(--accent); }
+.tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  background: var(--bg-2);
+  color: var(--text-2);
+}
+.tab-btn.on .tab-count { background: var(--accent-bg); color: var(--accent-text); }
+
 /* 列表 */
 .mv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
 .mv-empty { padding: 28px; text-align: center; color: var(--text-3); }
@@ -512,13 +639,21 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 
 /* 步骤块 */
 .mv-block { padding: 14px 16px; margin-bottom: 14px; }
+.card.mv-block + .card.mv-block { margin-top: 14px; }
 .mv-block-title { font-weight: 700; font-size: 13px; margin-bottom: 10px; }
 .mv-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
-.mv-row-end { justify-content: flex-end; }
-.mv-label { font-size: 12px; color: var(--text-2); }
+.mv-row-end { justify-content: flex-end; margin-top: 10px; }
+.mv-label { display: block; font-size: 12px; color: var(--text-2); margin: 8px 0 4px; }
 .mv-num { width: 88px; }
 .mv-hint { font-size: 12px; color: var(--text-3); padding: 6px 0; }
 .field-hint { font-size: 11.5px; color: var(--text-3); }
+.mv-warn {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 12.5px; color: var(--warning-text, var(--text-1));
+  background: var(--warning-bg, var(--bg-2));
+  border-radius: var(--radius);
+  padding: 8px 12px; margin-bottom: 10px;
+}
 
 /* 资产卡 */
 .mv-assets { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin-top: 8px; }

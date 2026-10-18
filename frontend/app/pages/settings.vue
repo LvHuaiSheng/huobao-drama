@@ -1014,6 +1014,11 @@ const agentDefs = computed(() => [
   { type: 'extractor', label: t('settings.agents.extractor'), icon: '🔍' },
   { type: 'storyboard_breaker', label: t('settings.agents.storyboardBreaker'), icon: '🎬' },
   { type: 'prompt_generator', label: t('settings.agents.promptGenerator'), icon: '🖼' },
+  // 音乐 MV 自己的 4 段指令（2026-10-18）：MV 页面用它们跑提取 / 初步分镜 / 机位 / 出图
+  { type: 'mv_extractor', label: 'MV 人物场景提取', icon: '🧑‍🎤' },
+  { type: 'mv_storyboard', label: 'MV 初步分镜', icon: '📜' },
+  { type: 'mv_camera', label: 'MV 镜头机位', icon: '🎥' },
+  { type: 'mv_asset_image', label: 'MV 资产出图', icon: '🖼' },
 ])
 
 function getAgentCfg(type) {

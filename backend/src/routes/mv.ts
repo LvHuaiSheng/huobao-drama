@@ -26,6 +26,8 @@ import { generateImage, generateVideo } from '../services/generation.js'
 import { getTextConfig, getTextProviderBaseUrl, getActiveConfig } from '../services/ai.js'
 import { getStyleSpecByValue } from '../services/style-preset.js'
 import { joinProviderUrl } from '../services/adapters/url.js'
+import { loadAgentPromptFile } from '../agents/prompts.js'
+import { DEFAULT_PROMPTS } from '../agents/index.js'
 import { extractChatText } from '../services/asset-describe-prompt.js'
 import { getAbsolutePath } from '../utils/storage.js'
 import { STORAGE_ROOT } from '../utils/paths.js'
@@ -157,6 +159,18 @@ async function styleHead(project: any): Promise<string> {
   try {
     return (await getStyleSpecByValue(project?.style)).head
   } catch { return '' }
+}
+
+/**
+ * MV 的可自定义指令：优先用「设置 → Agent 配置」里改过的 workspace/prompts/<type>.md，
+ * 没有就回退代码默认（DEFAULT_PROMPTS）。
+ */
+async function mvPrompt(type: string): Promise<string> {
+  try {
+    const f = await loadAgentPromptFile(type)
+    if (f?.instructions) return f.instructions
+  } catch { /* 读不到就用默认 */ }
+  return DEFAULT_PROMPTS[type]?.instructions || ''
 }
 
 /** 等 sys_task 跑完（图片/视频同一张表；MV 借它拿结果） */
@@ -328,7 +342,7 @@ ${story.slice(0, 12000)}
 appearance 只写脸/身形容貌，styling 只写服装配饰；拆不出来就留空。`
   try {
     const out = pickJson<{ characters?: any[]; scenes?: any[] }>(
-      await askText('你是 MV 资产提取助手。只输出 JSON，不要解释。', ask, 3000))
+      await askText(await mvPrompt('mv_extractor'), ask, 3000))
     const ts = now()
     await db.delete(schema.mvAssets).where(eq(schema.mvAssets.projectId, id))
     let sort = 0
@@ -406,9 +420,13 @@ app.post('/projects/:id/assets/:aid/image', async (c) => {
     }).where(eq(schema.mvAssets.id, aid))
   }
   const head = await styleHead(project)
-  const prompt = asset.kind === 'character'
-    ? [head, '四格人物定妆板：左起第 1 格正脸特写；第 2 格正视全身，画面裁掉头部以上；第 3 格左侧全身，同样裁掉头部以上；第 4 格背面全身，同样裁掉头部以上。纯白背景，整张只出现一张脸、同一个人同一套衣服。', desc].filter(Boolean).join('\n')
-    : [head, desc].filter(Boolean).join('\n')
+  // 出图规则可在「设置 → Agent 配置 → MV 资产出图」里改；---SCENE--- 前是人物板规则、后是场景规则
+  const rawRule = await mvPrompt('mv_asset_image')
+  const [charRule, sceneRule] = rawRule.includes('---SCENE---')
+    ? rawRule.split('---SCENE---').map((s) => s.trim())
+    : [rawRule, '']
+  const rule = asset.kind === 'character' ? charRule : sceneRule
+  const prompt = [head, rule, desc].filter(Boolean).join('\n')
   const rel = mvDir(id)
   try {
     const size = '1152x2048'   // 9:16（32 的倍数，比例精确）
@@ -468,7 +486,7 @@ ${project.lyrics ? `\n歌词（行，时间未知）：\n${String(project.lyrics
 段长参考歌曲结构（前奏/主歌/副歌/桥段/尾奏），每段 5~20 秒。
 只输出 JSON 数组：[{"start":0,"end":8.5,"what":"…"}, …]`
   try {
-    const outline = pickJson<any[]>(await askText('你是 MV 分镜师。只输出 JSON 数组，不要解释。', ask, 3000))
+    const outline = pickJson<any[]>(await askText(await mvPrompt('mv_storyboard'), ask, 3000))
     if (!Array.isArray(outline) || !outline.length) throw new Error('粗分镜为空')
     await db.update(schema.mvProjects).set({ outline: JSON.stringify(outline), status: 'planned', updatedAt: now() })
       .where(eq(schema.mvProjects.id, id))
@@ -521,7 +539,7 @@ ${lyricLines.length ? `歌词行：\n${lyricLines.map((l, i) => `${i + 1}. ${l}`
 "locked-off static camera, medium shot, front three-quarter face view, stable framing"。
 只输出 JSON 数组，长度必须等于 ${raw.length}：
 [{"index":0,"camera":"…","lyric":"这一段正在唱的那句歌词，没唱就留空"}, …]`
-    perShot = pickJson<any[]>(await askText('你是 MV 分镜师。只输出 JSON 数组，不要解释。', ask, 3000))
+    perShot = pickJson<any[]>(await askText(await mvPrompt('mv_camera'), ask, 3000))
   } catch { perShot = [] }
 
   try {
