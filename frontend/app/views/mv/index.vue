@@ -310,7 +310,7 @@
                 <div class="video-task-line"><strong class="video-task-name">{{ s.lyric || (s.vocalState === 'vocal_active' ? '唱段' : '间奏') }}</strong></div>
                 <div class="video-task-meta-line">
                   <span class="video-task-state" :class="'is-' + shotState(s)"><i class="dot" :class="{ ok: shotState(s) === 'done', pending: shotState(s) === 'pending' }" />{{ shotStateLabel(s) }}</span>
-                  <span class="video-task-sep">·</span><span>{{ Number(s.seconds || 0).toFixed(2) }}s</span>
+                  <span class="video-task-sep">·</span><span>{{ shotSeconds(s).toFixed(3) }}s（{{ s.frames }}帧）</span>
                   <span class="video-task-sep">·</span><span class="truncate">{{ s.shotSize }} · {{ s.vocalState === 'vocal_active' ? '唱' : '非唱' }} · 图{{ boundRefs(s).length }}</span>
                 </div>
                 <div v-if="s.errorMsg" class="video-task-error" :title="s.errorMsg">{{ s.errorMsg.slice(0, 100) }}</div>
@@ -439,7 +439,7 @@
                 <span class="video-task-status" :class="'is-' + shotState(activeShot)">
                   <span class="dot" :class="{ ok: shotState(activeShot) === 'done', pending: shotState(activeShot) === 'pending' }" />{{ shotStateLabel(activeShot) }}
                 </span>
-                <span class="video-player-sub">{{ Number(activeShot.seconds || 0).toFixed(2) }}s</span>
+                <span class="video-player-sub">{{ shotSeconds(activeShot).toFixed(3) }}s · {{ activeShot.frames }}帧</span>
               </div>
               <a v-if="activeShot.videoUrl" class="btn btn-sm" :href="staticUrl(activeShot.videoUrl)" download>下载</a>
             </div>
@@ -841,6 +841,8 @@ async function toggleRef(s, id) {
   s.refIds = JSON.stringify(cur)
   await saveShot(s)
 }
+// H3 时长只由帧数决定（24fps，帧数恒为 17n+5）：秒 = 帧/24；老数据 seconds 与帧不符时以帧为准
+const shotSeconds = (s) => Number(s?.frames) ? Number(s.frames) / 24 : Number(s?.seconds || 0)
 const shotThumb = (s) => s.firstFrameImage || characters.value.find((a) => a.image)?.image || null
 // 列表筛选 / 状态（照短剧：done / pending / failed / ready）
 const videoFilter = ref('')
@@ -961,7 +963,7 @@ const taskRows = computed(() => shots.value
     id: s.id, shotNumber: s.shotNumber, kind: '视频',
     title: s.lyric || (s.vocalState === 'vocal_active' ? '唱段' : '间奏'),
     state: shotState(s), label: shotStateLabel(s),
-    duration: s.videoUrl ? Number(s.seconds || 0).toFixed(2) + 's' : '—',
+    duration: shotSeconds(s) ? shotSeconds(s).toFixed(3) + 's' : '—',
     videoUrl: s.videoUrl, errorMsg: s.errorMsg,
   })))
 const activeTaskCount = computed(() => videoStats.value.pending + videoStats.value.failed)
