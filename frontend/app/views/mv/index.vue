@@ -357,14 +357,20 @@
                   placeholder="还没有提示词 —— 点「编译全部提示词」整批生成；生成后可在这里直接改" />
                 <div class="video-inspector-prompt-extra">
                   <div class="video-inspector-fields">
-                    <select v-model="activeShot.vocalState" class="input" @change="saveShot(activeShot)">
-                      <option value="vocal_active">唱</option><option value="non_vocal">非唱</option>
-                    </select>
-                    <select v-model="activeShot.shotSize" class="input" @change="saveShot(activeShot)">
-                      <option value="中远景">中远景</option><option value="中景">中景</option>
-                      <option value="近景">近景</option><option value="特写">特写</option>
-                    </select>
-                    <input v-model="activeShot.camera" class="input" placeholder="机位（英文，留空用默认固定机位）" @blur="saveShot(activeShot)" />
+                    <label class="mv-field"><span>唱/非唱</span>
+                      <select v-model="activeShot.vocalState" class="input" @change="saveShot(activeShot)">
+                        <option value="vocal_active">唱</option><option value="non_vocal">非唱</option>
+                      </select>
+                    </label>
+                    <label class="mv-field"><span>景别</span>
+                      <select v-model="activeShot.shotSize" class="input" @change="saveShot(activeShot)">
+                        <option value="中远景">中远景</option><option value="中景">中景</option>
+                        <option value="近景">近景</option><option value="特写">特写</option>
+                      </select>
+                    </label>
+                    <label class="mv-field is-wide"><span>机位（英文，留空用默认固定机位）</span>
+                      <input v-model="activeShot.camera" class="input" placeholder="locked-off static camera, medium shot" @blur="saveShot(activeShot)" />
+                    </label>
                   </div>
                 </div>
               </section>
@@ -1556,8 +1562,11 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); color: var(--
 .video-inspector-actions { display: flex; gap: 6px; }
 .video-inspector-prompt { min-height: 260px; font-size: 11.5px; line-height: 1.6; }
 .video-inspector-prompt-extra { display: flex; flex-direction: column; gap: 8px; }
-.video-inspector-fields { display: grid; grid-template-columns: 92px 92px minmax(0, 1fr); gap: 6px; }
-.video-inspector-fields .input { height: 30px; font-size: 11.5px; }
+.video-inspector-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.video-inspector-fields .is-wide { grid-column: 1 / -1; }
+.mv-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.mv-field > span { font-size: 10.5px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.video-inspector-fields .input { width: 100%; min-width: 0; height: 30px; font-size: 11.5px; }
 .mv-outline-pre { margin: 0; padding: 8px 10px; max-height: 120px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-2); color: var(--text-2); font-size: 11.5px; line-height: 1.55; white-space: pre-wrap; }
 .storyboard-ref-list.is-embedded { max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
 .storyboard-ref-item { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 8px; align-items: center; padding: 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-2); }
