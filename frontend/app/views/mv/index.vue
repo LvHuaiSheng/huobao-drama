@@ -76,6 +76,9 @@
           <span class="mv-label">风格</span>
           <BaseSelect v-model="editStyle" :options="styleOptions" placeholder="选一个画风" searchable @update:model-value="saveStyle" />
           <span v-if="styleDesc" class="field-hint">{{ styleDesc }}</span>
+          <span class="mv-label">画幅</span>
+          <BaseSelect v-model="editRatio" :options="RATIOS" placeholder="画幅" @update:model-value="saveRatio" />
+          <span class="field-hint">人物板固定 16:9；场景图和成片按这个比例（改了会重建画面，已出的图和已出的片不会自动重做）</span>
           <span class="field-hint">歌：{{ pj.songFile }}（{{ Number(pj.songSeconds || 0).toFixed(1) }}s）</span>
         </div>
         <label class="mv-label">歌词（可选，一行一句，用来把切点落在句界上）</label>
@@ -123,28 +126,82 @@
           <span class="field-hint">重新提取会覆盖当前人物/场景（图和卡要重出）</span>
         </div>
         <div v-if="!assets.length" class="mv-hint">还没有资产 —— 点上面的「提取人物和场景」。</div>
-        <div class="mv-assets">
-          <div v-for="a in assets" :key="a.id" class="card mv-asset">
-            <div class="mv-asset-head">
-              <span class="tag" :class="a.kind === 'character' ? 'tag-accent' : 'tag-info'">{{ a.kind === 'character' ? '人物' : '场景' }}</span>
-              <input v-model="a.name" class="input mv-asset-name" @blur="saveAsset(a)" />
-              <button class="btn btn-ghost btn-sm" @click="removeAsset(a)" :disabled="busy">删</button>
-            </div>
-            <img v-if="a.image" class="mv-asset-img" :src="staticUrl(a.image)" :alt="a.name" />
-            <div v-else class="mv-asset-ph">未出图</div>
-            <textarea v-model="a.description" class="input textarea" rows="4" @blur="saveAsset(a)"></textarea>
-            <div class="mv-asset-foot">
-              <button class="btn btn-sm" @click="makeImage(a)" :disabled="a.imageStatus === 'processing'">
-                {{ a.imageStatus === 'processing' ? '出图中…' : '出图' }}
-              </button>
-              <button class="btn btn-sm" @click="makeCard(a)" :disabled="!a.image || cardBusy === a.id">生卡</button>
-              <span v-if="a.card" class="tag tag-success">卡已生成</span>
-            </div>
-            <p v-if="a.imageStatus && a.imageStatus.startsWith('failed')" class="bad mv-asset-err">
-              出图失败：{{ a.imageStatus.slice(8) }}
-            </p>
+
+        <!-- 人物（照短剧素材库：横排卡，图区固定 16:9） -->
+        <template v-if="characters.length">
+          <div class="mv-group-head"><span class="mv-group-name">人物</span><span class="tag">{{ characters.length }}</span></div>
+          <div class="mv-char-grid">
+            <article v-for="a in characters" :key="'c' + a.id" class="card mv-char-card">
+              <button class="mv-del" title="删除" @click="removeAsset(a)">✕</button>
+              <div class="mv-char-main">
+                <div class="mv-portrait">
+                  <img v-if="a.image" :src="staticUrl(a.image)" :alt="a.name" class="previewable-image" @click="openViewer(a)" />
+                  <div v-else class="mv-cover-empty">未出图</div>
+                  <span class="mv-badge" :class="a.image ? 'is-ready' : ''">{{ a.image ? '已出图' : '待出图' }}</span>
+                </div>
+                <div class="mv-char-head">
+                  <div class="mv-name-row">
+                    <input v-model="a.name" class="input mv-name-input" @blur="saveAsset(a)" placeholder="名字" />
+                    <span class="tag">人物</span>
+                  </div>
+                  <textarea v-model="a.description" class="input textarea mv-desc" rows="3"
+                    placeholder="外貌 + 妆造（服装/配饰颜色写唯一值）" @blur="saveAsset(a)"></textarea>
+                  <div class="mv-card-btns">
+                    <button class="btn btn-sm" @click="genPrompt(a)" :disabled="promptBusy === a.id">
+                      {{ promptBusy === a.id ? '生成中…' : (a.prompt ? '重新生成提示词' : '生成提示词') }}
+                    </button>
+                    <button class="btn btn-sm" @click="makeImage(a)" :disabled="a.imageStatus === 'processing'">
+                      {{ a.imageStatus === 'processing' ? '出图中…' : (a.image ? '重出图' : '出图') }}
+                    </button>
+                    <button class="btn btn-sm" @click="makeCard(a)" :disabled="!a.image || cardBusy === a.id">生卡</button>
+                    <span v-if="a.card" class="tag tag-success">卡已生成</span>
+                  </div>
+                </div>
+              </div>
+              <div class="mv-final" :class="{ dim: !a.prompt }" :title="a.prompt || ''">
+                <span class="mv-final-label">生图提示词：</span>{{ a.prompt || '还没生成（先点「生成提示词」）' }}
+              </div>
+              <p v-if="a.imageStatus && a.imageStatus.startsWith('failed')" class="bad mv-asset-err">出图失败：{{ a.imageStatus.slice(8) }}</p>
+            </article>
           </div>
-        </div>
+        </template>
+
+        <!-- 场景（照短剧素材库：竖排卡，封面跟随项目画幅） -->
+        <template v-if="scenes.length">
+          <div class="mv-group-head"><span class="mv-group-name">场景</span><span class="tag">{{ scenes.length }}</span></div>
+          <div class="mv-scene-grid">
+            <article v-for="a in scenes" :key="'s' + a.id" class="card mv-scene-card">
+              <button class="mv-del" title="删除" @click="removeAsset(a)">✕</button>
+              <div class="mv-cover" :style="{ aspectRatio: coverAspect }">
+                <img v-if="a.image" :src="staticUrl(a.image)" :alt="a.name" class="previewable-image" @click="openViewer(a)" />
+                <div v-else class="mv-cover-empty">未出图</div>
+                <span class="mv-badge" :class="a.image ? 'is-ready' : ''">{{ a.image ? '已出图' : '待出图' }}</span>
+              </div>
+              <div class="mv-asset-body">
+                <div class="mv-name-row">
+                  <input v-model="a.name" class="input mv-name-input" @blur="saveAsset(a)" placeholder="地点名" />
+                  <span class="tag">场景</span>
+                </div>
+                <textarea v-model="a.description" class="input textarea mv-desc" rows="3"
+                  placeholder="地点 / 时间 / 光线 / 色调 / 氛围" @blur="saveAsset(a)"></textarea>
+                <div class="mv-card-btns">
+                  <button class="btn btn-sm" @click="genPrompt(a)" :disabled="promptBusy === a.id">
+                    {{ promptBusy === a.id ? '生成中…' : (a.prompt ? '重新生成提示词' : '生成提示词') }}
+                  </button>
+                  <button class="btn btn-sm" @click="makeImage(a)" :disabled="a.imageStatus === 'processing'">
+                    {{ a.imageStatus === 'processing' ? '出图中…' : (a.image ? '重出图' : '出图') }}
+                  </button>
+                  <button class="btn btn-sm" @click="makeCard(a)" :disabled="!a.image || cardBusy === a.id">生卡</button>
+                  <span v-if="a.card" class="tag tag-success">卡已生成</span>
+                </div>
+                <div class="mv-final" :class="{ dim: !a.prompt }" :title="a.prompt || ''">
+                  <span class="mv-final-label">生图提示词：</span>{{ a.prompt || '还没生成（先点「生成提示词」）' }}
+                </div>
+                <p v-if="a.imageStatus && a.imageStatus.startsWith('failed')" class="bad mv-asset-err">出图失败：{{ a.imageStatus.slice(8) }}</p>
+              </div>
+            </article>
+          </div>
+        </template>
         <div class="mv-row mv-row-end">
           <button class="btn btn-primary btn-sm" @click="goNext('video')" :disabled="busy">下一步：视频制作 →</button>
         </div>
@@ -232,6 +289,17 @@
       </div>
     </template>
 
+    <!-- 图片放大（照短剧素材库：点图弹大图，点空白关掉） -->
+    <div v-if="viewer.open" class="mv-modal mv-viewer-overlay" @click.self="viewer.open = false">
+      <div class="card mv-modal-box mv-viewer">
+        <div class="mv-viewer-head">
+          <span class="mv-viewer-title">{{ viewer.title }}</span>
+          <button class="btn btn-ghost btn-sm" @click="viewer.open = false">关闭</button>
+        </div>
+        <img :src="viewer.src" :alt="viewer.title" class="mv-viewer-img" />
+      </div>
+    </div>
+
     <!-- 新建弹窗 -->
     <div v-if="showCreate" class="mv-modal" @click.self="showCreate = false">
       <div class="card mv-modal-box">
@@ -245,6 +313,10 @@
         <label class="mv-label">风格</label>
         <BaseSelect v-model="form.style" :options="styleOptions" placeholder="选一个画风" searchable />
         <span v-if="formStyleDesc" class="field-hint">{{ formStyleDesc }}</span>
+
+        <label class="mv-label">画幅</label>
+        <BaseSelect v-model="form.aspectRatio" :options="RATIOS" placeholder="选画幅" />
+        <span class="field-hint">人物板固定 16:9；场景图和成片按这个比例</span>
 
         <label class="mv-label">分镜提示词（人物和场景从它提取；先空着也行，进项目再写）</label>
         <textarea v-model="form.storyPrompt" class="input textarea" rows="5"
@@ -291,12 +363,22 @@ const showCreate = ref(false)
 const showRename = ref(false)
 const renameTitle = ref('')
 const cardBusy = ref(null)
+const promptBusy = ref(null)
+const viewer = ref({ open: false, src: '', title: '' })
+const editRatio = ref('9:16')
 const tab = ref('origin')
 const maxSeconds = ref(10)
 const storyPrompt = ref('')
 const lyrics = ref('')
 const editStyle = ref('')
-const form = reactive({ title: '', style: '', storyPrompt: '', maxShotSeconds: 10, song: null })
+const form = reactive({ title: '', style: '', storyPrompt: '', aspectRatio: '9:16', maxShotSeconds: 10, song: null })
+
+/** 画幅（与短剧同一个思路：只有 H3 支持的两种；动态图/封面按它显示） */
+const RATIOS = [
+  { label: '9:16 竖屏（手机/抖音）', value: '9:16' },
+  { label: '16:9 横屏', value: '16:9' },
+]
+const coverAspect = computed(() => String(pj.value.aspectRatio || '9:16').replace(':', ' / '))
 
 const pj = computed(() => current.value?.project || {})
 const characters = computed(() => assets.value.filter((a) => a.kind === 'character'))
@@ -383,6 +465,7 @@ async function createProject() {
     title: form.title,
     style: form.style,
     story_prompt: form.storyPrompt,
+    aspect_ratio: form.aspectRatio,
     max_shot_seconds: form.maxShotSeconds,
     song: { name: form.song?.name || 'song.mp3', data: await toBase64(form.song) },
   }), '正在建项目…')
@@ -408,6 +491,7 @@ function sync(r) {
   storyPrompt.value = r.project.storyPrompt || ''
   lyrics.value = r.project.lyrics || ''
   editStyle.value = r.project.style || ''
+  editRatio.value = r.project.aspectRatio || '9:16'
   maxSeconds.value = Number(r.project.maxShotSeconds || 10)
 }
 
@@ -452,6 +536,34 @@ async function saveStyle(v) {
   if (r) current.value = { ...current.value, project: r.project }
 }
 
+async function saveRatio(v) {
+  const r = await call(() => api.put(`/mv/projects/${pj.value.id}`, { aspect_ratio: v }))
+  if (r) current.value = { ...current.value, project: r.project }
+}
+
+/** 点图看大图（照短剧素材库：点一下弹大图） */
+function openViewer(a) {
+  if (!a.image) return
+  viewer.value = { open: true, src: staticUrl(a.image), title: `${a.kind === 'character' ? '人物' : '场景'} · ${a.name || ''}` }
+}
+
+/** 生成提示词：把资产描述写成一段能直接出图的提示词（在这之前不许出图） */
+async function genPrompt(a) {
+  if (!need(!!String(a.description || '').trim(), '这个资产还没有描述 —— 先写清外貌/场景，再生成提示词')) return
+  if (promptBusy.value === a.id) return
+  promptBusy.value = a.id
+  try {
+    const r = await api.post(`/mv/projects/${pj.value.id}/assets/${a.id}/prompt`, {
+      name: a.name, description: a.description,
+    })
+    if (r) assets.value = r.assets || []
+  } catch (err) {
+    alert(String(err?.message || err))
+  } finally {
+    promptBusy.value = null
+  }
+}
+
 async function extract() {
   if (!guardStep(3)) return
   const r = await call(() => api.post(`/mv/projects/${pj.value.id}/extract`, { story_prompt: storyPrompt.value }),
@@ -475,10 +587,10 @@ async function removeAsset(a) {
 
 /** 出图：提交后立刻返回，真出图在后台按项目排队（一张在跑，别的卡照样能点） */
 async function makeImage(a) {
-  if (!need(!!String(a.description || '').trim(), '这个资产还没有描述 —— 先写清外貌/场景，再出图')) return
+  if (!need(!!a.prompt, '先点「生成提示词」，再出图')) return
   try {
     const r = await api.post(`/mv/projects/${pj.value.id}/assets/${a.id}/image`, {
-      name: a.name, description: a.description,
+      name: a.name, description: a.description, prompt: a.prompt,
     })
     if (r) assets.value = r.assets || []
     syncTimer()
@@ -679,20 +791,52 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
   padding: 8px 12px; margin-bottom: 10px;
 }
 
-/* 资产卡 */
-.mv-assets { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin-top: 8px; }
-.mv-asset { padding: 10px 12px; background: var(--bg-input); }
-.mv-asset-head { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
-.mv-asset-name { flex: 1; min-width: 0; padding: 4px 8px; font-size: 12.5px; height: 28px; }
-.mv-asset-img { width: 100%; border-radius: var(--radius); border: 1px solid var(--border); display: block; margin-bottom: 8px; }
-.mv-asset-ph {
-  height: 120px; display: flex; align-items: center; justify-content: center;
-  font-size: 12px; color: var(--text-3);
-  border: 1px dashed var(--border); border-radius: var(--radius); margin-bottom: 8px;
+/* 资产卡（照短剧素材库：人物横排 + 16:9 图区；场景竖排 + 封面随画幅） */
+.mv-group-head { display: flex; align-items: center; gap: 8px; margin: 12px 0 8px; }
+.mv-group-name { font-size: 12.5px; font-weight: 700; }
+.mv-char-grid { display: flex; flex-direction: column; gap: 12px; }
+.mv-scene-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.mv-char-card, .mv-scene-card { position: relative; overflow: hidden; }
+.mv-char-card:hover, .mv-scene-card:hover { border-color: var(--border-strong); box-shadow: var(--shadow-lift, 0 6px 18px rgba(0,0,0,.08)); }
+.mv-char-main { display: flex; gap: 12px; padding: 10px; }
+.mv-char-head { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.mv-portrait {
+  width: 260px; flex-shrink: 0; position: relative;
+  aspect-ratio: 16 / 9;                     /* 人物图区固定 16:9（与出图尺寸 2048x1152 一致） */
+  border: 1px solid var(--surface-outline, var(--border)); border-radius: var(--radius);
+  background: var(--bg-2); overflow: hidden;
 }
-.mv-asset .textarea { font-size: 12px; margin-bottom: 8px; }
-.mv-asset-err { font-size: 11.5px; margin: 6px 0 0; line-height: 1.5; }
-.mv-asset-foot { display: flex; align-items: center; gap: 6px; }
+.mv-portrait img, .mv-cover img { width: 100%; height: 100%; object-fit: cover; display: block; cursor: zoom-in; }
+.mv-cover {
+  position: relative; width: 100%;
+  border-bottom: 1px solid var(--border); background: var(--bg-2); overflow: hidden;
+}
+.mv-cover-empty { width: 100%; height: 100%; min-height: 90px; display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--text-3); }
+.mv-badge {
+  position: absolute; left: 8px; bottom: 8px;
+  font-size: 10.5px; font-weight: 600; padding: 1px 7px; border-radius: 99px;
+  background: rgba(0, 0, 0, 0.55); color: #fff;
+}
+.mv-badge.is-ready { background: var(--success-bg, var(--accent-bg)); color: var(--tag-success-text, var(--accent-text)); }
+.mv-del {
+  position: absolute; top: 8px; right: 8px; z-index: 3;
+  width: 22px; height: 22px; border-radius: 50%; border: none;
+  background: rgba(0, 0, 0, 0.5); color: #fff; cursor: pointer;
+  opacity: 0; transition: opacity 0.15s, background 0.15s;
+}
+.mv-char-card:hover .mv-del, .mv-scene-card:hover .mv-del { opacity: 1; }
+.mv-del:hover { background: var(--action-danger); }
+.mv-asset-body { padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+.mv-name-row { display: flex; align-items: center; gap: 6px; }
+.mv-name-input { flex: 1; min-width: 0; height: 28px; padding: 4px 8px; font-size: 12.5px; font-weight: 600; }
+.mv-desc { font-size: 12px; margin: 0; }
+.mv-card-btns { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.mv-final {
+  padding: 7px 10px; font-size: 11.5px; line-height: 1.5;
+  border-top: 1px solid var(--border); background: var(--bg-input);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mv-final-label { color: var(--text-3); }
 
 .mv-outline { margin: 6px 0 0; padding-left: 20px; font-size: 12.5px; line-height: 1.8; }
 .mv-table { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -712,6 +856,14 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
   background: var(--bg-input); border-radius: var(--radius);
   padding: 10px; max-height: 240px; overflow: auto;
 }
+
+.mv-asset-err { font-size: 11.5px; margin: 0 10px 8px; line-height: 1.5; }
+/* 看大图 */
+.mv-viewer-overlay { z-index: 60; }
+.mv-viewer { width: min(960px, calc(100vw - 48px)); padding: 14px; }
+.mv-viewer-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.mv-viewer-title { font-size: 13px; font-weight: 600; }
+.mv-viewer-img { width: 100%; max-height: 76vh; object-fit: contain; border-radius: var(--radius); background: var(--bg-2); display: block; }
 
 /* 弹窗 */
 .mv-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center; z-index: 50; }

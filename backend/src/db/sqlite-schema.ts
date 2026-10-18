@@ -315,6 +315,7 @@ export const sqliteSchemaStatements = [
     song_remote_name TEXT,        -- 4080 ComfyUI/input 下的文件名（H3 读取用）
     song_seconds REAL DEFAULT 0,
     lyrics TEXT,                  -- 可选歌词（切点落在句界用）
+    aspect_ratio TEXT DEFAULT '9:16',  -- 画幅（人物板固定 16:9；场景图与成片按它）
     max_shot_seconds REAL DEFAULT 10,  -- 用户填的「最长切分」，上限 15（H3 极限）
     character_prompt TEXT,        -- LLM 写出的人物设定
     scene_prompt TEXT,            -- LLM 写出的场景提示词
@@ -381,6 +382,7 @@ export const sqliteSchemaStatements = [
     image TEXT,                    -- static/ 相对路径（人物板 / 场景图）
     card TEXT,                     -- RefMod 卡名
     image_status TEXT,             -- processing | failed（后台出图排队状态，NULL = 空闲）
+    prompt TEXT,                   -- 生图提示词（描述 → 生成提示词 → 出图）
     sort_order INTEGER DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -388,6 +390,10 @@ export const sqliteSchemaStatements = [
   `CREATE INDEX IF NOT EXISTS idx_mv_assets_project ON mv_assets (project_id, kind, sort_order)`,
   // 2026-10-18 后台排队出图：一张卡点了出图，别的卡还能接着点（服务端按项目串行排队）
   `ALTER TABLE mv_assets ADD COLUMN image_status TEXT`,
+  // 2026-10-18 照短剧的流程：描述 →（生成提示词）→ 出图。提示词存这里，出图直接用；
+  // 项目画幅也在这一步落地（人物板固定 16:9；场景图与成片跟随 aspect_ratio）
+  `ALTER TABLE mv_assets ADD COLUMN prompt TEXT`,
+  `ALTER TABLE mv_projects ADD COLUMN aspect_ratio TEXT DEFAULT '9:16'`,
 ]
 
 /**

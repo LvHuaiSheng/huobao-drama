@@ -304,6 +304,7 @@ export const mvProjects = sqliteTable('mv_projects', {
   songRemoteName: text('song_remote_name'),
   songSeconds: real('song_seconds'),
   lyrics: text('lyrics'),
+  aspectRatio: text('aspect_ratio'),      // 画幅 9:16 / 16:9（人物板固定 16:9；场景图与成片按它）
   maxShotSeconds: real('max_shot_seconds'),
   characterPrompt: text('character_prompt'),
   scenePrompt: text('scene_prompt'),
@@ -333,6 +334,7 @@ export const mvAssets = sqliteTable('mv_assets', {
   image: text('image'),                  // static/ 相对路径（人物板 / 场景图）
   card: text('card'),                    // RefMod 卡名
   imageStatus: text('image_status'),     // processing | failed（后台排队出图）
+  prompt: text('prompt'),                // 生图提示词（描述 → 生成提示词 → 出图）
   sortOrder: integer('sort_order').default(0),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),

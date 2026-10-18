@@ -22,7 +22,7 @@ import { eq, desc, and, isNull } from 'drizzle-orm'
 import fs from 'fs'
 import path from 'path'
 import { db, schema, getInsertId } from '../db/index.js'
-import { generateImage, generateVideo } from '../services/generation.js'
+import { generateImage, generateVideo, imageSizeForAspect } from '../services/generation.js'
 import { getTextConfig, getTextProviderBaseUrl, getActiveConfig } from '../services/ai.js'
 import { getStyleSpecByValue } from '../services/style-preset.js'
 import { joinProviderUrl } from '../services/adapters/url.js'
@@ -271,6 +271,7 @@ app.post('/projects', async (c) => {
       lyrics: String(body.lyrics || '').slice(0, 8000),
       style: String(body.style || '').slice(0, 60),
       storyPrompt: String(body.story_prompt || '').slice(0, 20000),
+      aspectRatio: String(body.aspect_ratio || '9:16').slice(0, 10),
       maxShotSeconds: maxShot,
       status: 'draft',
       createdAt: ts, updatedAt: ts,
@@ -304,6 +305,7 @@ app.put('/projects/:id', async (c) => {
     patch.title = t
   }
   if (body.style !== undefined) patch.style = String(body.style).slice(0, 60)
+  if (body.aspect_ratio !== undefined) patch.aspectRatio = String(body.aspect_ratio).slice(0, 10)
   if (body.story_prompt !== undefined) patch.storyPrompt = String(body.story_prompt).slice(0, 20000)
   if (body.idea !== undefined) patch.idea = String(body.idea).slice(0, 2000)
   if (body.lyrics !== undefined) patch.lyrics = String(body.lyrics).slice(0, 8000)
@@ -397,10 +399,77 @@ app.delete('/projects/:id/assets/:aid', async (c) => {
 })
 
 /**
- * 给资产出图（走 App 图片通道）
- * 人物 = 四格定妆板（左1 正脸特写 + 正视/左侧/背面全身，纯白底，只出现一张脸）
- * 场景 = 一张场景图；两者都拼上项目的风格头
+ * 给资产生成「生图提示词」（照短剧：描述 → 生成提示词 → 出图）
+ *
+ * 规则文本 = 「设置 → Agent 配置 → MV 资产出图」那条指令（---SCENE--- 前是人物板规则、后是场景规则），
+ * 由当前文本模型把资产的描述写成一段可直接出图的提示词 ⇒ 出图按钮只认这条提示词。
  */
+app.post('/projects/:id/assets/:aid/prompt', async (c) => {
+  const id = Number(c.req.param('id'))
+  const aid = Number(c.req.param('aid'))
+  const project = await loadProject(id)
+  if (!project) return notFound(c, 'MV 项目不存在')
+  const [asset] = await db.select().from(schema.mvAssets)
+    .where(and(eq(schema.mvAssets.id, aid), eq(schema.mvAssets.projectId, id)))
+  if (!asset) return notFound(c, '资产不存在')
+  const body = await c.req.json().catch(() => ({} as any))
+  const desc = String(body.description ?? asset.description ?? '').trim()
+  if (!desc) return badRequest(c, '这个资产还没有描述 —— 先写清外貌/场景，再生成提示词')
+  if (body.description !== undefined || body.name !== undefined) {
+    await db.update(schema.mvAssets).set({
+      description: desc.slice(0, 4000),
+      name: String(body.name ?? asset.name ?? '').slice(0, 60),
+      updatedAt: now(),
+    }).where(eq(schema.mvAssets.id, aid))
+  }
+  const rawRule = await mvPrompt('mv_asset_image')
+  const [charRule, sceneRule] = rawRule.includes('---SCENE---')
+    ? rawRule.split('---SCENE---').map((s) => s.trim())
+    : [rawRule, '']
+  const rule = asset.kind === 'character' ? charRule : sceneRule
+  try {
+    const text = await askText(
+      `${rule}\n\n按上面的规矩，把这个资产写成一段可直接用于出图的提示词：\n` +
+      `- 只输出这一段提示词本身（英文，逗号分隔的短语），不要解释、不要标题、不要 markdown、不要编号；\n` +
+      `- 描述里的服装和配饰颜色必须原样保留，不许换款式。`,
+      `资产类型：${asset.kind === 'character' ? '人物' : '场景'}\n` +
+      `名称：${asset.name || '（未命名）'}\n` +
+      `描述：${desc}`,
+      1500,
+    )
+    const prompt = text.trim()
+    if (!prompt) throw new Error('文本模型返回空')
+    await db.update(schema.mvAssets).set({ prompt: prompt.slice(0, 4000), updatedAt: now() })
+      .where(eq(schema.mvAssets.id, aid))
+    logTaskSuccess('MV', 'asset-prompt', { id, aid, kind: asset.kind, chars: prompt.length })
+    return success(c, { assets: await assetsOf(id) })
+  } catch (err: any) {
+    logTaskError('MV', 'asset-prompt', { id, aid, error: err?.message })
+    return serverError(c, `生成提示词失败：${err?.message}`)
+  }
+})
+
+/**
+ * 给资产出图（走 App 图片通道）
+ * 人物 = 四格定妆板（左1 正脸特写 + 正视/左侧/背面全身，纯白底，只出现一张脸），尺寸固定 16:9
+ * 场景 = 一张场景图，尺寸跟随项目画幅；两者都拼上项目的风格头
+ * 用的是上一步「生成提示词」存下来的那条提示词（没生成过不许出图）
+ */
+/**
+ * 资产出图尺寸（照短剧）：人物板固定 16:9 = 2048x1152；场景图跟随项目画幅。
+ */
+const CHAR_BOARD_SIZE = '2048x1152'
+const imageSizeForAsset = (project: any, kind: string): string =>
+  kind === 'character' ? CHAR_BOARD_SIZE : imageSizeForAspect(project?.aspectRatio)
+
+/**
+ * 成片画幅：H3 只认 9:16 / 16:9，其它比例按横竖就近映射。
+ * ponytail: 想支持更多画幅得先让 H3 支持，别在这里造轮子。
+ */
+function videoSize(project: any): [number, number] {
+  return String(project?.aspectRatio || '9:16') === '16:9' ? [1344, 768] : [768, 1344]
+}
+
 /**
  * 后台出图排队：同一个项目里的出图请求按点击顺序**串行**跑（图片通道一次只吃一个任务），
  * 每个资产各自记状态，所以一张卡在出图时别的卡照样能点。
@@ -422,23 +491,22 @@ app.post('/projects/:id/assets/:aid/image', async (c) => {
     .where(and(eq(schema.mvAssets.id, aid), eq(schema.mvAssets.projectId, id)))
   if (!asset) return notFound(c, '资产不存在')
   const body = await c.req.json().catch(() => ({} as any))
-  const desc = String(body.description ?? asset.description ?? '').trim()
-  if (!desc) return badRequest(c, '这个资产还没有描述')
   if (body.description !== undefined || body.name !== undefined) {
     await db.update(schema.mvAssets).set({
-      description: desc.slice(0, 4000),
+      description: String(body.description ?? asset.description ?? '').slice(0, 4000),
       name: String(body.name ?? asset.name ?? '').slice(0, 60),
       updatedAt: now(),
     }).where(eq(schema.mvAssets.id, aid))
   }
+  const assetPrompt = String(body.prompt ?? asset.prompt ?? '').trim()
+  if (!assetPrompt) return badRequest(c, '先点「生成提示词」，再出图')
+  if (body.prompt !== undefined && assetPrompt !== asset.prompt) {
+    await db.update(schema.mvAssets).set({ prompt: assetPrompt.slice(0, 4000), updatedAt: now() })
+      .where(eq(schema.mvAssets.id, aid))
+  }
   const head = await styleHead(project)
-  // 出图规则可在「设置 → Agent 配置 → MV 资产出图」里改；---SCENE--- 前是人物板规则、后是场景规则
-  const rawRule = await mvPrompt('mv_asset_image')
-  const [charRule, sceneRule] = rawRule.includes('---SCENE---')
-    ? rawRule.split('---SCENE---').map((s) => s.trim())
-    : [rawRule, '']
-  const rule = asset.kind === 'character' ? charRule : sceneRule
-  const prompt = [head, rule, desc].filter(Boolean).join('\n')
+  const prompt = [head, assetPrompt].filter(Boolean).join('\n')
+  const imgSize = imageSizeForAsset(project, asset.kind)
   const kind = asset.kind
   const assetId = asset.id
   // 立刻回「已排队」，真实出图在后台按项目串行跑（接口不再阻塞一分钟）
@@ -446,7 +514,7 @@ app.post('/projects/:id/assets/:aid/image', async (c) => {
     .where(eq(schema.mvAssets.id, aid))
   enqueueRender(id, async () => {
     try {
-      const size = '1152x2048'   // 9:16（32 的倍数，比例精确）
+      const size = imgSize      // 人物板固定 2048x1152（16:9）；场景图跟随项目画幅
       const taskId = await generateImage({ prompt, size })
       const task = await waitTask(taskId)
       if (!task.localPath) throw new Error('图片任务完成但没拿到文件路径')
@@ -675,7 +743,7 @@ app.post('/projects/:id/shots/:sid/render', async (c) => {
         mv_audio: { name: await ensureRemoteSong(project) },
         mv_start_seconds: Number(shot.startSeconds) || 0,
         mv_frames: Number(shot.frames) || snapFrames(Number(shot.seconds) || 5.167),
-        mv_width: 768, mv_height: 1344,
+        mv_width: videoSize(project)[0], mv_height: videoSize(project)[1],
         refmod_files: cards,
       },
     })
