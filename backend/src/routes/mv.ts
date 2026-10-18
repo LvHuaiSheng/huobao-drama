@@ -236,7 +236,32 @@ async function ensureRemoteSong(project: any): Promise<string> {
 
 app.get('/projects', async (c) => {
   const rows = await db.select().from(schema.mvProjects).where(isNull(schema.mvProjects.deletedAt)).orderBy(desc(schema.mvProjects.id))
-  return success(c, { items: rows })
+  // 列表卡片要封面和「N 人物 · M 场景 · K 段」，一次性算好（表小，直接全取内存里归并）
+  const assets = await db.select().from(schema.mvAssets)
+  const shots = await db.select().from(schema.mvShots)
+  const items = rows.map((p) => {
+    const mine = assets.filter((a) => a.projectId === p.id)
+    return {
+      ...p,
+      cover: mine.find((a) => !!a.image)?.image || p.outputUrl || null,
+      characters: mine.filter((a) => a.kind === 'character').length,
+      scenes: mine.filter((a) => a.kind === 'scene').length,
+      shots: shots.filter((s) => s.projectId === p.id).length,
+    }
+  })
+  return success(c, { items })
+})
+
+/** 删除 MV 项目：连人物/场景/分镜记录一起删（不动磁盘上的 static 文件） */
+app.delete('/projects/:id', async (c) => {
+  const id = Number(c.req.param('id'))
+  const project = await loadProject(id)
+  if (!project) return notFound(c, 'MV 项目不存在')
+  await db.delete(schema.mvShots).where(eq(schema.mvShots.projectId, id))
+  await db.delete(schema.mvAssets).where(eq(schema.mvAssets.projectId, id))
+  await db.delete(schema.mvProjects).where(eq(schema.mvProjects.id, id))
+  logTaskSuccess('MV', 'delete-project', { id })
+  return success(c, { ok: true })
 })
 
 app.get('/projects/:id', async (c) => {

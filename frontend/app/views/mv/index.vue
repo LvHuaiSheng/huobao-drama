@@ -29,16 +29,49 @@
       </div>
     </div>
 
-    <!-- 项目列表 -->
-    <div v-if="!current" class="mv-grid">
-      <div v-if="!projects.length" class="card mv-empty">还没有 MV 项目，点右上角「新建 MV」开始。</div>
-      <div v-for="p in projects" :key="p.id" class="card mv-item" @click="openProject(p.id)">
-        <div class="mv-item-title">{{ p.title || '未命名 MV' }}</div>
-        <div class="mv-item-meta">
-          <span class="tag">{{ Number(p.songSeconds || 0).toFixed(1) }}s</span>
-          <span class="tag">{{ statusZh(p.status) }}</span>
-          <span v-if="p.style" class="tag">{{ styleLabel(p.style) }}</span>
+    <!-- 项目列表（照短剧「项目启动台」：搜索 + 状态筛选 + 封面卡 + 三点菜单） -->
+    <div v-if="!current" class="mv-launch">
+      <div class="mv-launch-head">
+        <input v-model="q" class="input mv-search" placeholder="搜索项目" />
+        <div class="mv-filters">
+          <button v-for="s in STATUS_OPTS" :key="s.value" type="button"
+            :class="['mv-filter', { on: statusFilter === s.value }]" @click="statusFilter = s.value">{{ s.label }}</button>
         </div>
+      </div>
+
+      <div v-if="!filtered.length" class="card mv-empty">
+        {{ projects.length ? '没有匹配的项目' : '还没有 MV 项目，点右上角「新建 MV」开始。' }}
+      </div>
+
+      <div v-else class="mv-project-grid">
+        <article v-for="p in filtered" :key="p.id" class="card mv-project-card" tabindex="0" role="button"
+          @click="openProject(p.id)" @keydown.enter.prevent="openProject(p.id)">
+          <div class="mv-card-cover" :class="{ 'has-image': !!p.cover }"
+            :style="p.cover ? undefined : { background: 'linear-gradient(135deg, var(--accent-bg) 0%, var(--bg-1) 70%)' }">
+            <img v-if="p.cover" class="mv-card-cover-img" :src="staticUrl(p.cover)" alt="" loading="lazy" />
+            <div v-if="p.cover" class="mv-card-cover-shade"></div>
+            <span v-else class="mv-card-initial">{{ (p.title || 'MV').slice(0, 1) }}</span>
+            <span class="mv-card-ratio">{{ p.aspectRatio || '9:16' }}</span>
+            <span class="mv-card-badge">
+              <span class="mv-status-dot" :class="'is-' + (p.status || 'draft')"></span>{{ statusZh(p.status) }}
+            </span>
+            <button class="mv-card-more" type="button" title="更多"
+              @click.stop="menuId = menuId === p.id ? null : p.id">⋯</button>
+            <div v-if="menuId === p.id" class="mv-card-menu" @click.stop>
+              <button type="button" @click="menuId = null; openProject(p.id)">打开项目</button>
+              <button type="button" @click="menuId = null; openRenameProject(p)">编辑项目</button>
+              <button type="button" class="danger" @click="menuId = null; deleteTarget = p">删除项目</button>
+            </div>
+          </div>
+          <div class="mv-project-body">
+            <h2 class="mv-project-name">{{ p.title || '未命名 MV' }}</h2>
+            <div class="mv-project-meta">
+              <span v-if="p.style" class="tag tag-accent">{{ styleLabel(p.style) }}</span>
+              <span class="dim">{{ p.characters || 0 }} 人物 · {{ p.scenes || 0 }} 场景 · {{ p.shots || 0 }} 段</span>
+            </div>
+            <div class="mv-project-foot dim">{{ fmtAgo(p.updatedAt || p.updated_at) }}</div>
+          </div>
+        </article>
       </div>
     </div>
 
@@ -296,6 +329,18 @@
       </div>
     </template>
 
+    <!-- 删除项目确认 -->
+    <div v-if="deleteTarget" class="mv-modal" @click.self="deleteTarget = null">
+      <div class="card mv-modal-box mv-modal-sm">
+        <h3>删除项目</h3>
+        <p class="mv-desc">确定删除「{{ deleteTarget.title || '未命名 MV' }}」？人物 / 场景 / 分镜 / 成片记录都会一起删掉，这一步不能撤销。</p>
+        <div class="mv-modal-actions">
+          <button class="btn btn-sm" @click="deleteTarget = null">取消</button>
+          <button class="btn btn-sm mv-danger-btn" @click="doDeleteProject">确定删除</button>
+        </div>
+      </div>
+    </div>
+
     <!-- 图片放大（照短剧素材库：点图弹大图，点空白关掉） -->
     <div v-if="viewer.open" class="mv-modal mv-viewer-overlay" @click.self="viewer.open = false">
       <div class="card mv-modal-box mv-viewer">
@@ -466,6 +511,51 @@ const cardBusy = ref(null)
 const promptBusy = ref(null)
 const viewer = ref({ open: false, src: '', title: '' })
 const editRatio = ref('9:16')
+// 项目列表：搜索 / 状态筛选 / 三点菜单 / 删除确认（照短剧项目启动台）
+const q = ref('')
+const statusFilter = ref('all')
+const menuId = ref(null)
+const deleteTarget = ref(null)
+const STATUS_OPTS = [
+  { label: '全部', value: 'all' },
+  { label: '未开始', value: 'draft' },
+  { label: '有分镜', value: 'shots' },
+  { label: '出片中', value: 'rendering' },
+  { label: '已完成', value: 'done' },
+]
+const filtered = computed(() => projects.value.filter((p) =>
+  (statusFilter.value === 'all' || p.status === statusFilter.value)
+  && (!q.value.trim() || String(p.title || '').includes(q.value.trim()))))
+
+/** 更新时间 → 「刚刚 / N 分钟前 / N 小时前 / N 天前」 */
+function fmtAgo(iso) {
+  if (!iso) return ''
+  const t = new Date(String(iso).replace(' ', 'T')).getTime()
+  if (!t) return ''
+  const mins = Math.max(0, Math.round((Date.now() - t) / 60000))
+  if (mins < 1) return '刚刚'
+  if (mins < 60) return `${mins} 分钟前`
+  const h = Math.round(mins / 60)
+  if (h < 24) return `${h} 小时前`
+  return `${Math.round(h / 24)} 天前`
+}
+
+async function openRenameProject(p) {
+  const r = await call(() => api.get(`/mv/projects/${p.id}`))
+  if (!r) return
+  current.value = r
+  sync(r)
+  tab.value = 'origin'
+  openRename()
+}
+
+async function doDeleteProject() {
+  const p = deleteTarget.value
+  if (!p) return
+  const r = await call(() => api.delete(`/mv/projects/${p.id}`), '正在删除项目…')
+  deleteTarget.value = null
+  if (r) await loadProjects()
+}
 const tab = ref('origin')
 const maxSeconds = ref(10)
 const storyPrompt = ref('')
@@ -882,6 +972,82 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 }
 .mv-side-item.active .mv-side-count { background: var(--accent-bg); color: var(--accent-text); }
 .mv-main { flex: 1; min-width: 0; }
+
+/* 项目列表（照短剧「项目启动台」） */
+.mv-launch-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+.mv-search { width: 260px; height: 32px; }
+.mv-filters { display: flex; align-items: center; gap: 6px; }
+.mv-filter {
+  padding: 4px 12px; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 999px;
+  background: transparent; color: var(--text-2);
+  transition: all 0.15s var(--ease-out);
+}
+.mv-filter:hover { color: var(--text-0); border-color: var(--border-strong); }
+.mv-filter.on { background: var(--accent-bg); border-color: var(--accent); color: var(--accent-text); }
+
+.mv-project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+.mv-project-card { position: relative; overflow: hidden; cursor: pointer; display: flex; flex-direction: column; }
+.mv-project-card:hover { border-color: var(--border-strong); }
+.mv-project-card:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3.5px var(--button-focus); }
+
+.mv-card-cover {
+  position: relative; aspect-ratio: 2.1 / 1;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg-2);
+}
+.mv-card-cover.has-image { background: #16181d; }
+.mv-card-cover-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 42%; }
+.mv-card-cover-shade {
+  position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(180deg, rgba(0,0,0,0.34) 0%, rgba(0,0,0,0) 38%, rgba(0,0,0,0.5) 100%);
+}
+.mv-card-initial { position: relative; font-size: 34px; font-weight: 600; color: #fff; text-shadow: 0 2px 14px rgba(0,0,0,0.35); user-select: none; }
+.mv-card-ratio {
+  position: absolute; right: 10px; bottom: 8px;
+  padding: 2px 7px; border-radius: 5px; font-size: 10px; font-weight: 700;
+  background: var(--surface-raised); color: var(--text-2); border: 1px solid var(--border);
+}
+.mv-card-badge {
+  position: absolute; left: 8px; bottom: 8px;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; font-size: 11px; font-weight: 650;
+  border: 1px solid var(--border); border-radius: 999px;
+  background: var(--surface-raised); color: var(--text-1);
+}
+.mv-status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); }
+.mv-status-dot.is-rendering { background: var(--warning, #d9a441); }
+.mv-status-dot.is-done { background: var(--success, #46b872); }
+.mv-status-dot.is-shots { background: var(--accent); }
+.mv-card-cover.has-image .mv-card-badge {
+  background: rgba(18,18,22,0.62); border-color: rgba(255,255,255,0.22); color: #fff; backdrop-filter: blur(4px);
+}
+.mv-card-cover.has-image .mv-card-ratio { background: rgba(18,18,22,0.6); border-color: rgba(255,255,255,0.2); color: #fff; }
+.mv-card-cover.has-image .mv-card-more { background: rgba(18,18,22,0.55); border-color: rgba(255,255,255,0.2); color: #fff; }
+.mv-card-more {
+  position: absolute; top: 8px; right: 8px; z-index: 2;
+  width: 26px; height: 26px; border-radius: 50%; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface-raised); color: var(--text-1);
+  display: flex; align-items: center; justify-content: center; font-size: 15px; line-height: 1;
+}
+.mv-card-menu {
+  position: absolute; top: 38px; right: 8px; z-index: 5;
+  min-width: 140px; padding: 5px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface-raised); box-shadow: var(--shadow-lift, 0 8px 24px rgba(0,0,0,.18));
+  display: flex; flex-direction: column;
+}
+.mv-card-menu button {
+  text-align: left; padding: 7px 10px; font-size: 12.5px; cursor: pointer;
+  border: none; border-radius: 6px; background: transparent; color: var(--text-1);
+}
+.mv-card-menu button:hover { background: var(--bg-hover); color: var(--text-0); }
+.mv-card-menu button.danger { color: var(--action-danger); }
+.mv-project-body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 6px; }
+.mv-project-name { margin: 0; font-size: 14px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mv-project-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 11.5px; }
+.mv-project-foot { font-size: 11px; }
+.mv-danger-btn { background: var(--action-danger); border-color: var(--action-danger); color: #fff; }
 
 /* 列表 */
 .mv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
