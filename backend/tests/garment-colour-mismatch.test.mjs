@@ -12,7 +12,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-const { findGarmentColourMismatch, findColourMismatchInPrompt, garmentColours, colourConcept } =
+const { findGarmentColourMismatch, findColourMismatchInPrompt, garmentColours, colourConcept,
+  findGarmentTypeMismatchInPrompt, garmentTypeNote } =
   await import('../src/services/asset-colour-gate.ts')
 
 const WANGMEI = '九十年代至千禧年初风格的佣人打扮：灰褐色对襟布衫，外罩洗得发白的碎花围裙，头发染成枯黄后长出黑根，梳成低矮松散的半扎发；脚穿黑色老式布鞋，腕上一只细银镯已氧化发暗。'
@@ -213,4 +214,38 @@ test('假警报回归：同色族（卡面「（米白）」↔ 稿子 cream/whi
   // 反向保险：同色族只收同一颜色的写法，不许把别的色放进来（真写错色必须照旧报）
   const bad = '<Subject 3> is the man in <Picture 3>, a blue three-piece suit over a cream open-collar shirt, black leather shoes.'
   assert.equal(findColourMismatchInPrompt(defs(bad), shuAssets).length, 1)
+})
+
+/* ── 4.0.80 款式闸：颜色像了、款式被换掉（用户报「分镜5 主角衣服没有锁住」）─────────
+ * 稿子写 `a blue and white blouse with black trim`，资产是「雾蓝色修身西装外套 +
+ * 白色圆领针织衫 + 黑色直筒西裤」——库里根本没有衬衫 ⇒ 必须命中。
+ * 同一天分镜1-4 的正确写法（mist-blue blazer + white crew-neck knit top）不许误报。
+ */
+const HOST = '头发染成深棕色的及肩中长发，发尾微卷。上身穿一件雾蓝色修身西装外套，内搭白色圆领针织衫，下身黑色直筒西裤，脚穿黑色低跟皮鞋。颈间一条细银色短项链，左腕一只细银色手表。'
+const HOST_ASSETS = [{ picture: 2, kind: 'character', name: '女主播', assetText: HOST }]
+
+test('款式闸：把「西装外套+针织衫」写成 blouse ⇒ 命中', () => {
+  const bad = defs('<Subject 2> is the young Chinese female livestream host in <Picture 2>, with a complete head and face as shown in the face close-up panel, an oval face, dark shoulder-length hair tied back, a blue and white blouse with black trim and a silver wristwatch, whose outfit comes from <Picture 2> only.')
+  const hits = findGarmentTypeMismatchInPrompt(bad, HOST_ASSETS)
+  assert.equal(hits.length, 1)
+  assert.match(hits[0].found, /blouse/)
+  assert.equal(hits[0].picture, 2)
+  assert.ok(garmentTypeNote(hits).includes('blouse'))
+})
+
+test('款式闸：正确的 blazer + knit top + trousers + necklace + watch 不报', () => {
+  const good = defs('<Subject 2> is the young Chinese female livestream host in <Picture 2>, with a mist-blue fitted blazer over a white crew-neck knit top, black straight-leg trousers, a thin silver necklace and a thin silver watch on her left wrist, whose outfit comes from <Picture 2> only.')
+  assert.deepEqual(findGarmentTypeMismatchInPrompt(good, HOST_ASSETS), [])
+})
+
+test('款式闸：retention_analysis 里的复述也查（同一件衣服会在两段出现）', () => {
+  const full = defs('<Subject 2> … a mist-blue fitted blazer over a white crew-neck knit top …')
+    + '\nretention_analysis:\n<Subject 2> (appears in every shot): fully_preserved - her blue and white blouse with black trim stays consistent.'
+  const hits = findGarmentTypeMismatchInPrompt(full, HOST_ASSETS)
+  assert.equal(hits.length, 1)
+})
+
+test('款式闸：表里没有的词不报（避免假警报）', () => {
+  const odd = defs('<Subject 2> … wearing a smart tailored ensemble with a silver wristwatch, whose outfit comes from <Picture 2> only.')
+  assert.deepEqual(findGarmentTypeMismatchInPrompt(odd, HOST_ASSETS), [])
 })

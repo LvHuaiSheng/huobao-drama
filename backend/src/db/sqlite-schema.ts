@@ -305,6 +305,49 @@ export const sqliteSchemaStatements = [
     value TEXT NOT NULL,
     updated_at TEXT NOT NULL
   )`,
+
+  // ===== 音乐 MV（2026-10-18 新增，与短剧链路完全隔离：不复用 storyboards/sys_task）=====
+  `CREATE TABLE IF NOT EXISTS mv_projects (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT,
+    song_file TEXT,               -- 本地 32k wav（static/ 相对路径，仅供回放/备份）
+    song_remote_name TEXT,        -- 4080 ComfyUI/input 下的文件名（H3 读取用）
+    song_seconds REAL DEFAULT 0,
+    window_start REAL DEFAULT 0,  -- 取歌片段起点（秒）
+    window_end REAL DEFAULT 0,    -- 取歌片段终点（秒）；0 表示整首
+    ref_images TEXT,              -- JSON 数组：4080 ComfyUI/input 下的参考图文件名
+    first_frame TEXT,             -- 4080 ComfyUI/input 下的首帧图文件名（景别锚点）
+    performer TEXT,
+    style TEXT,
+    scene_note TEXT,
+    pictures INTEGER DEFAULT 2,   -- 参考图张数（人物图算第 1 张）
+    status TEXT DEFAULT 'draft',  -- draft | planned | rendering | done
+    output_url TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    deleted_at TEXT
+  )`,
+  `CREATE TABLE IF NOT EXISTS mv_shots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    shot_number INTEGER NOT NULL,
+    start_seconds REAL DEFAULT 0,
+    end_seconds REAL DEFAULT 0,
+    frames INTEGER DEFAULT 124,
+    seconds REAL DEFAULT 0,
+    shot_size TEXT,               -- 中远景 / 中景 / 近景 / 特写
+    camera TEXT,                  -- 机位句（留空用默认 locked-off）
+    vocal_state TEXT DEFAULT 'vocal_active',   -- vocal_active | non_vocal
+    lyric TEXT,
+    prompt TEXT,
+    task_id TEXT,                 -- 4080 shim 的任务 id
+    video_url TEXT,
+    status TEXT DEFAULT 'pending',-- pending | processing | completed | failed
+    error_msg TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_mv_shots_project ON mv_shots (project_id, shot_number)`,
 ]
 
 /**

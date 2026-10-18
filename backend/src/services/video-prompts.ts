@@ -366,7 +366,7 @@ import { shouldKeepCompressing, shouldRegenerateDraft, rosterBlock, itemBudgetLi
 import { findChineseOutsideDialogue, stripRequestEcho } from './en-cn-gate.js'
 import { findVoiceoverMouthAction, type VoiceoverMouthHit } from './voiceover-gates.js'
 import { findRetentionMismatch, findRetentionOutfitMismatch, type RetentionMismatch, type RetentionOutfitHit } from './retention-gate.js'
-import { findColourGaps, shouldRewriteForColour, colourRewriteNote, findColourMismatchInPrompt, garmentColourNote } from './asset-colour-gate.js'
+import { findColourGaps, shouldRewriteForColour, colourRewriteNote, findColourMismatchInPrompt, garmentColourNote, findGarmentTypeMismatchInPrompt, garmentTypeNote } from './asset-colour-gate.js'
 import { OFFICIAL_LIP_LOCK, findNarratorRolePhrase, findVoiceoverOnscreenLock, type VoiceoverLockGap } from './voiceover-onscreen-gate.js'
 import { findDeviceScreenBody, deviceScreenNote } from './device-screen-gate.js'
 export { findDanglingPropRef } from './prop-text-gates.js'
@@ -1352,6 +1352,47 @@ async function generateEnByStages(
         episodeId, storyboardId: sb.id,
         remaining: findColourMismatchInPrompt(text, assets).length,
       })
+    }
+
+    // 4.0.80 款式闸：颜色像了、**款式被换掉**（颜色闸管不了这件事）
+    //   事故：分镜5 稿子写 `a blue and white blouse with black trim`，资产是「雾蓝色西装外套 +
+    //   白色圆领针织衫 + 黑色直筒西裤」——库里没有衬衫；颜色闸跑过一轮仍留着编出来的款式。
+    if (!overLimit) {
+      const gtype = findGarmentTypeMismatchInPrompt(text, assets)
+      if (gtype.length) {
+        logTaskProgress('VideoPrompt', 'garment-type-mismatch', {
+          episodeId, storyboardId: sb.id,
+          hits: gtype.map(h => `S${h.picture}:${h.found}`).join(','),
+        })
+        const snapshot3 = new Map(parts)
+        const scope3 = EN_STAGES.filter(st => st.segs.some(sg => (parts.get(sg) || '').trim()))
+        const res3 = (await agent.generate(
+          [{ role: 'user', content: buildRewriteMultiPrompt(sb, scope3.map(st => ({
+            stage: st,
+            current: st.segs.map(sg => parts.get(sg) || '').filter(Boolean).join('\n'),
+            problem: `服装款式与角色资产不符 —— **必须照资产原文的款式重写这身衣服**`
+              + `（定义段、retention_analysis、detailed_description 正文里复述这身衣服的地方都要一起改）。`
+              + `不许换成别的衣服、不许自己发明一件，也不许借同场其他角色/群演的衣服:\n${garmentTypeNote(gtype)}`,
+          })), 1, extra, zhPrompt) }],
+          { maxSteps: 6, requestContext },
+        )) as { text?: string } | undefined
+        const rawT = cleanSegText(res3?.text || '')
+        debugLog(episodeId, sb.id, 'garment-type-fix-1', rawT, { hits: gtype.length, sections: scope3.length })
+        if (writeBack(rawT, scope3.flatMap(st => st.segs)).length) {
+          const next3 = assemble()
+          if (next3.length > budget.limit) {
+            for (const k of parts.keys()) parts.delete(k)
+            for (const [k, v] of snapshot3) parts.set(k, v)
+            logTaskProgress('VideoPrompt', 'garment-type-rollback-over-limit', { episodeId, storyboardId: sb.id, limit: budget.limit })
+          } else {
+            text = next3
+          }
+        }
+        logTaskProgress('VideoPrompt', 'garment-type-after-fix', {
+          episodeId, storyboardId: sb.id,
+          remaining: findGarmentTypeMismatchInPrompt(text, assets).length,
+        })
+      }
     }
   }
 

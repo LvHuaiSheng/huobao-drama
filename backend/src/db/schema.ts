@@ -3,7 +3,7 @@
  * 自 MySQL 迁移：varchar(x)→text（SQLite 不校验长度）、int→integer、
  * boolean→integer boolean mode、时间戳仍为 text 存 ISO 字符串，表/列名不变。
  */
-import { sqliteTable, text, integer, primaryKey } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, text, integer, real, primaryKey } from 'drizzle-orm/sqlite-core'
 
 export const dramas = sqliteTable('dramas', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -292,5 +292,48 @@ export const assets = sqliteTable('assets', {
 export const appSettings = sqliteTable('app_settings', {
   key: text('key').primaryKey(),
   value: text('value').notNull(),
+  updatedAt: text('updated_at').notNull(),
+})
+
+// ===== 音乐 MV（2026-10-18 新增，与短剧链路完全隔离）=====
+export const mvProjects = sqliteTable('mv_projects', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  title: text('title'),
+  songFile: text('song_file'),
+  songRemoteName: text('song_remote_name'),
+  songSeconds: real('song_seconds'),
+  windowStart: real('window_start'),
+  windowEnd: real('window_end'),
+  refImages: text('ref_images'),     // JSON 数组
+  firstFrame: text('first_frame'),
+  performer: text('performer'),
+  style: text('style'),
+  sceneNote: text('scene_note'),
+  pictures: integer('pictures').default(2),
+  status: text('status').default('draft'),
+  outputUrl: text('output_url'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+  deletedAt: text('deleted_at'),
+})
+
+export const mvShots = sqliteTable('mv_shots', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  projectId: integer('project_id').notNull(),
+  shotNumber: integer('shot_number').notNull(),
+  startSeconds: real('start_seconds'),
+  endSeconds: real('end_seconds'),
+  frames: integer('frames').default(124),
+  seconds: real('seconds'),
+  shotSize: text('shot_size'),
+  camera: text('camera'),
+  vocalState: text('vocal_state').default('vocal_active'),
+  lyric: text('lyric'),
+  prompt: text('prompt'),
+  taskId: text('task_id'),
+  videoUrl: text('video_url'),
+  status: text('status').default('pending'),
+  errorMsg: text('error_msg'),
+  createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 })

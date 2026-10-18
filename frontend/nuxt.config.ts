@@ -22,6 +22,12 @@ export default defineNuxtConfig({
           path: '/drama/:id/episode/:episodeNumber',
           file: fileURLToPath(new URL('./app/views/drama/episode.vue', import.meta.url)),
         },
+        {
+          // 2026-10-18 音乐 MV：独立页面，与短剧链路不共用任何组件
+          name: 'mv',
+          path: '/mv',
+          file: fileURLToPath(new URL('./app/views/mv/index.vue', import.meta.url)),
+        },
       )
     },
   },

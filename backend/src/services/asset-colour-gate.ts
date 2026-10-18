@@ -462,3 +462,106 @@ export function garmentColourNote(hits: GarmentColourMismatch[]): string {
     .map(h => `- <Subject ${h.picture}>（${h.name}）**${WHAT_ZH[h.what]}写成了「${h.found}」，卡面文字是「${h.expected}」** —— 英文必须写成 ${h.expected.split('/').map(c => EN_CANON[c] || c).join(' / ')}（**不许缩写成更笼统的色词**，写 grey 就出纯灰、写 grey-brown 才出灰棕）；不许借同场其他角色/群演的颜色`)
     .join('\n')
 }
+
+/* ── 款式闸（4.0.80）───────────────────────────────────────────────
+ * 事故（用户报「分镜5 主角衣服没有锁住」）：稿子写 `a blue and white blouse with black trim`，
+ *   而角色资产（styling 与 final_prompt 两处）写的是「雾蓝色修身西装外套 + 白色圆领针织衫 +
+ *   黑色直筒西裤」——**款式整个被换掉**，库里根本没有衬衫。同一天的分镜1-4 稿子都对
+ *   （`mist-blue fitted blazer over a white crew-neck knit top`）⇒ 模型抽风换了款式。
+ *   4.0.51 的颜色闸只查**颜色** ⇒ 颜色被改像了、款式还是编的（日志里 `colour-mismatch-fix-1`
+ *   跑过一轮，成片照样不是那件衣服）。
+ * 判据：提示词主体行里出现的**款式/配饰类型词**，其对应的中文词必须能在资产文字里找到；
+ *   找不到 ⇒ 模型自己换了一件 ⇒ 打回重写一轮（与颜色闸同构：超限则回滚）。
+ * ⚠️ **只认表里有的词**（未映射的一律跳过）：未映射的词当缺陷会造假警报。
+ * ⚠️ 词表要**具体**（`blouse` 只对 衬衫/衬衣/雪纺，不含「衫」）—— 否则资产里的「针织衫」
+ *   会把「blouse」救走、这条闸对本事故就失效了。
+ */
+export interface GarmentTypeMismatch {
+  picture: number
+  name: string
+  /** 提示词里出现的、资产里没有的款式词 */
+  found: string
+  /** 资产文字片段（给重写 prompt / 报警用） */
+  expected: string
+  line: string
+}
+
+const GARMENT_TYPE_PAIRS: Array<[RegExp, RegExp]> = [
+  [/\bblazer\b|\bsuit jacket\b/i, /西装|西服/],
+  [/\bsuit\b/i, /西装|西服|套装/],
+  [/\bjacket\b/i, /外套|夹克|西服/],
+  [/\bcoat\b/i, /大衣|外套/],
+  [/\bblouse\b/i, /衬衫|衬衣|雪纺/],
+  [/\bshirt\b/i, /衬衫|衬衣|T恤/],
+  [/\bknit\b|\bknitwear\b/i, /针织|毛衣/],
+  [/\bsweater\b|\bjumper\b/i, /毛衣|针织/],
+  [/\bcardigan\b/i, /开衫|针织/],
+  [/\bvest\b/i, /马甲|背心/],
+  [/\bdress\b/i, /连衣裙|裙/],
+  [/\bskirt\b/i, /裙/],
+  [/\btrousers\b|\bpants\b|\bslacks\b/i, /裤/],
+  [/\boveralls\b|\bdungarees\b/i, /工装|背带裤/],
+  [/\bworkwear\b|\bwork uniform\b/i, /工装|制服/],
+  [/\bapron\b/i, /围裙/],
+  [/\buniform\b/i, /制服|工装|警服/],
+  [/\brobe\b|\bgown\b/i, /长袍|袍|礼服/],
+  [/\bscarf\b/i, /围巾/],
+  [/\btie\b/i, /领带/],
+  [/\bhat\b|\bcap\b/i, /帽/],
+  [/\bglasses\b|\bspectacles\b/i, /眼镜/],
+  [/\bnecklace\b/i, /项链/],
+  [/\bwatch\b/i, /手表|腕表/],
+  [/\bearrings?\b/i, /耳环|耳坠|耳钉/],
+  [/\bbracelet\b/i, /手镯|手链/],
+  [/\bring\b/i, /戒指/],
+]
+
+/** 单个块（`<Subject N>` 行）里的款式比对 —— 与 findGarmentColourMismatch 同构 */
+export function findGarmentTypeMismatch(
+  defs: string, assets: CommunityAsset[], subjToPic?: Map<number, number>,
+): GarmentTypeMismatch[] {
+  const out: GarmentTypeMismatch[] = []
+  for (const a of assets) {
+    if (a.kind !== 'character') continue
+    const line = subjectLineForPicture(defs, a.picture, subjToPic)
+    const text = a.assetText || ''
+    if (!line || !text) continue
+    const hits: string[] = []
+    for (const [en, zh] of GARMENT_TYPE_PAIRS) {
+      const m = line.match(en)
+      if (!m) continue
+      if (zh.test(text)) continue      // 资产里就有这一类 → 正常
+      hits.push(m[0].toLowerCase())
+    }
+    if (hits.length) {
+      out.push({ picture: a.picture, name: a.name, found: hits.join('/'), expected: snippet(text), line: snippet(line) })
+    }
+  }
+  return out
+}
+
+/** 全文扫（只扫 subject_definitions 与 retention_analysis 两段，理由同颜色闸） */
+export function findGarmentTypeMismatchInPrompt(fullText: string, assets: CommunityAsset[]): GarmentTypeMismatch[] {
+  const text = String(fullText || '')
+  const SECTION = 'subject_definitions|summary|retention_analysis|detailed_description|overall_soundscape|non_diegetic_music'
+  const defsBlock = text.split(new RegExp(`(?=^\\s*(?:${SECTION})\\s*:)`, 'm'))
+    .find(b => /^\s*subject_definitions\s*:/.test(b)) || ''
+  const subjToPic = subjectToPicture(defsBlock)
+  const out: GarmentTypeMismatch[] = []
+  for (const block of text.split(new RegExp(`(?=^\\s*(?:${SECTION})\\s*:)`, 'm'))) {
+    const head = (block.match(/^\s*([a-z_]+)\s*:/) || [])[1]
+    if (head !== 'subject_definitions' && head !== 'retention_analysis') continue
+    if (!/<Subject \d+>/.test(block)) continue
+    out.push(...findGarmentTypeMismatch(block, assets, subjToPic))
+  }
+  return out
+}
+
+/** 给重写 prompt 用：把「资产里写的是什么衣服」直接塞给模型 */
+export function garmentTypeNote(hits: GarmentTypeMismatch[]): string {
+  return hits
+    .map(h => `- <Subject ${h.picture}>（${h.name}）**稿子里写的款式「${h.found}」在角色资产里根本没有** —— 资产原文是「${h.expected}」。`
+      + `必须照资产原文的**款式**写（是什么衣服就写什么衣服），不许换成别的衣服、也不许自己发明一件；`
+      + `定义段、retention_analysis、正文里复述这身衣服的地方都要一起改。`)
+    .join('\n')
+}

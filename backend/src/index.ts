@@ -26,6 +26,7 @@ import serverUpdate from './routes/serverUpdate.js'
 import refmod from './routes/refmod.js'
 import voice from './routes/voice.js'
 import maintenance from './routes/maintenance.js'
+import mv from './routes/mv.js' // 2026-10-18 音乐 MV（独立模块，与短剧链路隔离）
 import { requestLogger, errorHandler } from './middleware/logger.js'
 import { DATA_ROOT } from './utils/paths.js'
 import { installFileLogging } from './utils/log-file.js'
@@ -78,6 +79,7 @@ api.route('/server-update', serverUpdate)
 api.route('/refmod', refmod)
 api.route('/voice', voice) // 2026-10-08 角色声音（语音卡）
 api.route('/maintenance', maintenance) // 2026-10-10 存储维护（扫描/清理历史孤儿文件）
+api.route('/mv', mv) // 2026-10-18 音乐 MV（独立页面用，与短剧链路隔离）
 
 app.route('/api/v1', api)
 
