@@ -329,6 +329,9 @@
       </div>
     </template>
 
+    <!-- 全部弹层都 Teleport 到 body：.page 有 animation(fill both) 会残留 transform，
+         会让 position:fixed 变成相对 .page 定位 → 大图被裁小、被编辑弹窗挡住 -->
+    <Teleport to="body">
     <!-- 删除项目确认 -->
     <div v-if="deleteTarget" class="mv-modal" @click.self="deleteTarget = null">
       <div class="card mv-modal-box mv-modal-sm">
@@ -489,6 +492,7 @@
         </div>
       </div>
     </div>
+    </Teleport>
   </div>
 </template>
 
