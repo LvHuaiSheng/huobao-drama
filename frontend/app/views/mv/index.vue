@@ -353,11 +353,23 @@
                   <span class="video-inspector-label video-inspector-label-hero">视频提示词</span>
                   <div class="video-inspector-actions">
                     <button type="button" class="btn btn-sm" @click="genPrompts" :disabled="busy">编译全部提示词</button>
+                    <button type="button" class="btn btn-sm" @click="runCheck" :disabled="busy || checking">{{ checking ? '体检中…' : '体检' }}</button>
                     <button type="button" class="btn btn-sm" @click="saveShot(activeShot)">保存这条</button>
                   </div>
                 </div>
                 <textarea v-model="activeShot.prompt" class="textarea video-inspector-prompt" rows="14"
                   placeholder="还没有提示词 —— 点「编译全部提示词」整批生成；生成后可在这里直接改" />
+                <div v-if="checkResult" class="mv-check-panel" :class="{ 'is-bad': checkResult.bad }">
+                  <div class="mv-check-head">
+                    <strong>体检结果：{{ checkResult.ok }} 条通过 / {{ checkResult.bad }} 条有问题</strong>
+                    <button class="btn btn-ghost btn-sm" @click="checkResult = null">收起</button>
+                  </div>
+                  <div v-for="r in checkResult.rows.filter(x => !x.ok)" :key="r.shotNumber" class="mv-check-row">
+                    <span class="mv-check-idx">#{{ String(r.shotNumber).padStart(2,'0') }}</span>
+                    <span class="mv-check-msg">{{ r.problems.join('；') || '不合规' }}</span>
+                  </div>
+                  <div v-if="!checkResult.bad" class="mv-check-ok">全部通过，可以逐段生成。</div>
+                </div>
                 <div class="video-inspector-prompt-extra">
                   <div class="video-inspector-fields">
                     <label class="mv-field"><span>唱/非唱</span>
@@ -368,8 +380,11 @@
                       <BaseSelect :model-value="activeShot.shotSize || '中景'" :options="SIZE_OPTS"
                         @update:model-value="(v) => { activeShot.shotSize = v; saveShot(activeShot) }" />
                     </label>
-                    <label class="mv-field is-wide"><span>机位（英文，留空用默认固定机位）</span>
-                      <input v-model="activeShot.camera" class="input" placeholder="locked-off static camera, medium shot" @blur="saveShot(activeShot)" />
+                    <label class="mv-field is-wide"><span>机位（中文即可，编译时自动转英文）</span>
+                      <input v-model="activeShot.camera" class="input" placeholder="固定机位，中景，正脸三分之四，平视" @blur="saveShot(activeShot)" />
+                    </label>
+                    <label class="mv-field is-wide"><span>补充说明（英文，原样追加到提示词末尾；可留空直接生成）</span>
+                      <textarea v-model="activeShot.promptExtra" class="textarea" rows="2" placeholder="keep the hands out of frame" @blur="saveShot(activeShot)" />
                     </label>
                   </div>
                 </div>
@@ -789,6 +804,16 @@ const videoRows = computed(() => {
 const openViewerUrl = (src, title) => { viewer.value = { open: true, src, title } }
 // 任务抽屉（照短剧）：只列本项目各段的生成记录
 const taskDrawer = ref(false)
+const checking = ref(false)
+const checkResult = ref(null)
+async function runCheck() {
+  if (!need(shots.value.length, '还没有分镜')) return
+  checking.value = true
+  try {
+    const r = await call(() => api.post(`/mv/projects/${pj.value.id}/check`, {}), '正在体检全部提示词…')
+    if (r) checkResult.value = r
+  } finally { checking.value = false }
+}
 const VOCAL_OPTS = [{ label: '唱', value: 'vocal_active' }, { label: '非唱', value: 'non_vocal' }]
 const SIZE_OPTS = [{ label: '中远景', value: '中远景' }, { label: '中景', value: '中景' }, { label: '近景', value: '近景' }, { label: '特写', value: '特写' }]
 const taskRows = computed(() => shots.value
@@ -1079,6 +1104,7 @@ async function saveShot(s) {
   await api.put(`/mv/projects/${pj.value.id}/shots/${s.id}`, {
     shot_size: s.shotSize, camera: s.camera, lyric: s.lyric, vocal_state: s.vocalState,
     ...(s.refIds !== undefined ? { ref_ids: JSON.parse(String(s.refIds || '[]')) } : {}),
+    ...(s.promptExtra !== undefined ? { prompt_extra: s.promptExtra || '' } : {}),
   }).catch((err) => alert(String(err?.message || err)))
 }
 
@@ -1647,5 +1673,14 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); color: var(--
 .mv-drawer-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 12px 14px; border-bottom: 1px solid var(--border); }
 .mv-drawer-head-actions { display: flex; gap: 6px; }
 .mv-drawer-metrics { padding: 8px 14px; border-bottom: 1px solid var(--border); }
+
+/* 体检结果面板 */
+.mv-check-panel { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; margin-bottom: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-2); }
+.mv-check-panel.is-bad { border-color: rgba(210,153,34,.5); }
+.mv-check-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11.5px; color: var(--text-2); }
+.mv-check-row { display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 8px; font-size: 11px; color: #d29922; }
+.mv-check-idx { font-family: var(--font-mono, monospace); color: var(--text-3); }
+.mv-check-msg { line-height: 1.5; word-break: break-word; }
+.mv-check-ok { font-size: 11.5px; color: #3fb950; }
 
 </style>

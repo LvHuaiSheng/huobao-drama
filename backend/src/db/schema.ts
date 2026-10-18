@@ -358,6 +358,7 @@ export const mvShots = sqliteTable('mv_shots', {
   lyric: text('lyric'),
   prompt: text('prompt'),
   refIds: text('ref_ids'),          // 这一段绑定的参考图（资产 id，JSON 数组；空=人物卡+场景卡）
+  promptExtra: text('prompt_extra'),// 补充说明（英文，编译后原样追加到提示词末尾）
   firstFrameImage: text('first_frame_image'),
   taskId: text('task_id'),
   videoUrl: text('video_url'),

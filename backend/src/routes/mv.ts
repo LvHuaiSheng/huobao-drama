@@ -459,6 +459,7 @@ app.put('/projects/:id/assets/:aid', async (c) => {
   if (body.appearance !== undefined) patch.appearance = String(body.appearance).slice(0, 2000)
   if (body.styling !== undefined) patch.styling = String(body.styling).slice(0, 2000)
   if (body.prompt !== undefined) patch.prompt = String(body.prompt)
+  if (body.prompt_extra !== undefined) patch.promptExtra = String(body.prompt_extra || '').slice(0, 1200)
   if (body.ref_ids !== undefined) patch.refIds = JSON.stringify(
     (Array.isArray(body.ref_ids) ? body.ref_ids : []).map(Number).filter(Boolean)).slice(0, 4000)
   await db.update(schema.mvAssets).set(patch).where(eq(schema.mvAssets.id, aid))
@@ -801,7 +802,11 @@ app.post('/projects/:id/prompts', async (c) => {
     const items = out?.shots || []
     if (items.length !== shots.length) throw new Error(`编译结果条数不对（${items.length}/${shots.length}）`)
     for (let i = 0; i < shots.length; i++) {
-      await db.update(schema.mvShots).set({ prompt: String(items[i].prompt || ''), updatedAt: now() })
+      const extra = String(shots[i].promptExtra || '').trim()
+      await db.update(schema.mvShots).set({
+        prompt: String(items[i].prompt || '') + (extra ? `\n\n[extra notes] ${extra}` : ''),
+        updatedAt: now(),
+      })
         .where(eq(schema.mvShots.id, shots[i].id))
     }
     logTaskSuccess('MV', 'prompts', { id, count: items.length })
@@ -809,6 +814,28 @@ app.post('/projects/:id/prompts', async (c) => {
   } catch (err: any) {
     logTaskError('MV', 'prompts', { id, error: err?.message })
     return serverError(c, err?.message || '提示词编译失败')
+  }
+})
+
+/** 体检：把每段提示词发给中转跑硬校验，回问题清单（不生成、不改数据） */
+app.post('/projects/:id/check', async (c) => {
+  const id = Number(c.req.param('id'))
+  const project = await loadProject(id)
+  if (!project) return notFound(c, 'MV 项目不存在')
+  const shots = await shotsOf(id)
+  if (!shots.length) return badRequest(c, '还没有分镜')
+  try {
+    const out = await shimPost<{ rows: any[]; ok: number; bad: number }>('/v2/mv/check', {
+      shots: shots.map((s) => ({ prompt: s.prompt || '', vocal_state: s.vocalState || 'vocal_active' })),
+    })
+    const rows = (out?.rows || []).map((r: any, i: number) => ({
+      shotNumber: shots[i]?.shotNumber ?? i + 1, ok: !!r.ok, problems: r.problems || [],
+    }))
+    logTaskSuccess('MV', 'check', { id, ok: out?.ok, bad: out?.bad })
+    return success(c, { ok: out?.ok || 0, bad: out?.bad || 0, rows })
+  } catch (err: any) {
+    logTaskError('MV', 'check', { id, error: err?.message })
+    return serverError(c, err?.message || '体检失败')
   }
 })
 
