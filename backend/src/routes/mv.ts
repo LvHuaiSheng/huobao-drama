@@ -333,19 +333,24 @@ app.post('/projects/:id/extract', async (c) => {
 ${story.slice(0, 12000)}
 """
 
-请从中提取**人物**和**场景**，规则（与短剧一致）：
+请从中提取**人物**和**场景**，**严格按上面那份规范**填字段（规范里要求的四项颜色、禁模糊词、字数都要照做）：
 1) 只提取这份分镜提示词里真实出现过的，不要自己发明、不要补充没写的东西。
-2) 人物 description：外貌 + 妆造（发型发色、肤色、脸型气质、服装颜色与款式、配饰颜色）。每条都必须写死唯一值，**禁止「或」「可能」「皆可」这类模糊词**。
-3) 场景 description：地点、时间、光线、色调、氛围（写具体）。
-4) name 用简短中文名（人物用名字或代称，场景用「地点+时间」）；同一个人的不同叫法合并成一个人。
-5) 没有人物就返回空数组。
+2) 人物 appearance（样貌）按规范写成 **300~500 字**：性别、年龄感、五官、发型发色、**肤色的色阶与明暗**、体态、气质（性格要转成外在神态写，不要直接写性格词）。
+3) 人物 styling（妆造）：发型、服装、妆面、配饰 —— **每件单品都要写颜色**（外套/上衣/裤子/鞋），配饰写颜色或材质。
+4) 人物 description = 样貌 + 妆造的完整合并描述（同样写长写具体，不要只有一句）。
+5) 🔴 四项颜色（发色 / 肤色 / 服装颜色 / 配饰颜色或材质）一个都不能少；**禁止「或」「或者」「可能」「皆可」这类二选一**，原文带「或」就当场挑定一个写死。
+6) 场景 description：地点、时间、光线、色调、氛围、前景/中景/后景层次（写具体，不要一句话带过）。
+7) name 用简短中文名（人物用名字或代称，场景用「地点+时间」）；同一个人的不同叫法合并成一个人。
+8) 没有人物就返回空数组。
 
 只输出 JSON：
 {"characters":[{"name":"","description":"","appearance":"","styling":""}],"scenes":[{"name":"","description":""}]}
 appearance 只写脸/身形容貌，styling 只写服装配饰；拆不出来就留空。`
   try {
     const out = pickJson<{ characters?: any[]; scenes?: any[] }>(
-      await askText(await mvPrompt('mv_extractor'), ask, 3000))
+      await askText(
+        readSkillFile('extractor') || (await mvPrompt('mv_extractor')),
+        ask, 6000))
     const ts = now()
     await db.delete(schema.mvAssets).where(eq(schema.mvAssets.projectId, id))
     let sort = 0
