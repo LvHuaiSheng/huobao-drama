@@ -752,7 +752,7 @@ app.post('/projects/:id/assets/:aid/card', async (c) => {
     await shimPost('/v2/refmod/extract', {
       name: cardName,
       image: readAsDataUrl(asset.image, 'image/png'),
-      concept_type: asset.kind === 'character' ? 'identity' : 'scene',
+      concept_type: asset.kind === 'character' ? 'identity' : 'background',  // extract_mod 只认 background（'scene' 会 invalid choice 报错）
     })
     await db.update(schema.mvAssets).set({ card: cardName, updatedAt: now() }).where(eq(schema.mvAssets.id, aid))
     logTaskSuccess('MV', 'asset-card', { id, aid, cardName })
