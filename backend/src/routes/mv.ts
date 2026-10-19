@@ -667,7 +667,7 @@ app.post('/projects', async (c) => {
       lyrics: String(body.lyrics || '').slice(0, 8000),
       style: String(body.style || '').slice(0, 60),
       storyPrompt: String(body.story_prompt || '').slice(0, 20000),
-      aspectRatio: String(body.aspect_ratio || '9:16').slice(0, 10),
+      aspectRatio: String(body.aspect_ratio || '16:9').slice(0, 10),   // 2026-10-19 新建默认 16:9（横屏）
       maxShotSeconds: maxShot,
       status: 'draft',
       createdAt: ts, updatedAt: ts,
@@ -889,7 +889,7 @@ const imageSizeForAsset = (project: any, kind: string): string =>
  * ponytail: 想支持更多画幅得先让 H3 支持，别在这里造轮子。
  */
 function videoSize(project: any): [number, number] {
-  return String(project?.aspectRatio || '9:16') === '16:9' ? [1344, 768] : [768, 1344]
+  return String(project?.aspectRatio || '16:9') === '16:9' ? [1344, 768] : [768, 1344]
 }
 
 /**
@@ -1399,7 +1399,7 @@ app.post('/projects/:id/shots/:sid/render', async (c) => {
       model: MV_MODEL,
       configId: project.videoConfigId ?? undefined,
       duration: Math.max(5.167, Number(shot.seconds) || 5.167),
-      aspectRatio: project.aspectRatio || '9:16',
+      aspectRatio: project.aspectRatio || '16:9',
       resolution: `${videoSize(project)[0]}x${videoSize(project)[1]}`,
       referenceImageUrls: refs,
       seed: body.seed ? Number(body.seed) : undefined,

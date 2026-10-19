@@ -82,7 +82,7 @@
             <img v-if="p.cover" class="mv-card-cover-img" :src="staticUrl(p.cover)" alt="" loading="lazy" />
             <div v-if="p.cover" class="mv-card-cover-shade"></div>
             <span v-else class="mv-card-initial">{{ (p.title || 'MV').slice(0, 1) }}</span>
-            <span class="mv-card-ratio">{{ p.aspectRatio || '9:16' }}</span>
+            <span class="mv-card-ratio">{{ p.aspectRatio || '16:9' }}</span>
             <span class="mv-card-badge">
               <span class="mv-status-dot" :class="'is-' + (p.status || 'draft')"></span>{{ statusZh(p.status) }}
             </span>
@@ -579,7 +579,7 @@
                   :disabled="activeShot.status === 'processing'" title="改完自动吸附到合法帧数（17n+5 帧）并保存" />
                 <span class="dim" style="font-size:11px">s · 修改即保存</span>
               </div>
-              <div class="video-foot-model mono">minimax-h3-mv · {{ pj.aspectRatio || '9:16' }} · {{ shotSeconds(activeShot).toFixed(2) }}s</div>
+              <div class="video-foot-model mono">minimax-h3-mv · {{ pj.aspectRatio || '16:9' }} · {{ shotSeconds(activeShot).toFixed(2) }}s</div>
               <button class="btn btn-primary show-all" @click="render(activeShot)" :disabled="activeShot.status === 'processing' || shotPromptBusy === activeShot.id">
                 {{ activeShot.status === 'processing' ? '生成中…' : (activeShot.videoUrl ? '重绘' : '生成') }}
               </button>
@@ -872,7 +872,7 @@ async function importAsset(a) {
 }   // 正在排队的资产 id（各自独立，服务器串行执行）
 const promptBusy = ref(null)
 const viewer = ref({ open: false, src: '', title: '' })
-const editRatio = ref('9:16')
+const editRatio = ref('16:9')
 // 顶部三个模型选择器 —— 照短剧 ModelSelect 的口径：选项来自该类全部启用配置，选中值是可选的 'provider/model'
 const textConfigs = ref([])
 const imageConfigs = ref([])
@@ -1099,14 +1099,14 @@ const maxSeconds = ref(10)
 const storyPrompt = ref('')
 const lyrics = ref('')
 const editStyle = ref('')
-const form = reactive({ title: '', style: '', storyPrompt: '', aspectRatio: '9:16', maxShotSeconds: 10, song: null })
+const form = reactive({ title: '', style: '', storyPrompt: '', aspectRatio: '16:9', maxShotSeconds: 10, song: null })
 
 /** 画幅（与短剧同一个思路：只有 H3 支持的两种；动态图/封面按它显示） */
 const RATIOS = [
   { label: '9:16 竖屏（手机/抖音）', value: '9:16' },
   { label: '16:9 横屏', value: '16:9' },
 ]
-const coverAspect = computed(() => String(pj.value.aspectRatio || '9:16').replace(':', ' / '))
+const coverAspect = computed(() => String(pj.value.aspectRatio || '16:9').replace(':', ' / '))
 
 const pj = computed(() => current.value?.project || {})
 const characters = computed(() => assets.value.filter((a) => a.kind === 'character'))
@@ -1474,7 +1474,7 @@ function sync(r) {
   storyPrompt.value = r.project.storyPrompt || ''
   lyrics.value = r.project.lyrics || ''
   editStyle.value = r.project.style || ''
-  editRatio.value = r.project.aspectRatio || '9:16'
+  editRatio.value = r.project.aspectRatio || '16:9'
   maxSeconds.value = Number(r.project.maxShotSeconds || 10)
 }
 
