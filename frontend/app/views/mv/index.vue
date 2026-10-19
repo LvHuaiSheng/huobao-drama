@@ -224,7 +224,7 @@
                     <button class="btn btn-sm" @click.stop="makeImage(a)" :disabled="a.imageStatus === 'processing'">
                       {{ a.imageStatus === 'processing' ? '出图中…' : (a.image ? '重绘' : '出图') }}
                     </button>
-                    <button class="btn btn-sm" @click.stop="makeCard(a)" :disabled="!a.image || cardBusy !== null">{{ cardBusy === a.id ? '生卡中…' : '生卡' }}</button>
+                    <button class="btn btn-sm" @click.stop="makeCard(a)" :disabled="!a.image || cardBusy.includes(a.id)">{{ cardBusy.includes(a.id) ? '排队中…' : '生卡' }}</button>
                     <span v-if="a.card" class="tag tag-success">卡已生成</span>
                   </div>
                 </div>
@@ -264,7 +264,7 @@
                   <button class="btn btn-sm" @click.stop="makeImage(a)" :disabled="a.imageStatus === 'processing'">
                     {{ a.imageStatus === 'processing' ? '出图中…' : (a.image ? '重绘' : '出图') }}
                   </button>
-                  <button class="btn btn-sm" @click.stop="makeCard(a)" :disabled="!a.image || cardBusy !== null">{{ cardBusy === a.id ? '生卡中…' : '生卡' }}</button>
+                  <button class="btn btn-sm" @click.stop="makeCard(a)" :disabled="!a.image || cardBusy.includes(a.id)">{{ cardBusy.includes(a.id) ? '排队中…' : '生卡' }}</button>
                   <span v-if="a.card" class="tag tag-success">卡已生成</span>
                 </div>
                 <div class="mv-final" :class="{ dim: !a.prompt }" :title="a.prompt || ''">
@@ -695,7 +695,7 @@ const showCreate = ref(false)
 const showRename = ref(false)
 const renameTitle = ref('')
 const editAsset = ref(null)
-const cardBusy = ref(null)
+const cardBusy = ref<number[]>([])   // 正在排队的资产 id（各自独立，服务器串行执行）
 const promptBusy = ref(null)
 const viewer = ref({ open: false, src: '', title: '' })
 const editRatio = ref('9:16')
@@ -1225,15 +1225,17 @@ async function makeImage(a) {
 /** 生卡：单张几秒，只锁这一张的按钮 */
 async function makeCard(a) {
   if (!need(!!a.image, '先给这个资产「出图」，再生卡')) return
-  if (cardBusy.value !== null) { alert('生卡要占用显卡，一次只能做一张，等当前这张完成再点。'); return }
-  cardBusy.value = a.id
+  if (cardBusy.value.includes(a.id)) return
+  cardBusy.value = [...cardBusy.value, a.id]
   try {
     const r = await api.post(`/mv/projects/${pj.value.id}/assets/${a.id}/card`, {})
-    if (r) assets.value = r.assets || []
+    // 各自只更新自己那一张，避免并发响应乱序把别人的「卡已生成」冲掉
+    const mine = (r?.assets || []).find((x: any) => x.id === a.id)
+    if (mine) Object.assign(a, mine)
   } catch (err) {
-    alert(String(err?.message || err))
+    alert(`「${a.name || '这张卡'}」生卡失败：` + String(err?.message || err))
   } finally {
-    cardBusy.value = null
+    cardBusy.value = cardBusy.value.filter((x) => x !== a.id)
   }
 }
 
