@@ -1079,7 +1079,13 @@ async function genShotPrompt(s) {
 
   try {
     const r = await call(() => api.post(`/mv/projects/${pj.value.id}/shots/${s.id}/prompt`, {}), '正在生成这一段的提示词…')
-    if (r) { s.prompt = r.prompt }
+    if (r) {
+      // 后端同时返回中英两份 —— 原来只取了中文，导致「显示英文提示词」按钮不出现
+      s.prompt = r.prompt
+      s.promptEn = r.promptEn || s.promptEn || ''
+      await refresh()          // 从库里同步一次，中英两份都到位
+      showEn.value = false
+    }
   } finally { shotPromptBusy.value = null }
 }
 async function checkShot(s) {
