@@ -931,6 +931,7 @@ ${lyricLines.length ? `歌词行：\n${lyricLines.map((l, i) => `${i + 1}. ${l}`
 - action 是这一段镜头里人物/画面**在做什么**，用英文一句短语（如 "she looks down and smiles"），action_zh 给同一句的中文
 - **景别要跳**：相邻两拍不要同一个景别（例：中景 → 特写 → 中景），景别在 中远景/中景/近景/特写 里选
 - **机位/角度每拍都要换**（正面 → 四分之三侧 → 侧脸過肩），运镜也跟着换（固定 ↗ 缓慢推近 ↗ 固定）
+- **段级景别必须交替（硬规则）**：全曲所有段的 shot_size（整段主导景别）**不许连续 3 段相同** —— 严禁一路都是「近景」（现在实测就是这么错的：分镜3/4/5/6 全是近景，拼起来整片怼脸）。按「中远景 → 中景 → 近景 → 特写 → 中景 → 中远景 …」交替推进；副歌可以近景/特写为主，但每 2~3 段必须插一段中景或中远景换气；首尾段用中远景收放
 - **相邻段不许重复同样的推进方式**：通篇看一遍你排的所有段，连着两段都是"中景 → 特写"这类同样的景别走向是**不允许**的（拼在一起会跳）；相邻段的景别顺序、机位角度、运镜方向都要明显不同（例：上段「中景 → 特写」，这段就写「近景 → 中远景」或「特写 → 近景」），整首歌的景别要有交替推进的节奏
 - 有唱段：**每一拍都必须看得见脸和嘴**（只换角度/景别，不许切背影、手部、空镜）；间奏段才可以切空镜/背影/手部/环境
 - 不管怎么切，段内**只能是同一个场景**，不许换地方
@@ -1011,7 +1012,10 @@ app.post('/projects/:id/prompts', async (c) => {
   try {
     const out = await shimPost<{ shots: any[] }>('/v2/mv/prompts', {
       pictures: Math.max(1, pictures),
-      performer: String(character.description || character.name || 'the lead singer').slice(0, 600),
+      // 编译时吃「定妆三件套 + 最终提示词 + 提取描述」：原来只读 description（提取原文），
+      // 用户在「最终提示词」里改的内容（比如删掉耳机）根本不生效
+      performer: ([character.appearance, character.styling, character.prompt, character.description]
+        .map((x: any) => String(x || '').trim()).filter(Boolean).join('  ').slice(0, 1400) || 'the lead singer'),
       style: (await styleHead(project)) || undefined,
       scene_note: scene?.description ? String(scene.description) : '',
       language: 'Chinese',
@@ -1078,7 +1082,10 @@ app.post('/projects/:id/shots/:sid/prompt', async (c) => {
   try {
     const out = await shimPost<{ shots: any[] }>('/v2/mv/prompts', {
       pictures: Math.max(1, picked.length),
-      performer: String(character.description || character.name || 'the lead singer').slice(0, 600),
+      // 编译时吃「定妆三件套 + 最终提示词 + 提取描述」：原来只读 description（提取原文），
+      // 用户在「最终提示词」里改的内容（比如删掉耳机）根本不生效
+      performer: ([character.appearance, character.styling, character.prompt, character.description]
+        .map((x: any) => String(x || '').trim()).filter(Boolean).join('  ').slice(0, 1400) || 'the lead singer'),
       style: (await styleHead(project)) || undefined,
       language: 'Chinese',
       lyrics: [String(shot.lyric || '')],

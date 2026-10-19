@@ -1428,7 +1428,9 @@ async function saveAssetFull() {
       appearance: a.appearance, styling: a.styling, prompt: a.prompt,
     })
     if (r) assets.value = r.assets || []
-    editAsset.value = null
+    // 保存后不关弹窗（用户要接着生提示词/出图）；只把后端那份的图/卡/提示词同步回来
+    const fresh = (r?.assets || []).find((x) => x.id === a.id)
+    if (fresh) Object.assign(a, { image: fresh.image, imageStatus: fresh.imageStatus, card: fresh.card, prompt: fresh.prompt ?? a.prompt })
   } catch (err) {
     alert(String(err?.message || err))
   }
