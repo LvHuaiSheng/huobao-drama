@@ -234,6 +234,13 @@ function createWindow() {
   // 页面标题自带产品名，避免文件路径兜底标题
   mainWindow.on('page-title-updated', e => e.preventDefault())
   mainWindow.on('closed', () => { mainWindow = null })
+  // 点关闭按钮只收进 Dock（macOS 常规行为），Cmd+Q / 菜单退出才真正退
+  mainWindow.on('close', (e) => {
+    if (quitting) return
+    e.preventDefault()
+    mainWindow?.hide()
+    appendDesktopLog('window close -> hide to dock')
+  })
   // 外链一律交给系统浏览器：应用内不弹新窗（如设置页「前往 api.firemux.cn 获取 Key」）
   const isAppUrl = (url: string) => url.startsWith(`http://127.0.0.1:${backendPort}`)
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -353,6 +360,15 @@ app.on('before-quit', () => {
 })
 
 app.on('window-all-closed', () => {
+  if (process.platform === 'darwin') return   // macOS：留在 Dock，点图标再开
   appendDesktopLog('app window-all-closed -> quit')
   app.quit()
+})
+
+// 点 Dock 图标 → 把收起的窗口再拿出来
+app.on('activate', () => {
+  if (!mainWindow) return
+  if (!mainWindow.isVisible()) mainWindow.show()
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.focus()
 })
