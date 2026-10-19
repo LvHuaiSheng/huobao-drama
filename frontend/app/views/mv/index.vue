@@ -1099,6 +1099,17 @@ function runConfirm() {
   if (typeof fn === 'function') fn()
 }
 const askGenPrompts = () => {
+  // 勾了段就只补勾选的（多选时不再全库扫）
+  const picked = selectedIds.value.length ? shots.value.filter((x) => selectedIds.value.includes(x.id)) : []
+  if (picked.length) {
+    const miss = picked.filter((x) => !String(x.promptEn || '').trim()).length
+    return askConfirm('批量补齐提示词',
+      `只给勾选的 ${picked.length} 段补齐（其中 ${miss} 段还没有提示词；已有提示词的不动）。继续？`, '开始补齐',
+      async () => {
+        const r = await call(() => api.post(`/mv/projects/${pj.value.id}/prompts`, { missing_only: true, shot_ids: picked.map((x) => x.id) }), '正在补齐提示词…')
+        if (r) { await refresh(); selectedIds.value = [] }
+      })
+  }
   const miss = shots.value.filter((x) => !String(x.promptEn || '').trim()).length
   const have = shots.value.length - miss
   if (!miss) { alert(`每一段都已有提示词（${have} 段），没有需要补齐的。\n要重写某一段，请点那一段的「重新生成」。`); return }

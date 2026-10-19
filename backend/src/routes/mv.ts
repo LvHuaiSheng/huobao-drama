@@ -999,7 +999,10 @@ app.post('/projects/:id/prompts', async (c) => {
   // 批量「补齐」：默认只补没有英文稿的段，已生成的不重写（要重写请点该段的「重新生成」）
   const body = await c.req.json().catch(() => ({} as any))
   const missingOnly = body?.missing_only !== false
-  const shots = missingOnly ? allShots.filter((x: any) => !String(x.promptEn || '').trim()) : allShots
+  // 只补勾选的段（前端多选时传 shot_ids；不传=全部缺的段）
+  const pickedIds: number[] = Array.isArray(body?.shot_ids) ? body.shot_ids.map(Number).filter(Number.isFinite) : []
+  let shots = missingOnly ? allShots.filter((x: any) => !String(x.promptEn || '').trim()) : allShots
+  if (pickedIds.length) shots = shots.filter((x: any) => pickedIds.includes(x.id))
   if (!shots.length) {
     return success(c, { ok: true, done: 0, skipped: allShots.length, message: '每一段都已有提示词，没有需要补齐的' })
   }
