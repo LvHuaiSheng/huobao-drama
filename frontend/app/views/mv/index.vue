@@ -695,7 +695,7 @@ const showCreate = ref(false)
 const showRename = ref(false)
 const renameTitle = ref('')
 const editAsset = ref(null)
-const cardBusy = ref<number[]>([])   // 正在排队的资产 id（各自独立，服务器串行执行）
+const cardBusy = ref([])   // 正在排队的资产 id（各自独立，服务器串行执行）
 const promptBusy = ref(null)
 const viewer = ref({ open: false, src: '', title: '' })
 const editRatio = ref('9:16')
@@ -1230,7 +1230,7 @@ async function makeCard(a) {
   try {
     const r = await api.post(`/mv/projects/${pj.value.id}/assets/${a.id}/card`, {})
     // 各自只更新自己那一张，避免并发响应乱序把别人的「卡已生成」冲掉
-    const mine = (r?.assets || []).find((x: any) => x.id === a.id)
+    const mine = (r?.assets || []).find((x) => x.id === a.id)
     if (mine) Object.assign(a, mine)
   } catch (err) {
     alert(`「${a.name || '这张卡'}」生卡失败：` + String(err?.message || err))

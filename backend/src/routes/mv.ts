@@ -97,45 +97,43 @@ function renderZhStoryboard(shot: any, beats: any[], outlineText?: string): stri
   return [head, ...lines, `【人声】${vocal}`, extra ? `【补充】${extra}` : ''].filter(Boolean).join('\n')
 }
 
-/** 把英文六段稿翻成中文六段稿：分块（每块 4 条）+ 失败逐条重试，避免一次输出太长被截断 */
-async function toChinesePrompts(list: string[], configId?: number | null): Promise<string[]> {
-  const out = new Array(list.length).fill('')
-  const ask1 = (text: string) => `把下面这条视频提示词翻成中文，要求：
-1) 保留官方六段结构，段名必须改成中文：主体定义 / 概要 / 保持分析 / 详细描述 / 整体声音 / 非叙事音乐
-2) 占位符原样保留（<Subject 1> <Picture 1> <Audio 1> [Shot 1]）、时间码原样、引号内台词原文不动
-3) 中文描述翻成通顺中文；只有人名的英文术语可保留
-4) 不要解释、不要加序号、不要改动段落顺序
+/** 中文稿 = 详细《中文导演分镜稿》：让模型把英文六段稿 + 拍点编排写成逐镜头的中文分镜（分块 2 条 + 失败逐条重试） */
+type ZhItem = { en: string, beats: any[], seconds: number, vocalState?: string }
 
-${text}
+const ZH_FORMAT = `格式（严格，不要多余说明）：
+【镜头N】起-止秒｜景别｜机位
+画面：2~4 句，写清这一拍里——环境长什么样、谁在画面里、穿什么、在做什么动作/什么表情、光线与色调、镜头怎么动。必须具体可拍，不要堆抽象形容词
+…
+【声音】……`
 
-只输出 JSON 对象：{"zh":"…"}`
-  const run = async (text: string): Promise<string> => {
+async function toChineseStoryboards(items: ZhItem[], configId?: number | null): Promise<string[]> {
+  const out = new Array(items.length).fill('')
+  const body = (it: ZhItem) => `时长: ${it.seconds}s（${it.vocalState === 'non_vocal' ? '本段无唱/间奏' : '本段有唱'}）
+英文提示词：
+${it.en}
+镜头编排：
+${JSON.stringify(it.beats)}`
+
+  const runOne = async (it: ZhItem): Promise<string> => {
     try {
-      const o = pickJson<any>(await askText('你是影视提示词翻译，只输出 JSON。', ask1(text), 4000, configId))
+      const ask = `你是这支 MV 的导演。把这一段整理成中文导演分镜稿。\n\n${ZH_FORMAT}\n\n要求：\n- 逐拍写，起止秒/景别/机位与「镜头编排」完全一致\n- 画面描述要把英文提示词里的场面、人物、服装、光影、运镜细节搬进来\n- 有唱写"脸和嘴全程可见、口型跟着原曲"；间奏写"嘴自然闭合"\n- 只输出中文\n\n${body(it)}\n\n只输出 JSON 对象：{"zh":"…"}（zh 内用 \\n 换行）`
+      const o = pickJson<any>(await askText('你是 MV 导演，只输出 JSON。', ask, 4000, configId))
       return String(o?.zh || '').trim()
     } catch { return '' }
   }
-  for (let i = 0; i < list.length; i += 4) {
-    const chunk = list.slice(i, i + 4)
+
+  for (let i = 0; i < items.length; i += 2) {
+    const chunk = items.slice(i, i + 2)
     try {
-      const ask = `把下面每条视频提示词翻成中文，要求：
-1) 保留官方六段结构，段名必须改成中文：主体定义 / 概要 / 保持分析 / 详细描述 / 整体声音 / 非叙事音乐
-2) 占位符原样保留（<Subject 1> <Picture 1> <Audio 1> [Shot 1]）、时间码原样、引号内台词原文不动
-3) 中文描述翻成通顺中文
-4) 不要解释、不要加序号
-
-${chunk.map((t, k) => `--- ${k} ---\n${t}`).join('\n')}
-
-只输出 JSON 数组：[{"index":0,"zh":"…"}]`
-      const arr = pickJson<any>(await askText('你是影视提示词翻译，只输出 JSON。', ask, 8000, configId))
-      const got = Array.isArray(arr) ? arr : []
-      for (const o of got) {
+      const ask = `你是这支 MV 的导演。下面 ${chunk.length} 段视频，每段给「英文提示词 + 镜头编排」，逐段写成中文导演分镜稿。\n\n${ZH_FORMAT}\n\n要求：起止秒/景别/机位与编排一致；画面描述具体（环境/人物/服装/动作表情/光线色调/镜头运动）；只输出中文。\n\n${chunk.map((it, k) => `--- ${k} ---\n${body(it)}`).join('\n\n')}\n\n只输出 JSON 数组：[{"index":0,"zh":"…"}]`
+      const arr = pickJson<any>(await askText('你是 MV 导演，只输出 JSON。', ask, 8000, configId))
+      for (const o of Array.isArray(arr) ? arr : []) {
         const k = Number(o?.index)
         if (Number.isFinite(k) && k >= 0 && k < chunk.length) out[i + k] = String(o?.zh || '').trim()
       }
-    } catch { /* 整块失败，下面逐条补 */ }
+    } catch { /* 整块失败，逐条补 */ }
     for (let k = 0; k < chunk.length; k++) {
-      if (!out[i + k]) out[i + k] = await run(chunk[k])
+      if (!out[i + k]) out[i + k] = await runOne(chunk[k])
     }
   }
   return out
@@ -934,12 +932,18 @@ app.post('/projects/:id/prompts', async (c) => {
       const ex = String(shots[i].promptExtra || '').trim()
       return String(it.prompt || '') + (ex ? `\n\n[extra notes] ${ex}` : '')
     })
+    const zhItems: ZhItem[] = shots.map((sh: any, i: number) => {
+      let beats: any[] = []
+      try { beats = JSON.parse(String(sh.beats || '[]')) } catch { beats = [] }
+      return { en: ens[i], beats, seconds: Number(sh.seconds) || 5.167, vocalState: sh.vocalState }
+    })
+    const zhs = await toChineseStoryboards(zhItems, project.textConfigId)
     for (let i = 0; i < shots.length; i++) {
       const sh = shots[i]
       let beats: any[] = []
       try { beats = JSON.parse(String(sh.beats || '[]')) } catch { beats = [] }
       await db.update(schema.mvShots).set({
-        prompt: renderZhStoryboard(sh, beats),
+        prompt: zhs[i] || renderZhStoryboard(sh, beats),   // LLM 失败时退回机械渲染稿
         promptEn: ens[i],
         updatedAt: now(),
       })
@@ -988,7 +992,8 @@ app.post('/projects/:id/shots/:sid/prompt', async (c) => {
     if (!en.trim()) throw new Error('编译结果为空')
     let beats: any[] = []
     try { beats = JSON.parse(String(shot.beats || '[]')) } catch { beats = [] }
-    const prompt = renderZhStoryboard(shot, beats)
+    const [zh] = await toChineseStoryboards([{ en, beats, seconds: Number(shot.seconds) || 5.167, vocalState: String(shot.vocalState || '') }], project.textConfigId)
+    const prompt = zh || renderZhStoryboard(shot, beats)
     await db.update(schema.mvShots).set({ prompt, promptEn: en, updatedAt: now() }).where(eq(schema.mvShots.id, sid))
     return success(c, { id: sid, prompt, promptEn: en })
   } catch (err: any) {
