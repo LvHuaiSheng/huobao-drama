@@ -1145,9 +1145,11 @@ app.post('/projects/:id/assemble', async (c) => {
   const project = await loadProject(id)
   if (!project) return notFound(c, 'MV 项目不存在')
   const shots = await shotsOf(id)
-  const done = shots.filter((s) => s.videoUrl)
-  if (!done.length) return badRequest(c, '还没有生成好的分段')
-  if (done.length !== shots.length) return badRequest(c, `还有 ${shots.length - done.length} 段没生成完`)
+  const body = await c.req.json().catch(() => ({} as any))
+  const ids: number[] = Array.isArray(body?.shot_ids) ? body.shot_ids.map(Number).filter(Number.isFinite) : []
+  const ready = shots.filter((s) => s.videoUrl)
+  const done = ids.length ? ready.filter((s) => ids.includes(s.id)) : ready
+  if (!done.length) return badRequest(c, ids.length ? '勾选的镜头里没有已生成的分段' : '还没有生成好的分段')
   if (!project.songFile) return badRequest(c, '找不到原曲文件')
   const rel = mvDir(id)
   const listPath = path.join(STORAGE_ROOT, rel, 'concat.txt')

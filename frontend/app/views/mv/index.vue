@@ -51,7 +51,6 @@
           <button class="btn btn-sm" @click="askCheckAll" :disabled="!shots.length" title="只读文本检查，不会打断正在生成的视频">全部体检</button>
           <span class="mv-step-hint">④</span>
           <button class="btn btn-sm" @click="askRenderAll" :disabled="busy || !shots.length">生成全部</button>
-          <button class="btn btn-sm" @click="askAssemble" :disabled="busy || !shots.length">合成成片</button>
           <button class="btn btn-sm" :class="{ 'is-on': selectMode }" @click="toggleSelectMode">{{ selectMode ? '退出批量' : '批量选择' }}</button>
         </template>
         <button v-if="current" class="btn btn-sm" @click="taskDrawer = true">
@@ -130,6 +129,11 @@
             <span class="mv-side-icon">🎥</span>
             <span class="mv-side-label">视频制作</span>
             <span v-if="shots.length" class="mv-side-count">{{ shots.length }}</span>
+          </button>
+          <button type="button" :class="['mv-side-item', { active: tab === 'export' }]" @click="enterExport">
+            <span class="mv-side-icon">📦</span>
+            <span class="mv-side-label">合成导出</span>
+            <span v-if="pj.outputUrl" class="mv-side-count">✓</span>
           </button>
           <div class="mv-side-foot">
             <button type="button" class="mv-side-refresh" @click="loadProjects" :disabled="busy">
@@ -284,6 +288,36 @@
           <button class="btn btn-primary btn-sm" @click="goNext('video')" :disabled="busy">下一步：视频制作 →</button>
         </div>
       </div>
+      <!-- 第 5 页 · 合成导出（照短剧导出步骤：勾镜头 → 拼接 → 成片） -->
+      <div v-if="tab === 'export'" class="card mv-block">
+        <div class="mv-block-title">合成导出（勾选要拼的镜头，拼接后混入原曲）</div>
+        <div class="mv-row mv-export-bar">
+          <button class="shot-quick-btn" @click="exportSelected = shots.filter((x) => x.videoUrl).map((x) => x.id)">全选已生成</button>
+          <button class="shot-quick-btn" @click="exportSelected = []">清空</button>
+          <span class="meta-item">已选 {{ exportSelected.length }} 段 · 已生成 {{ shots.filter((x) => x.videoUrl).length }}/{{ shots.length }} 段</span>
+          <button class="btn btn-primary btn-sm" :disabled="busy || !exportSelected.length" @click="askAssemble">开始拼接</button>
+        </div>
+        <div class="mv-export-list">
+          <label v-for="(x, i) in shots" :key="x.id" class="mv-export-row" :class="{ 'is-off': !x.videoUrl }">
+            <input type="checkbox" :checked="exportSelected.includes(x.id)" :disabled="!x.videoUrl" @change="toggleExport(x.id)" />
+            <span class="mv-export-idx">#{{ String(i + 1).padStart(2, '0') }}</span>
+            <span class="mv-export-title truncate">{{ outlineTextOf(x) || '（无内容）' }}</span>
+            <span class="meta-item">{{ shotSeconds(x).toFixed(3) }}s</span>
+            <span class="video-task-state" :class="'is-' + shotState(x)">{{ shotStateLabel(x) }}</span>
+          </label>
+          <div v-if="!shots.length" class="video-task-empty">还没有分镜 —— 先去「视频制作」切分</div>
+        </div>
+        <template v-if="pj.outputUrl">
+          <div class="mv-block-title" style="margin-top:18px">成片</div>
+          <video class="mv-video mv-export-video" :src="staticUrl(pj.outputUrl)" controls />
+          <div class="mv-row">
+            <a class="btn btn-sm" :href="staticUrl(pj.outputUrl)" download>下载成片</a>
+            <a class="btn btn-sm" :href="staticUrl(pj.outputUrl)" target="_blank">新窗口打开</a>
+          </div>
+        </template>
+        <div v-else class="meta-item" style="margin-top:14px">还没有成片 —— 勾好镜头点「开始拼接」</div>
+      </div>
+
 
       <!-- 第 4 页 · 视频制作（照短剧三栏 workbench：左任务列表 / 中编辑区 / 右播放器） -->
       <div v-else class="video-task-workbench has-player" :style="{ '--vleft': '250px', '--vright': '340px' }">
@@ -804,6 +838,17 @@ async function doDeleteProject() {
   if (r) await loadProjects()
 }
 const tab = ref('origin')
+const exportSelected = ref([])
+function enterExport() {
+  tab.value = 'export'
+  // 默认勾上所有已生成的分段（照短剧导出页）
+  exportSelected.value = shots.value.filter((x) => x.videoUrl).map((x) => x.id)
+}
+function toggleExport(id) {
+  exportSelected.value = exportSelected.value.includes(id)
+    ? exportSelected.value.filter((x) => x !== id)
+    : [...exportSelected.value, id]
+}
 const maxSeconds = ref(10)
 const storyPrompt = ref('')
 const lyrics = ref('')
@@ -878,8 +923,8 @@ const askRenderAll = () => {
   askConfirm('生成全部',
     `还有 ${left} 段没生成，每段约 2~4 分钟，共约 ${left * 3} 分钟，期间队列串行跑。继续？`, '开始生成', renderAll)
 }
-const askAssemble = () => askConfirm('合成成片',
-  `会把 ${shots.value.filter((s) => s.videoUrl).length}/${shots.value.length} 段拼接并混入原曲。没生成完会拦下。继续？`, '开始合成', assemble)
+const askAssemble = () => askConfirm('开始拼接',
+  `会把勾选的 ${exportSelected.value.length} 段按顺序拼接、并混入原曲（从头对齐）。继续？`, '开始拼接', assemble)
 const askSeparate = () => askConfirm('人声分离',
   pj.value.vocalStem
     ? '这首歌已经分离过，会直接复用已有的人声轨（现有分镜不动）。继续？'
@@ -1296,11 +1341,10 @@ async function renderAll() {
 }
 
 async function assemble() {
-  if (!need(shots.value.length, '先在「视频制作」页点「切分详细分镜」并生成分段')) return
-  const done = shots.value.filter((s) => s.videoUrl).length
-  if (!need(done === shots.value.length, `还有 ${shots.value.length - done} 段没生成完，全部生成完才能合成`)) return
-  const r = await call(() => api.post(`/mv/projects/${pj.value.id}/assemble`, {}), '正在拼接并混入原曲…')
-  if (r) await refresh()
+  const picked = exportSelected.value
+  if (!need(picked.length, '先在「合成导出」页勾选要拼接的镜头')) return
+  const r = await call(() => api.post(`/mv/projects/${pj.value.id}/assemble`, { shot_ids: picked }), '正在拼接并混入原曲…')
+  if (r) { await refresh(); exportSelected.value = shots.value.filter((x) => x.videoUrl).map((x) => x.id) }
 }
 
 async function pollOnce() {
@@ -1880,5 +1924,16 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); color: var(--
   transition: all .16s var(--ease-out); }
 .mv-side-refresh:hover { background: var(--bg-hover); color: var(--text-0); }
 .mv-side-refresh:disabled { opacity: .5; cursor: default; }
+
+/* 合成导出页 */
+.mv-export-bar { align-items: center; gap: 10px; flex-wrap: wrap; }
+.mv-export-list { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.mv-export-row { display: flex; align-items: center; gap: 10px; padding: 7px 10px; font-size: 12.5px; cursor: pointer; border-bottom: 1px solid var(--border); }
+.mv-export-row:last-child { border-bottom: 0; }
+.mv-export-row:hover { background: var(--bg-hover); }
+.mv-export-row.is-off { opacity: .5; cursor: default; }
+.mv-export-idx { color: var(--text-3); font-family: var(--font-mono, monospace); font-size: 11px; }
+.mv-export-title { flex: 1; min-width: 0; color: var(--text-0); }
+.mv-export-video { width: 100%; max-height: 62vh; background: #000; border-radius: var(--radius); }
 
 </style>
