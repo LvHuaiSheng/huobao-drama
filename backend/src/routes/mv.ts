@@ -29,7 +29,6 @@ import { getStyleSpecByValue } from '../services/style-preset.js'
 import { joinProviderUrl } from '../services/adapters/url.js'
 import { loadAgentPromptFile } from '../agents/prompts.js'
 import { readSkillFile } from '../agents/skills.js'
-import { DEFAULT_PROMPTS } from '../agents/index.js'
 import { extractChatText } from '../services/asset-describe-prompt.js'
 import { getAbsolutePath } from '../utils/storage.js'
 import { STORAGE_ROOT } from '../utils/paths.js'
@@ -454,15 +453,27 @@ async function styleHead(project: any): Promise<string> {
 }
 
 /**
+ * MV 自己的最小兜底指令（2026-10-19）：正常路径是「设置 → Agent 配置」里的
+ * workspace/prompts/<type>.md（见 mvPrompt），这里只在读不到文件时用一句最小指令顶上 ——
+ * 为的是**不引短剧的 agents/index**，把 MV 后端对短剧的依赖彻底断开。
+ */
+const MV_FALLBACK_PROMPTS: Record<string, string> = {
+  mv_extractor: '从给定内容里提取人物和场景，只输出 JSON。',
+  mv_asset_image: '为人物或场景写生图提示词，只输出提示词正文。',
+  mv_storyboard: '按歌曲把内容切成带起止时间的段落（每段 3~10 秒），只输出 JSON 数组。',
+  mv_camera: '为每个段落补景别与运镜，相邻段避免重复，只输出 JSON 数组。',
+}
+
+/**
  * MV 的可自定义指令：优先用「设置 → Agent 配置」里改过的 workspace/prompts/<type>.md，
- * 没有就回退代码默认（DEFAULT_PROMPTS）。
+ * 没有就用 MV 自己的最小兜底（MV_FALLBACK_PROMPTS）。
  */
 async function mvPrompt(type: string): Promise<string> {
   try {
     const f = await loadAgentPromptFile(type)
     if (f?.instructions) return f.instructions
   } catch { /* 读不到就用默认 */ }
-  return DEFAULT_PROMPTS[type]?.instructions || ''
+  return MV_FALLBACK_PROMPTS[type] || ''
 }
 
 /** 等 sys_task 跑完（图片/视频同一张表；MV 借它拿结果） */
