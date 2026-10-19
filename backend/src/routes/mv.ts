@@ -54,7 +54,8 @@ async function trimToSegment(rel: string, shot: any): Promise<string> {
   const out = abs.replace(/\.mp4$/i, '.cut.mp4')
   await new Promise<void>((resolve, reject) => {
     ffmpeg(abs).inputOptions([`-ss ${MV_WARMUP_SECONDS}`])
-      .outputOptions(['-frames:v ' + want, '-c:v libx264', '-crf 18', '-preset veryfast', '-pix_fmt yuv420p', '-an', '-y'])
+      .outputOptions(['-frames:v ' + want, '-c:v libx264', '-crf 18', '-preset veryfast', '-pix_fmt yuv420p',
+        '-c:a aac', '-b:a 192k', '-shortest', '-movflags +faststart', '-y'])   // 音轨跟着一起裁，别再 -an（预览要出声）
       .on('end', () => resolve()).on('error', (e: Error) => reject(e)).save(out)
   })
   fs.renameSync(out, abs)
