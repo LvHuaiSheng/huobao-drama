@@ -1340,6 +1340,8 @@ async function openProject(id) {
 
 function sync(r) {
   shots.value = r.shots || []
+  videoTasks.value = r.videoTasks || []
+  mergeList.value = r.merges || []
   assets.value = r.assets || []
   storyPrompt.value = r.project.storyPrompt || ''
   lyrics.value = r.project.lyrics || ''
@@ -1546,6 +1548,8 @@ async function pollOnce() {
   if (!r) return
   current.value = r
   shots.value = r.shots || []
+  videoTasks.value = r.videoTasks || []
+  mergeList.value = r.merges || []
   // 资产只同步「出图状态 / 图 / 卡」，别把正在编辑的名字和描述冲掉
   for (const na of r.assets || []) {
     const cur = assets.value.find((x) => x.id === na.id)
