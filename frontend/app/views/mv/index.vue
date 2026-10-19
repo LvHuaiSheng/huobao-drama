@@ -2228,7 +2228,7 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); color: var(--
 .mv-inline-tags { display: flex; gap: 6px; flex-wrap: wrap; }
 
 /* 左栏三段进度（照短剧 sidebar-progress） */
-.mv-side-progress { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
+.mv-side-progress { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
 .mv-side-progress-head { display: flex; align-items: baseline; justify-content: space-between; }
 .mv-side-progress-title { font-size: 11px; font-weight: 700; color: var(--text-2); }
 .mv-side-progress-count { font-size: 11px; color: var(--text-2); font-variant-numeric: tabular-nums; }
@@ -2241,7 +2241,7 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); color: var(--
 .mv-side-progress-label.on { color: #34c759; font-weight: 600; }
 
 /* 左侧栏底部「刷新数据」：铺满宽度（照短剧左侧栏底部） */
-.mv-side-foot { margin-top: auto; padding-top: 8px; border-top: 1px solid var(--border); }
+.mv-side-foot { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
 .mv-side-refresh { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%;
   padding: 8px 10px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit;
   border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-2); color: var(--text-2);
