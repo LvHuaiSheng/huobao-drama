@@ -36,6 +36,11 @@ import { STORAGE_ROOT } from '../utils/paths.js'
 import { success, created, badRequest, notFound, serverError, now } from '../utils/response.js'
 import { logTaskStart, logTaskSuccess, logTaskError } from '../utils/task-logger.js'
 import { ffmpeg } from '../utils/ffmpeg.js'
+// 2026-10-19：MV 段提示词改由 App 内 video-prompt 技能生成（与短剧同一套规则链）
+import { mastra } from '../mastra/index.js'
+import { buildAgentRequestContext } from '../agents/context.js'
+import { stripZhPreamble, looksLikeChinese } from '../services/zh-lang.js'
+import { cleanSegText, sanitizeEnPrompt } from '../services/video-prompts.js'
 
 // 4080 模板 mv_shot.api.json 节点14 的音频窗口 warmup_seconds（那边改了这里要同步）
 const MV_WARMUP_SECONDS = 0.5
@@ -155,6 +160,58 @@ const ZH_FORMAT = `格式（严格，不要多余说明）：
 画面：2~4 句，写清这一拍里——环境长什么样、谁在画面里、穿什么、在做什么动作/什么表情、光线与色调、镜头怎么动。必须具体可拍，不要堆抽象形容词
 …
 【声音】……`
+
+/**
+ * 2026-10-19：用 App 内的 video-prompt 技能给 MV 段出提示词（中文工作版 + 英文发送版），
+ * 规则链与短剧**完全同一套**（首行出场 header `出场人物：@A；场景：@B` + 正文每实体 @ 引用 + 英文六段式骨架）。
+ * 与短剧的唯一差别：上下文由本函数直接拼进指令，**不调用 read_storyboard_context**
+ * （那是读短剧表的工具，MV 段不在其中）；短剧链路 services/video-prompts.ts 一行未动。
+ * 失败返回 null，调用方回退到中转编译（旧行为）。
+ */
+async function mvShotPromptSkill(
+  project: any, shot: any, picked: any[], character: any, sc: any,
+): Promise<{ zh: string; en: string } | null> {
+  const agent: any = (mastra as any).getAgent('prompt_generator')
+  if (!agent) return null
+  const rc = buildAgentRequestContext({
+    episodeId: undefined as any, dramaId: undefined as any,
+    textConfigId: project.textConfigId || undefined,
+    promptTask: 'video', promptStage: 'zh',
+  })
+  let beats: any[] = []
+  try { beats = JSON.parse(String(shot.beats || '[]')) } catch { beats = [] }
+  const order = (picked || []).map((a: any, i: number) => `@图片${i + 1} ${a.name}`).join(' → ')
+  const secs = Number(shot.seconds) || 6
+  const ctx = [
+    '【本段落上下文 —— 这就是你要写的分镜；**不要调用任何读取工具**，下面的信息已经完整】',
+    `- 段落：第 ${shot.shotNumber} 段，时长 ${secs} 秒（${shot.frames} 帧）`,
+    `- 景别：${shot.shotSize || '未指定'}；运镜：${shot.camera || '未指定'}；${shot.vocalState === 'silent' ? '本段无人生' : '本段有人声'}`,
+    `- 出场人物：@${character?.name || '主角'}`,
+    `- 场景：@${sc?.name || '主场景'}`,
+    `- 参考图顺序（出场 header 的顺序必须与它一致）：${order || '（本段无参考图）'}`,
+    shot.lyric ? `- 本段歌词/台词：${String(shot.lyric)}` : '',
+    beats.length ? `- 拍点：${JSON.stringify(beats)}` : '',
+    `- 本段画面稿（已定稿，按它写，不要另编剧情）：${String(shot.description || '')}`,
+    shot.promptExtra ? `- 补充说明（逐条满足）：${String(shot.promptExtra)}` : '',
+  ].filter(Boolean).join('\n')
+  const call = async (stage: 'zh' | 'en', ask: string) => {
+    rc.set('promptStage' as never, stage as never)
+    const r: any = await agent.generate([{ role: 'user', content: `${ctx}\n\n${ask}` }], { maxSteps: 6, requestContext: rc })
+    return String(r?.text || '')
+  }
+  try {
+    const zh = stripZhPreamble(cleanSegText(await call('zh',
+      `请按 video-prompt 技能的**中文工作版**章节，写出中文工作版 video_prompt：首行必须是出场 header（\`出场人物：@…；场景：@…\`，有道具再加），正文按 0-${secs} 秒分拍，每拍用 @名 引用出场实体。**只输出正文**：不要解释、不要前言结语、不要代码块、不要调用任何保存工具。`)))
+    if (!zh || !looksLikeChinese(zh)) throw new Error('中文工作版不是中文 ')
+    const en = sanitizeEnPrompt(cleanSegText(await call('en',
+      '请按 video-prompt 技能的**英文发送版**章节，写出 video_prompt_en（官方六段式骨架，英文），实体用 @名 引用、顺序与上面的 header 一致。**只输出正文**，不要解释、不要代码块。')))
+    if (!en) throw new Error('英文发送版为空')
+    return { zh, en }
+  } catch (err: any) {
+    logTaskError('MV', 'shot-prompt-skill', { sid: shot.id, error: err?.message })
+    return null
+  }
+}
 
 async function toChineseStoryboards(items: ZhItem[], configId?: number | null): Promise<string[]> {
   const out = new Array(items.length).fill('')
@@ -1054,6 +1111,26 @@ app.post('/projects/:id/prompts', async (c) => {
   }
   const { character, scene } = await primaryAssets(id)
   if (!character) return badRequest(c, '还没有人物资产（先提取人物并出图）')
+  // 2026-10-19：先走 App 内 video-prompt 技能（与短剧同一套规则：@ 出场 header + @ 引用）。
+  // 任一条失败 → 整批回退下面的中转编译，保证同一批口径一致。
+  try {
+    const got: { zh: string; en: string }[] = []
+    for (const s0 of shots) {
+      const pickedS = (await shotRefs(id, s0)).filter((a0: any) => a0.image)
+      const scS = pickedS.find((a0: any) => a0.kind === 'scene') || scene
+      const r = await mvShotPromptSkill(project, s0, pickedS, character, scS)
+      if (!r) throw new Error(`第 ${(s0 as any).shotNumber} 段技能生成失败`)
+      got.push(r)
+    }
+    for (let i = 0; i < shots.length; i++) {
+      await db.update(schema.mvShots).set({ prompt: got[i].zh, promptEn: got[i].en, updatedAt: now() })
+        .where(eq(schema.mvShots.id, (shots[i] as any).id))
+    }
+    return success(c, { ok: true, done: shots.length, skipped: allShots.length - shots.length, engine: 'skill' })
+  } catch (err: any) {
+    logTaskError('MV', 'batch-prompt-skill-fallback', { id, error: err?.message })
+  }
+  // —— 以下为中转编译（回退路径，保持原行为）
   // 补充说明用户写中文；编译前整批翻一次英文（失败就原样，不阻塞编译）
   const extras = shots.map((s) => String(s.promptExtra || '').trim())
   const extrasEn = await translateExtras(extras, project.textConfigId)
@@ -1127,6 +1204,14 @@ app.post('/projects/:id/shots/:sid/prompt', async (c) => {
   if (!character) return badRequest(c, '还没有人物资产（先提取人物并出图）')
   const picked = (await shotRefs(id, shot)).filter((a) => a.image)
   const sc = picked.find((a) => a.kind === 'scene') || scene
+  // 2026-10-19：先走 App 内 video-prompt 技能（同名规则链）；失败回退中转编译
+  const skill = await mvShotPromptSkill(project, shot, picked, character, sc)
+  if (skill) {
+    await db.update(schema.mvShots).set({ prompt: skill.zh, promptEn: skill.en, updatedAt: now() })
+      .where(eq(schema.mvShots.id, sid))
+    return success(c, { id: sid, prompt: skill.zh, promptEn: skill.en, engine: 'skill' })
+  }
+  // —— 以下为中转编译（回退路径，保持原行为）
   const extrasEn = await translateExtras([String(shot.promptExtra || '')], project.textConfigId)
   try {
     const out = await shimPost<{ shots: any[] }>('/v2/mv/prompts', {
