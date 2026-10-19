@@ -320,6 +320,16 @@ export const sqliteSchemaStatements = [
   )`,
 
   // ===== 音乐 MV（2026-10-18 新增，与短剧链路完全隔离：不复用 storyboards/sys_task 的表结构）=====
+  `CREATE TABLE IF NOT EXISTS mv_series (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT,
+    style TEXT,
+    aspect_ratio TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `ALTER TABLE mv_projects ADD COLUMN series_id INTEGER`,
+  `ALTER TABLE mv_assets ADD COLUMN series_id INTEGER`,
   `CREATE TABLE IF NOT EXISTS mv_projects (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT,

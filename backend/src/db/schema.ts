@@ -296,7 +296,23 @@ export const appSettings = sqliteTable('app_settings', {
 })
 
 // ===== 音乐 MV（2026-10-18 新增，与短剧链路完全隔离）=====
+/**
+ * 2026-10-19：照短剧结构补上「上一级项目」——短剧是 项目(dramas) → 集(episodes)，资产挂项目级；
+ * MV 之前只有「一首歌」这一层，资产也挂在歌上 → 换一首歌就什么都没了。
+ * 现在：mv_series（MV 项目）→ mv_projects（一首歌，= 短剧的集）→ mv_shots（段，= 分镜）；
+ *      mv_assets 挂 series_id（= 短剧角色的 drama_id），**同一项目下的歌共用同一套人物/场景**。
+ */
+export const mvSeries = sqliteTable('mv_series', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  title: text('title'),
+  style: text('style'),
+  aspectRatio: text('aspect_ratio'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+})
+
 export const mvProjects = sqliteTable('mv_projects', {
+  seriesId: integer('series_id'),               // 属于哪个 MV 项目（上一级）
   id: integer('id').primaryKey({ autoIncrement: true }),
   title: text('title'),
   idea: text('idea'),
@@ -328,6 +344,7 @@ export const mvProjects = sqliteTable('mv_projects', {
 
 /** 音乐 MV 自带的人物 / 场景资产（不写短剧的 characters / scenes，避免污染） */
 export const mvAssets = sqliteTable('mv_assets', {
+  seriesId: integer('series_id'),               // 资产库归属的 MV 项目（= 短剧角色的 drama_id）；同一项目下的歌共用
   scope: text('scope').default('project'),      // project = 本项目专用；library = 公共素材库（所有 MV 可见/可引用，2026-10-19）
   sourceAssetId: integer('source_asset_id'),    // 从素材库引用进本项目时记下来源 id（图共用，不复制文件）
   id: integer('id').primaryKey({ autoIncrement: true }),

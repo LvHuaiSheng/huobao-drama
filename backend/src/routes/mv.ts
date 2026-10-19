@@ -422,9 +422,14 @@ async function libraryAssetsOf(kind?: Kind) {
 }
 
 async function assetsOf(projectId: number, kind?: Kind) {
-  // 2026-10-19：本项目资产（语义不变，前端零改动）+ 单独一组公共素材库
+  // 2026-10-19：资产库挂**上一级 MV 项目**（照短剧 characters.drama_id）——同一项目下的歌共用同一套人物/场景。
+  const [pj0] = await db.select().from(schema.mvProjects).where(eq(schema.mvProjects.id, projectId))
+  const sid = Number((pj0 as any)?.seriesId) || 0
+  const mine = sid
+    ? or(eq(schema.mvAssets.seriesId, sid), eq(schema.mvAssets.projectId, projectId))
+    : eq(schema.mvAssets.projectId, projectId)
   const rows = await db.select().from(schema.mvAssets).where(
-    kind ? and(eq(schema.mvAssets.projectId, projectId), eq(schema.mvAssets.kind, kind)) : eq(schema.mvAssets.projectId, projectId))
+    kind ? and(mine, eq(schema.mvAssets.kind, kind)) : mine)
   return rows.sort((a, b) => (Number(a.sortOrder || 0) - Number(b.sortOrder || 0)) || a.id - b.id)
 }
 
@@ -531,6 +536,51 @@ async function ensureRemoteSong(project: any): Promise<string> {
 /**
  * 当前启用的三条通道（顶部标签栏展示用；MV 不单独锁通道，改在「设置 → AI 服务」）
  */
+/**
+ * 2026-10-19 照短剧结构补「上一级 MV 项目」：
+ * MV 项目(mv_series) → 歌(mv_projects) → 段(mv_shots)；人物/场景资产库挂项目级（mv_assets.series_id），
+ * 所以同一个 MV 项目下换一首歌，人物和场景照样共用。
+ */
+app.get('/series', async (c) => {
+  const rows = await db.select().from(schema.mvSeries).orderBy(desc(schema.mvSeries.id))
+  const out: any[] = []
+  for (const r of rows) {
+    const songs = await db.select().from(schema.mvProjects).where(eq(schema.mvProjects.seriesId, r.id))
+    const assets = await db.select().from(schema.mvAssets).where(eq(schema.mvAssets.seriesId, r.id))
+    out.push({ ...r, songCount: songs.length, assetCount: assets.length, songs: songs.map((x) => ({ id: x.id, title: x.title })) })
+  }
+  return success(c, { series: out })
+})
+
+app.post('/series', async (c) => {
+  const body = await c.req.json().catch(() => ({} as any))
+  const nowIso = now()
+  const ins = await db.insert(schema.mvSeries).values({
+    title: String(body.title || '未命名 MV 项目').slice(0, 80),
+    style: body.style ? String(body.style) : null,
+    aspectRatio: String(body.aspect_ratio || '16:9').slice(0, 10),
+    createdAt: nowIso, updatedAt: nowIso,
+  } as any)
+  return created(c, { id: getInsertId(ins) })
+})
+
+app.put('/series/:sid', async (c) => {
+  const sid = Number(c.req.param('sid'))
+  const body = await c.req.json().catch(() => ({} as any))
+  const patch: any = { updatedAt: now() }
+  if (body.title !== undefined) patch.title = String(body.title).slice(0, 80)
+  if (body.style !== undefined) patch.style = String(body.style)
+  if (body.aspect_ratio !== undefined) patch.aspectRatio = String(body.aspect_ratio).slice(0, 10)
+  await db.update(schema.mvSeries).set(patch).where(eq(schema.mvSeries.id, sid))
+  return success(c, { id: sid })
+})
+
+app.delete('/series/:sid', async (c) => {
+  const sid = Number(c.req.param('sid'))
+  await db.delete(schema.mvSeries).where(eq(schema.mvSeries.id, sid))
+  return success(c, { ok: true })
+})
+
 app.get('/channels', async (c) => {
   const name = (cfg: any) => {
     if (!cfg) return ''
@@ -661,7 +711,18 @@ app.post('/projects', async (c) => {
   const maxShot = Math.min(HARD_MAX_S, Math.max(5, Number(body.max_shot_seconds) || DEFAULT_MAX_S))
   const ts = now()
   try {
+    let useSeries = Number(body.series_id) || 0
+    if (!useSeries) {
+      const ins0 = await db.insert(schema.mvSeries).values({
+        title: String(body.title || '未命名 MV 项目').slice(0, 80),
+        style: String(body.style || '') || null,
+        aspectRatio: String(body.aspect_ratio || '16:9').slice(0, 10),
+        createdAt: ts, updatedAt: ts,
+      } as any)
+      useSeries = getInsertId(ins0)
+    }
     const res = await db.insert(schema.mvProjects).values({
+      seriesId: useSeries,
       title: String(body.title || '未命名 MV').slice(0, 80),
       idea: String(body.idea || '').slice(0, 2000),
       lyrics: String(body.lyrics || '').slice(0, 8000),
@@ -694,6 +755,7 @@ app.put('/projects/:id', async (c) => {
   const project = await loadProject(id)
   if (!project) return notFound(c, 'MV 项目不存在')
   const body = await c.req.json().catch(() => ({} as any))
+  let seriesId = Number(body?.series_id) || 0
   const patch: Record<string, any> = { updatedAt: now() }
   if (body.title !== undefined) {
     const t = String(body.title).trim().slice(0, 80)
@@ -759,6 +821,7 @@ appearance 只写脸/身形容貌，styling 只写服装配饰；拆不出来就
         const name = String(a?.name || '').trim()
         if (!desc && !name) continue
         await db.insert(schema.mvAssets).values({
+          seriesId: Number((project as any)?.seriesId) || null,
           projectId: id,
           kind,
           name: name.slice(0, 60) || (kind === 'character' ? `人物${sort + 1}` : `场景${sort + 1}`),
