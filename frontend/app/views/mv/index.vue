@@ -309,7 +309,7 @@
             <div class="merge-card-meta">
               <span class="mono">{{ shots.filter((x) => x.videoUrl).length }} 段已并</span>
               <a :href="staticUrl(pj.outputUrl)" download class="btn btn-sm" @click.stop>下载</a>
-              <a :href="staticUrl(pj.outputUrl)" target="_blank" class="btn btn-sm" @click.stop>新窗口</a>
+              <button class="btn btn-sm" @click.stop="askDeleteOutput">删除</button>
             </div>
           </div>
         </div>
@@ -498,17 +498,14 @@
                   :class="{ on: (historyPick || activeShot.videoUrl) === h }" :title="'第 ' + (shotHistory(activeShot).length - i) + ' 版'" @click="historyPick = h">
                   <video :src="staticUrl(h)" preload="metadata" muted playsinline tabindex="-1"></video>
                   <span v-if="(historyPick || activeShot.videoUrl) === h" class="video-history-current">当前</span>
+                  <button v-else type="button" class="video-history-del" title="删除这一版" @click.stop="removeHistory(activeShot, h)">×</button>
                   <span class="video-history-idx">#{{ shotHistory(activeShot).length - i }}</span>
                 </button>
               </div>
             </div>
             <div class="video-inspector">
               <div class="mv-row mv-row-hero"></div>
-              <template v-if="pj.outputUrl">
-                <div class="video-inspector-label">成片</div>
-                <video class="mv-video" :src="staticUrl(pj.outputUrl)" controls />
-                <a class="btn btn-sm" :href="staticUrl(pj.outputUrl)" target="_blank">打开成片</a>
-              </template>
+              
             </div>
             <div class="video-ref-block">
               <div class="video-inspector-prompt-head">
@@ -958,6 +955,13 @@ async function setShotDuration(s, sec) {
   s.frames = f
   await saveShot(s)
 }
+async function removeHistory(s, url) {
+  askConfirm('删除这一版历史视频', '只删这一版（当前版本和所有分段都不动）。继续？', '删除', async () => {
+    await call(() => api.del(`/mv/projects/${pj.value.id}/shots/${s.id}/history?url=${encodeURIComponent(url)}`), '正在删除…')
+    if (historyPick.value === url) historyPick.value = ''
+    await refresh()
+  })
+}
 function gotoShot(no) {
   const t = shots.value.find((x) => Number(x.shotNumber) === Number(no))
   if (!t) return
@@ -1046,6 +1050,11 @@ const askRenderAll = () => {
   askConfirm('生成全部',
     `还有 ${left} 段没生成，每段约 2~4 分钟，共约 ${left * 3} 分钟，期间队列串行跑。继续？`, '开始生成', renderAll)
 }
+const askDeleteOutput = () => askConfirm('删除成片',
+  '会删掉这条成片文件（各段视频都保留，可以随时重新拼接）。继续？', '删除', async () => {
+    await call(() => api.del(`/mv/projects/${pj.value.id}/output`), '正在删除成片…')
+    await refresh()
+  })
 const askAssemble = () => askConfirm('开始拼接',
   `会把勾选的 ${exportSelected.value.length} 段按顺序拼接、并混入原曲（从头对齐）。继续？`, '开始拼接', assemble)
 const askSeparate = () => askConfirm('人声分离',
@@ -2130,5 +2139,10 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); color: var(--
 .video-player-foot .btn.show-all { width: 100%; }
 
 .video-task-meta-line .is-running { color: var(--accent); font-weight: 600; }
+
+.video-history-card { position: relative; }
+.video-history-del { position: absolute; right: 2px; top: 2px; width: 15px; height: 15px; display: flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 50%; background: rgba(0,0,0,.6); color: #fff; font-size: 12px; line-height: 1; cursor: pointer; padding: 0; }
+.video-history-del:hover { background: #d33; }
 
 </style>

@@ -1098,6 +1098,37 @@ app.post('/projects/:id/check', async (c) => {
   }
 })
 
+/** 删掉成片（分段视频都留着，只清成片文件 + 字段） */
+app.delete('/projects/:id/output', async (c) => {
+  const id = Number(c.req.param('id'))
+  const project = await loadProject(id)
+  if (!project) return notFound(c, 'MV 项目不存在')
+  if (!project.outputUrl) return badRequest(c, '还没有成片')
+  const rel = String(project.outputUrl)
+  await db.update(schema.mvProjects).set({ outputUrl: null, status: 'ready', updatedAt: now() }).where(eq(schema.mvProjects.id, id))
+  try { fs.rmSync(getAbsolutePath(rel), { force: true }) } catch { /* 文件不在就算了 */ }
+  logTaskSuccess('MV', 'delete-output', { id, rel })
+  return success(c, { ok: true })
+})
+
+/** 删掉某一段的某一版历史视频（只动 history 数组那一项 + 删文件） */
+app.delete('/projects/:id/shots/:sid/history', async (c) => {
+  const id = Number(c.req.param('id'))
+  const sid = Number(c.req.param('sid'))
+  const url = String(c.req.query('url') || '')
+  if (!url) return badRequest(c, '缺 url')
+  const [shot] = await db.select().from(schema.mvShots)
+    .where(and(eq(schema.mvShots.id, sid), eq(schema.mvShots.projectId, id)))
+  if (!shot) return notFound(c, '分镜不存在')
+  let hist: string[] = []
+  try { hist = JSON.parse(String(shot.history || '[]')) } catch { hist = [] }
+  await db.update(schema.mvShots).set({ history: JSON.stringify(hist.filter((h) => h !== url)), updatedAt: now() })
+    .where(eq(schema.mvShots.id, sid))
+  try { fs.rmSync(getAbsolutePath(url), { force: true }) } catch { /* 文件不在就算了 */ }
+  logTaskSuccess('MV', 'delete-history', { id, sid })
+  return success(c, { ok: true })
+})
+
 // ---------------------------------------------------------------- 出片
 
 /** 提交单段：走 App 视频通道 → 中转按 model=minimax-h3-mv 走 MV 模板 */
