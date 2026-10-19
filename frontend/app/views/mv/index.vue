@@ -34,7 +34,7 @@
           <span class="mv-sel-k">画幅</span><span class="mv-sel-v">{{ editRatio }}</span>
         </span>
       </div>
-      <div class="head-actions">
+      <div class="head-actions" :class="{ 'is-video': current && tab === 'video' }">
         <span v-if="busy && stepMsg" class="busy-hint">{{ stepMsg }}</span>
         <template v-if="current && tab === 'video'">
           <span class="mv-step-hint">①</span>
@@ -48,7 +48,7 @@
             :title="pj.vocalStem ? '按人声轨切分并标唱/非唱' : '先做人声分离——分镜的唱/非唱要靠人声轨判断'">拆分分镜</button>
           <span class="mv-step-hint">③</span>
           <button class="btn btn-sm" @click="askGenPrompts" :disabled="busy || !shots.length">编译全部提示词</button>
-          <button class="btn btn-sm" @click="askCheckAll" :disabled="busy || !shots.length">全部体检</button>
+          <button class="btn btn-sm" @click="askCheckAll" :disabled="!shots.length" title="只读文本检查，不会打断正在生成的视频">全部体检</button>
           <span class="mv-step-hint">④</span>
           <button class="btn btn-sm" @click="askRenderAll" :disabled="busy || !shots.length">生成全部</button>
           <button class="btn btn-sm" @click="askAssemble" :disabled="busy || !shots.length">合成成片</button>
@@ -57,7 +57,7 @@
         <button v-if="current" class="btn btn-sm" @click="taskDrawer = true">
           任务<span v-if="activeTaskCount" class="mv-task-badge">{{ activeTaskCount }}</span>
         </button>
-        <button class="btn btn-sm" @click="loadProjects" :disabled="busy">刷新</button>
+        <button v-if="tab !== 'video'" class="btn btn-sm" @click="loadProjects" :disabled="busy">刷新</button>
         <button v-if="!current" class="btn btn-primary btn-sm" @click="showCreate = true" :disabled="busy">新建 MV</button>
       </div>
     </div>
@@ -322,6 +322,10 @@
             </div>
             <div v-if="!videoRows.length" class="video-task-empty">{{ shots.length ? '这个筛选下没有段落' : '还没有分镜 —— 先点上方「拆分分镜」（需先人声分离）' }}</div>
           </div>
+          <div v-if="!selectMode" class="video-task-foot">
+            <button class="shot-quick-btn" @click="loadProjects" :disabled="busy">刷新</button>
+            <span class="meta-item">共 {{ shots.length }} 段</span>
+          </div>
           <div v-if="selectMode" class="video-task-foot is-batch">
             <button class="shot-quick-btn" @click="selectedIds = videoRows.map(x => x.id)">全选</button>
             <button class="shot-quick-btn" @click="selectedIds = videoRows.filter(x => !x.videoUrl).map(x => x.id)">补缺失</button>
@@ -375,7 +379,8 @@
                     <button type="button" class="btn btn-sm" @click="genShotPrompt(activeShot)" :disabled="busy || shotPromptBusy === activeShot.id">
                       {{ shotPromptBusy === activeShot.id ? '生成中…' : (activeShot.prompt ? '重新生成' : 'AI 生成') }}
                     </button>
-                    <button type="button" class="btn btn-sm" @click="checkShot(activeShot)" :disabled="busy || checkingShot === activeShot.id">
+                    <button type="button" class="btn btn-sm" @click="checkShot(activeShot)" :disabled="checkingShot === activeShot.id"
+                      title="只读文本检查，不会打断正在生成的视频">
                       {{ checkingShot === activeShot.id ? '体检中…' : '体检' }}
                     </button>
                     <button type="button" class="btn btn-sm" @click="saveShot(activeShot)">保存这条</button>
@@ -1856,5 +1861,8 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); color: var(--
 
 /* 本段内容的行内标签 */
 .mv-inline-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* 视频制作页：顶栏按钮组铺满右侧（刷新已挪到左栏左下角） */
+.head-actions.is-video { flex: 1; min-width: 0; justify-content: space-between; }
 
 </style>

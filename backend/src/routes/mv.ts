@@ -1013,8 +1013,11 @@ app.post('/projects/:id/shots/:sid/check', async (c) => {
     .where(and(eq(schema.mvShots.id, sid), eq(schema.mvShots.projectId, id)))
   if (!shot) return notFound(c, '分镜不存在')
   try {
+    if (!String(shot.promptEn || '').trim()) {
+      return success(c, { shotNumber: shot.shotNumber, ok: false, problems: ['这一段的英文提示词还没生成 —— 点该段的「AI 生成」'] })
+    }
     const out = await shimPost<{ rows: any[] }>('/v2/mv/check', {
-      shots: [{ prompt: shot.prompt || '', vocal_state: shot.vocalState || 'vocal_active' }],
+      shots: [{ prompt: shot.promptEn || '', vocal_state: shot.vocalState || 'vocal_active' }],
     })
     const row = out?.rows?.[0] || { ok: false, problems: ['体检无返回'] }
     return success(c, { shotNumber: shot.shotNumber, ok: !!row.ok, problems: row.problems || [] })
@@ -1061,12 +1064,18 @@ app.post('/projects/:id/check', async (c) => {
   const shots = await shotsOf(id)
   if (!shots.length) return badRequest(c, '还没有分镜')
   try {
+    // 体检检查的是【英文稿 promptEn】——那是真正发给 H3 的；中文稿是给人看的导演分镜稿，不含官方六段
     const out = await shimPost<{ rows: any[]; ok: number; bad: number }>('/v2/mv/check', {
-      shots: shots.map((s) => ({ prompt: s.prompt || '', vocal_state: s.vocalState || 'vocal_active' })),
+      shots: shots.map((s) => ({ prompt: s.promptEn || '', vocal_state: s.vocalState || 'vocal_active' })),
     })
-    const rows = (out?.rows || []).map((r: any, i: number) => ({
-      shotNumber: shots[i]?.shotNumber ?? i + 1, ok: !!r.ok, problems: r.problems || [],
-    }))
+    const rows = (out?.rows || []).map((r: any, i: number) => {
+      const noEn = !String(shots[i]?.promptEn || '').trim()
+      return {
+        shotNumber: shots[i]?.shotNumber ?? i + 1,
+        ok: noEn ? false : !!r.ok,
+        problems: noEn ? ['这一段的英文提示词还没生成 —— 点「编译全部提示词」或该段的「AI 生成」'] : (r.problems || []),
+      }
+    })
     logTaskSuccess('MV', 'check', { id, ok: out?.ok, bad: out?.bad })
     return success(c, { ok: out?.ok || 0, bad: out?.bad || 0, rows })
   } catch (err: any) {
