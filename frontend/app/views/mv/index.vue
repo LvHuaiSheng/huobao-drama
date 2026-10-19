@@ -497,7 +497,7 @@
               <video v-else-if="activeShot.videoUrl" :key="'c' + activeShot.id + activeShot.videoUrl" :src="staticUrl(activeShot.videoUrl)" controls></video>
               <div v-else class="video-task-empty">{{ activeShot.status === 'processing' ? '生成中…' : '还没生成' }}</div>
             </div>
-            <div class="video-history">
+            <div v-if="shotHistoryOld(activeShot).length" class="video-history">
               <div class="video-inspector-prompt-head">
                 <span class="video-inspector-label">历史视频</span>
                 <span class="dim" style="font-size:11px">共 {{ 1 + shotHistoryOld(activeShot).length }} 条 · 点缩略图切换</span>
