@@ -56,56 +56,86 @@
         <button v-if="current" class="btn btn-sm" @click="taskDrawer = true">
           任务<span v-if="activeTaskCount" class="mv-task-badge">{{ activeTaskCount }}</span>
         </button>
-        <button v-if="!current" class="btn btn-primary btn-sm" @click="showCreate = true" :disabled="busy">新建 MV</button>
+        <button v-if="!current" class="btn btn-primary btn-sm" @click="curSeries ? (showNewSong = true) : createSeries()" :disabled="busy">{{ curSeries ? '新建 MV' : '新建 MV 项目' }}</button>
       </div>
     </div>
 
-    <!-- 项目列表（照短剧「项目启动台」：搜索 + 状态筛选 + 封面卡 + 三点菜单） -->
-    <div v-if="!current" class="mv-launch">
+    <!-- 一级：MV 项目列表（＝短剧的项目启动台） -->
+    <div v-if="!current && !curSeries" class="mv-launch">
       <div class="mv-launch-head">
-        <input v-model="q" class="input mv-search" placeholder="搜索项目" />
-        <div class="mv-filters">
-          <button v-for="s in STATUS_OPTS" :key="s.value" type="button"
-            :class="['mv-filter', { on: statusFilter === s.value }]" @click="statusFilter = s.value">{{ s.label }}</button>
-        </div>
+        <input v-model="q" class="input mv-search" placeholder="搜索 MV 项目" />
+        <span class="field-hint">一个项目下可以建多个 MV（歌），人物和场景在项目里共用</span>
       </div>
-
-      <div v-if="!filtered.length" class="card mv-empty">
-        {{ projects.length ? '没有匹配的项目' : '还没有 MV 项目，点右上角「新建 MV」开始。' }}
-      </div>
-
+      <div v-if="!seriesList.length" class="card mv-empty">还没有 MV 项目，点右上角「新建 MV 项目」开始。</div>
       <div v-else class="mv-project-grid">
-        <article v-for="p in filtered" :key="p.id" class="card mv-project-card" tabindex="0" role="button"
-          @click="openProject(p.id)" @keydown.enter.prevent="openProject(p.id)">
-          <div class="mv-card-cover" :class="{ 'has-image': !!p.cover }"
-            :style="p.cover ? undefined : { background: 'linear-gradient(135deg, var(--accent-bg) 0%, var(--bg-1) 70%)' }">
-            <img v-if="p.cover" class="mv-card-cover-img" :src="staticUrl(p.cover)" alt="" loading="lazy" />
-            <div v-if="p.cover" class="mv-card-cover-shade"></div>
-            <span v-else class="mv-card-initial">{{ (p.title || 'MV').slice(0, 1) }}</span>
-            <span class="mv-card-ratio">{{ p.aspectRatio || '16:9' }}</span>
-            <span class="mv-card-badge">
-              <span class="mv-status-dot" :class="'is-' + (p.status || 'draft')"></span>{{ statusZh(p.status) }}
-            </span>
-            <button class="mv-card-more" type="button" title="更多"
-              @click.stop="menuId = menuId === p.id ? null : p.id">⋯</button>
-            <div v-if="menuId === p.id" class="mv-card-menu" @click.stop>
-              <button type="button" @click="menuId = null; openProject(p.id)">打开项目</button>
-              <button type="button" @click="menuId = null; openRenameProject(p)">编辑项目</button>
-              <button type="button" class="danger" @click="menuId = null; deleteTarget = p">删除项目</button>
-            </div>
+        <article v-for="sr in seriesList" :key="'sr' + sr.id" class="card mv-project-card" tabindex="0" role="button"
+          @click="openSeries(sr.id)" @keydown.enter.prevent="openSeries(sr.id)">
+          <div class="mv-card-cover" :style="{ background: 'linear-gradient(135deg, var(--accent-bg) 0%, var(--bg-1) 70%)' }">
+            <span class="mv-card-initial">{{ (sr.title || 'MV').slice(0, 1) }}</span>
+            <span class="mv-card-ratio">{{ sr.aspectRatio || '16:9' }}</span>
+            <span class="mv-card-badge">MV {{ sr.songCount || 0 }} 个 · 素材 {{ sr.assetCount || 0 }}</span>
           </div>
           <div class="mv-project-body">
-            <h2 class="mv-project-name">{{ p.title || '未命名 MV' }}</h2>
-            <div class="mv-project-meta">
-              <span v-if="p.style" class="tag tag-accent">{{ styleLabel(p.style) }}</span>
-              <span class="dim">{{ p.characters || 0 }} 人物 · {{ p.scenes || 0 }} 场景 · {{ p.shots || 0 }} 段</span>
-            </div>
-            <div class="mv-project-foot dim">{{ fmtAgo(p.updatedAt || p.updated_at) }}</div>
+            <h2 class="mv-project-name">{{ sr.title || '未命名 MV 项目' }}</h2>
+            <div class="mv-project-meta"><span class="tag">点开看项目里的 MV</span></div>
           </div>
         </article>
       </div>
     </div>
 
+    <!-- 二级：MV 项目详情（＝短剧的项目详情：下面是要拍的 MV + 项目级素材库） -->
+    <div v-else-if="!current && curSeries" class="mv-launch">
+      <div class="mv-launch-head">
+        <button class="btn btn-sm" @click="backToSeries()">← 返回项目列表</button>
+        <span class="mv-side-label">{{ curSeries.title }}</span>
+      </div>
+      <div class="mv-row">
+        <button class="btn btn-primary btn-sm" @click="showNewSong = true">新建 MV</button>
+        <span class="field-hint">同一个项目里的 MV 共用下面这套人物和场景</span>
+      </div>
+      <div v-if="showNewSong" class="mv-row">
+        <input v-model="newSongTitle" class="input" placeholder="这个 MV 的名字（比如 MV1）" />
+        <button class="btn btn-sm btn-primary" @click="createSong()">继续（下一步选歌）</button>
+        <button class="btn btn-sm" @click="showNewSong = false">取消</button>
+      </div>
+      <div class="mv-group-head"><span class="mv-group-name">MV 列表</span><span class="tag">{{ seriesSongs.length }}</span></div>
+      <div v-if="!seriesSongs.length" class="mv-hint">这个项目下还没有 MV。</div>
+      <div v-else class="mv-project-grid">
+        <article v-for="so in seriesSongs" :key="'so' + so.id" class="card mv-project-card" tabindex="0" role="button"
+          @click="openProject(so.id)" @keydown.enter.prevent="openProject(so.id)">
+          <div class="mv-card-cover" :class="{ 'has-image': !!so.cover }">
+            <img v-if="so.cover" class="mv-card-cover-img" :src="staticUrl(so.cover)" alt="" loading="lazy" />
+            <span v-else class="mv-card-initial">{{ (so.title || 'MV').slice(0, 1) }}</span>
+            <span class="mv-card-ratio">{{ so.aspectRatio || '16:9' }}</span>
+          </div>
+          <div class="mv-project-body">
+            <h2 class="mv-project-name">{{ so.title || '未命名 MV' }}</h2>
+            <div class="mv-project-meta"><span class="mv-status-dot" :class="'is-' + (so.status || 'draft')"></span>{{ statusZh(so.status) }}</div>
+            <div class="mv-project-foot">
+              <button class="btn btn-sm" @click.stop="openRenameProject(so)">改名</button>
+              <button class="btn btn-sm" @click.stop="deleteTarget = so">删除</button>
+            </div>
+          </div>
+        </article>
+      </div>
+      <div class="mv-group-head"><span class="mv-group-name">项目素材库（人物 / 场景）</span><span class="tag">{{ seriesAssets.length }}</span></div>
+      <div v-if="!seriesAssets.length" class="mv-hint">还没有人物或场景 —— 点开任意一个 MV，在里面「资产制作」提取并出图，就会进这个项目库。</div>
+      <div v-else class="mv-char-grid">
+        <article v-for="a in seriesAssets" :key="'sa' + a.id" class="card mv-char-card">
+          <div class="mv-char-main">
+            <div class="mv-portrait">
+              <img v-if="a.image" :src="staticUrl(a.image)" :alt="a.name" class="previewable-image" />
+              <div v-else class="mv-cover-empty">未出图</div>
+              <span class="mv-badge" :class="a.image ? 'is-ready' : ''">{{ a.kind === 'character' ? '人物' : '场景' }}</span>
+            </div>
+            <div class="mv-char-head"><span class="mv-char-name">{{ a.name }}</span></div>
+          </div>
+        </article>
+      </div>
+    </div>
+
+    <!-- 三级：单个 MV 的制作流程（原有工作台） -->
+    <!-- 项目列表（照短剧「项目启动台」：搜索 + 状态筛选 + 封面卡 + 三点菜单） -->
     <!-- 项目详情：四页（照短剧的分页做法） -->
     <template v-else>
       <div class="mv-layout">
@@ -858,6 +888,14 @@ const showRename = ref(false)
 const renameTitle = ref('')
 const editAsset = ref(null)
 const cardBusy = ref([])
+/* 2026-10-19 照短剧三级结构：MV 项目列表 → 项目详情(下面的 MV + 项目级素材库) → 单个 MV 制作 */
+const seriesList = ref([])        // MV 项目列表
+const curSeries = ref(null)       // 当前打开的 MV 项目
+const seriesSongs = ref([])       // 项目下的 MV（歌）
+const seriesAssets = ref([])      // 项目级素材库（人物/场景，同项目下所有 MV 共用）
+const newSongTitle = ref('')
+const showNewSong = ref(false)
+
 const libraryAssets = ref([])   // 公共素材库（所有 MV 共用；图片文件共用，不复制）
 
 /** 2026-10-19 素材库：本项目资产存进公共库 / 公共库资产引用进本项目 */
@@ -1099,6 +1137,7 @@ const maxSeconds = ref(10)
 const storyPrompt = ref('')
 const lyrics = ref('')
 const editStyle = ref('')
+const pendingSongTitle = ref('')
 const form = reactive({ title: '', style: '', storyPrompt: '', aspectRatio: '16:9', maxShotSeconds: 10, song: null })
 
 /** 画幅（与短剧同一个思路：只有 H3 支持的两种；动态图/封面按它显示） */
@@ -1430,6 +1469,51 @@ async function loadPresets() {
   if (!form.style && presets.value.length) form.style = presets.value[0].value
 }
 
+async function loadSeries() {
+  const r = await call(() => api.get('/mv/series'))
+  if (r) seriesList.value = r.series || []
+}
+
+async function createSeries() {
+  const title = prompt('新建 MV 项目，起个名字：')
+  if (!title) return
+  const r = await call(() => api.post('/mv/series', { title }))
+  if (r) { await loadSeries(); await openSeries(r.id) }
+}
+
+async function openSeries(sid) {
+  const all = seriesList.value.find((x) => Number(x.id) === Number(sid))
+  const r = await call(() => api.get('/mv/series'))
+  if (r) seriesList.value = r.series || []
+  curSeries.value = (seriesList.value.find((x) => Number(x.id) === Number(sid))) || all || null
+  // 项目下的 MV（歌）+ 项目级素材库
+  const ps = await call(() => api.get('/mv/projects'))
+  const list = (ps?.items || []).filter((x) => Number(x.seriesId) === Number(sid))
+  seriesSongs.value = list
+  seriesAssets.value = []
+  for (const x of list) {
+    await openProject(x.id)
+    seriesAssets.value = (assets.value || []).filter((a) => a.kind === 'character' || a.kind === 'scene')
+    break
+  }
+  current.value = null   // 停在项目详情页
+}
+
+async function createSong() {
+  if (!curSeries.value) return
+  if (!newSongTitle.value) return alert('给这个 MV 起个名字')
+  // 建歌必须有音频：先用隐藏 input 选歌，选中后回调里提交（沿用现有 form.song 流程）
+  pendingSongTitle.value = newSongTitle.value
+  showNewSong.value = false
+  showCreate.value = true      // 打开现有的新建弹窗（里面选歌、填提示词）
+}
+
+function backToSeries() {
+  current.value = null
+  curSeries.value = null
+  loadSeries()
+}
+
 async function loadProjects() {
   const r = await call(() => api.get('/mv/projects'))
   if (r) projects.value = r.items || []
@@ -1441,7 +1525,9 @@ function onSong(e) {
 }
 
 async function createProject() {
+  // 2026-10-19：挂在当前 MV 项目下（同一项目的人物/场景共用）
   const r = await call(async () => api.post('/mv/projects', {
+    series_id: curSeries.value ? curSeries.value.id : undefined,
     title: form.title,
     style: form.style,
     story_prompt: form.storyPrompt,
