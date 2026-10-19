@@ -1006,7 +1006,12 @@ let timer = null
 
 const ZH = { draft: '未开始', planned: '有粗分镜', shots: '有分镜', rendering: '出片中', done: '已完成', pending: '待生成', processing: '生成中', completed: '已完成', failed: '失败' }
 function statusZh(s) { return ZH[s] || s || '' }
-function staticUrl(rel) { return rel ? `/static/${rel}` : '' }
+// 幂等：资产图存的是 'mv/p1/x.png'（不带前缀），视频/成片存的是 'static/videos/x.mp4'（带前缀）
+// 之前一律加 /static/ → 视频变成 /static/static/… 404（播放器空、下载下不动）
+function staticUrl(rel) {
+  if (!rel) return ''
+  return String(rel).startsWith('static/') ? `/${rel}` : `/static/${rel}`
+}
 function styleLabel(key) { return presets.value.find((p) => p.value === key)?.name || key || '' }
 
 /** 前一步没做就别往下走：拦下来并告诉他去哪一步 */
@@ -1337,10 +1342,12 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 /* 页壳照抄短剧页（app/views/drama/detail.vue） */
 .page {
   padding: 20px 28px 40px;
-  overflow-y: auto;
   height: 100%;
+  overflow: hidden;               /* 照短剧：页面本身不滚，滚动交给内部区块 */
+  display: flex; flex-direction: column;
   animation: fadeUp 0.35s var(--ease-out) both;
 }
+.page-head { flex-shrink: 0; }
 .page-head {
   display: flex;
   align-items: center;
@@ -1374,17 +1381,15 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 .meta-item { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-2); }
 
 /* 左侧流程导航 + 右侧内容（照短剧 episode/detail 的左导航布局） */
-.mv-layout { display: flex; gap: 16px; align-items: flex-start; }
+.mv-layout { flex: 1; min-height: 0; display: flex; gap: 16px; align-items: stretch; }
 .mv-side {
   width: 210px; flex-shrink: 0;
   display: flex; flex-direction: column; gap: 4px;
   padding: 10px;
   border: 1px solid var(--border); border-radius: var(--radius-lg);
   background: var(--surface-raised);
-  position: sticky; top: 0;
-  /* 固定成视口高度 → 底部「刷新数据」永远贴在屏幕左下角，切分页/滚动都不会被挤出去 */
-  height: calc(100vh - 150px);
-  overflow-y: auto;
+  /* 照短剧 .sidebar：整列撑满视口，列表区自己滚，底部按钮 flex 贴底 → 永远在屏幕左下角 */
+  min-height: 0; overflow: hidden;
 }
 .mv-side-title {
   font-size: 11px; font-weight: 650; letter-spacing: 0.06em;
@@ -1407,7 +1412,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
   padding: 1px 6px; border-radius: 99px;
 }
 .mv-side-item.active .mv-side-count { background: var(--accent-bg); color: var(--accent-text); }
-.mv-main { flex: 1; min-width: 0; }
+.mv-main { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; }
 
 /* 顶部标签栏（照短剧：模型选择器一排） */
 .head-actions { flex-wrap: wrap; margin-left: auto; justify-content: flex-end; }
