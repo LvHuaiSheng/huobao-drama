@@ -498,7 +498,7 @@
               <video v-else-if="activeShot.videoUrl" :key="'c' + activeShot.id + activeShot.videoUrl" :src="staticUrl(activeShot.videoUrl)" controls></video>
               <div v-else class="video-task-empty">{{ activeShot.status === 'processing' ? '生成中…' : '还没生成' }}</div>
             </div>
-            <div v-if="shotVideoList(activeShot).length > 1" class="video-history">
+            <div v-if="shotVideoList(activeShot).length" class="video-history">
               <div class="video-inspector-prompt-head">
                 <span class="video-inspector-label">历史视频</span>
                 <span class="dim" style="font-size:11px">共 {{ shotVideoList(activeShot).length }} 条 · 点缩略图切换</span>
@@ -508,6 +508,7 @@
                   :class="{ on: t.cur ? !historyPick : historyPick === t.url }"
                   @click="historyPick = t.cur ? '' : t.url" @keydown.enter.prevent="historyPick = t.cur ? '' : t.url">
                   <video :src="staticUrl(t.url)" preload="metadata" muted playsinline tabindex="-1"></video>
+                  <span class="video-history-time">{{ formatHistoryTime(t.createdAt) }}</span>
                   <span v-if="t.cur" class="video-history-current">当前</span>
                   <button v-else type="button" class="video-history-del" title="删除这一版" @click.stop="removeHistory(activeShot, t.url)">×</button>
                 </div>
@@ -928,6 +929,15 @@ const shotVideoList = (x) => videoTasks.value
   .filter((t) => Number(t.shotId) === Number(x?.id) && t.url)
   .map((t) => ({ id: t.id, url: t.url, createdAt: t.createdAt, cur: t.url === x?.videoUrl }))
 const shotHistoryOld = (x) => shotVideoList(x).filter((t) => !t.cur).map((t) => t.url)
+
+// 照抄短剧 episode.vue 的 formatHistoryTime：MM-DD HH:MM
+function formatHistoryTime(iso) {
+  if (!iso) return ''
+  const d = new Date(String(iso).replace(' ', 'T'))
+  if (Number.isNaN(d.getTime())) return ''
+  const p = (n) => String(n).padStart(2, '0')
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
 watch(() => activeShotId.value, () => { historyPick.value = '' })   // 换段时回到当前版本
 function enterExport() {
   tab.value = 'export'
@@ -2127,8 +2137,9 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); color: var(--
 /* 历史视频 */
 .video-history { padding: 8px 14px 10px; border-top: 1px solid var(--border); }
 .video-history-strip { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
-.video-history-card { position: relative; flex: 0 0 auto; width: 76px; height: 48px; padding: 0; border: 1px solid var(--border); border-radius: 5px; overflow: hidden; cursor: pointer; background: #000; }
+.video-history-card { position: relative; flex: 0 0 auto; width: 98px; height: 58px; padding: 0; border: 1px solid var(--border); border-radius: 5px; overflow: hidden; cursor: pointer; background: #000; }
 .video-history-card.on { border-color: var(--accent); }
+.video-history-time { position: absolute; left: 3px; bottom: 2px; font-size: 9px; line-height: 1; color: #eee; background: rgba(0,0,0,.62); padding: 1px 3px; border-radius: 3px; pointer-events: none; }
 .video-history-card video { width: 100%; height: 100%; object-fit: cover; display: block; }
 .video-history-idx { position: absolute; left: 3px; bottom: 2px; font-size: 9.5px; color: #fff; text-shadow: 0 1px 3px #000; }
 /* 右栏底部固定操作条 */
