@@ -1382,8 +1382,9 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
   border: 1px solid var(--border); border-radius: var(--radius-lg);
   background: var(--surface-raised);
   position: sticky; top: 0;
-  /* 撑满视口剩余高度 → 底部「刷新数据」落在屏幕最下方（照短剧左侧栏） */
-  min-height: calc(100vh - 168px);
+  /* 固定成视口高度 → 底部「刷新数据」永远贴在屏幕左下角，切分页/滚动都不会被挤出去 */
+  height: calc(100vh - 150px);
+  overflow-y: auto;
 }
 .mv-side-title {
   font-size: 11px; font-weight: 650; letter-spacing: 0.06em;
