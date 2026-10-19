@@ -37,6 +37,30 @@ import { success, created, badRequest, notFound, serverError, now } from '../uti
 import { logTaskStart, logTaskSuccess, logTaskError } from '../utils/task-logger.js'
 import { ffmpeg } from '../utils/ffmpeg.js'
 
+// 4080 模板 mv_shot.api.json 节点14 的音频窗口 warmup_seconds（那边改了这里要同步）
+const MV_WARMUP_SECONDS = 0.5
+
+/** 音频窗口带 warmup 前导 → 成片开头多 warmup、总长按帧网格取整变长（192 帧 vs 声明 175）。
+ *  按「跳过 warmup + 只取声明帧数」裁一遍：本段画面 0 秒才对齐它在原曲里的起点，
+ *  否则拼接时画面比音轨长，口型错位（实测分镜2/3 各多 17 帧 = 0.708s）。 */
+async function trimToSegment(rel: string, shot: any): Promise<string> {
+  const want = Number(shot?.frames) || 0
+  if (!rel || !want) return rel
+  const abs = getAbsolutePath(rel)
+  const got = await new Promise<number>((res) =>
+    ffmpeg.ffprobe(abs, (e: any, m: any) =>
+      res(e ? 0 : Number((m?.streams || []).find((x: any) => x.codec_type === 'video')?.nb_frames) || 0)))
+  if (!got || got <= want) return rel
+  const out = abs.replace(/\.mp4$/i, '.cut.mp4')
+  await new Promise<void>((resolve, reject) => {
+    ffmpeg(abs).inputOptions([`-ss ${MV_WARMUP_SECONDS}`])
+      .outputOptions(['-frames:v ' + want, '-c:v libx264', '-crf 18', '-preset veryfast', '-pix_fmt yuv420p', '-an', '-y'])
+      .on('end', () => resolve()).on('error', (e: Error) => reject(e)).save(out)
+  })
+  fs.renameSync(out, abs)
+  return rel
+}
+
 const app = new Hono()
 
 const MV_MODEL = 'minimax-h3-mv'   // 中转按 model 名走 mv_shot.api.json
@@ -425,7 +449,7 @@ app.get('/projects/:id', async (c) => {
             try { hist = JSON.parse(String(s.history || '[]')) } catch { hist = [] }
             patch.history = JSON.stringify([s.videoUrl, ...hist.filter((h) => h !== s.videoUrl)].slice(0, 20))
           }
-          patch.videoUrl = t.localPath
+          patch.videoUrl = await trimToSegment(t.localPath, s)   // 多给的 warmup 前导帧裁掉，否则拼接口型错位
           // 耗时口径照短剧：优先用中转/ComfyUI 回报的真值 timing.genSeconds（纯生成），没有才退回挂钟差
           let genSec = 0
           try {
