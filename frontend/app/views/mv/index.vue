@@ -1443,8 +1443,16 @@ async function genOutline() {
 async function genShots() {
   if (!need(!!pj.value.vocalStem, '先点顶栏「人声分离」—— 分镜的唱/非唱要用人声轨判断，没分离就切会全标成唱')) return
   if (!guardStep(4)) return
-  const r = await call(() => api.post(`/mv/projects/${pj.value.id}/shots`, { max_seconds: maxSeconds.value }), '正在按歌切段…')
-  if (r) await refresh()
+  const n = shots.value.length
+  askConfirm(n ? '重新拆分分镜' : '拆分分镜',
+    n
+      ? `会按人声轨重新切分，重建全部 ${n} 段：现有的分镜内容、提示词、生成记录都会被清掉（已生成的视频文件还留在磁盘上，但不再挂在这些分镜上）。继续？`
+      : `会按人声轨把这首歌唱/非唱切开，每段最长 ${maxSeconds.value} 秒，并吸附到合法帧数（17n+5）。继续？`,
+    n ? '重新拆分' : '开始拆分',
+    async () => {
+      const r = await call(() => api.post(`/mv/projects/${pj.value.id}/shots`, { max_seconds: maxSeconds.value }), '正在按歌切段…')
+      if (r) await refresh()
+    })
 }
 
 async function genPrompts() {
