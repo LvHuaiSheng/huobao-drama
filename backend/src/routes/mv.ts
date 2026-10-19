@@ -419,6 +419,12 @@ app.get('/projects/:id', async (c) => {
       if (t && t.status !== 'processing') {
         const patch: Record<string, any> = { status: t.status, updatedAt: now() }
         if (t.localPath) {
+          // 旧的那条推进历史（预览区「历史视频」用），再换成本次结果
+          if (s.videoUrl && s.videoUrl !== t.localPath) {
+            let hist: string[] = []
+            try { hist = JSON.parse(String(s.history || '[]')) } catch { hist = [] }
+            patch.history = JSON.stringify([s.videoUrl, ...hist.filter((h) => h !== s.videoUrl)].slice(0, 20))
+          }
           patch.videoUrl = t.localPath
           // 任务列表的缩略图 = 视频首帧（抽帧失败不阻断，前端按 404 兜底）
           try { await extractVideoPoster(t.localPath) } catch { /* 忽略 */ }

@@ -288,36 +288,63 @@
           <button class="btn btn-primary btn-sm" @click="goNext('video')" :disabled="busy">下一步：视频制作 →</button>
         </div>
       </div>
-      <!-- 第 5 页 · 合成导出（照短剧导出步骤：勾镜头 → 拼接 → 成片） -->
+      <!-- 第 5 页 · 合成导出（结构照短剧导出页：上成片列表 / 下镜头素材网格） -->
       <div v-if="tab === 'export'" class="card mv-block">
-        <div class="mv-block-title">合成导出（勾选要拼的镜头，拼接后混入原曲）</div>
-        <div class="mv-row mv-export-bar">
-          <button class="shot-quick-btn" @click="exportSelected = shots.filter((x) => x.videoUrl).map((x) => x.id)">全选已生成</button>
-          <button class="shot-quick-btn" @click="exportSelected = []">清空</button>
-          <span class="meta-item">已选 {{ exportSelected.length }} 段 · 已生成 {{ shots.filter((x) => x.videoUrl).length }}/{{ shots.length }} 段</span>
-          <button class="btn btn-primary btn-sm" :disabled="busy || !exportSelected.length" @click="askAssemble">开始拼接</button>
+        <div class="mv-block-title">合成导出</div>
+
+        <!-- 成片列表 -->
+        <div class="export-section-head">
+          <span class="export-section-title">成片</span>
+          <span class="dim" style="font-size:11px">{{ pj.outputUrl ? 1 : 0 }} 条</span>
+          <div class="ml-auto flex gap-1">
+            <button v-if="pj.outputUrl" class="btn btn-sm" @click="enterExport">刷新</button>
+          </div>
         </div>
-        <div class="mv-export-list">
-          <label v-for="(x, i) in shots" :key="x.id" class="mv-export-row" :class="{ 'is-off': !x.videoUrl }">
-            <input type="checkbox" :checked="exportSelected.includes(x.id)" :disabled="!x.videoUrl" @change="toggleExport(x.id)" />
-            <span class="mv-export-idx">#{{ String(i + 1).padStart(2, '0') }}</span>
-            <span class="mv-export-title truncate">{{ outlineTextOf(x) || '（无内容）' }}</span>
-            <span class="meta-item">{{ shotSeconds(x).toFixed(3) }}s</span>
-            <span class="video-task-state" :class="'is-' + shotState(x)">{{ shotStateLabel(x) }}</span>
-          </label>
+        <div v-if="pj.outputUrl" class="export-merge-strip">
+          <div class="merge-card playable" role="button" tabindex="0" @click="exportPreview = { url: pj.outputUrl, title: '成片' }">
+            <div class="merge-card-thumb">
+              <video :src="staticUrl(pj.outputUrl)" :poster="posterOf(pj.outputUrl)" preload="none" muted playsinline tabindex="-1" />
+              <span class="merge-card-play"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="6 3 20 12 6 21 6 3"/></svg></span>
+            </div>
+            <div class="merge-card-meta">
+              <span class="mono">{{ shots.filter((x) => x.videoUrl).length }} 段已并</span>
+              <a :href="staticUrl(pj.outputUrl)" download class="btn btn-sm" @click.stop>下载</a>
+              <a :href="staticUrl(pj.outputUrl)" target="_blank" class="btn btn-sm" @click.stop>新窗口</a>
+            </div>
+          </div>
+        </div>
+        <div v-else class="export-merge-empty">还没有成片 —— 勾好下面的镜头，点「拼接」</div>
+
+        <!-- 镜头素材（勾选） -->
+        <div class="export-section-head" style="margin-top:18px">
+          <span class="export-section-title">镜头素材</span>
+          <span class="dim" style="font-size:11px">已生成 {{ shots.filter((x) => x.videoUrl).length }} / {{ shots.length }} · 已选 {{ exportSelected.length }}</span>
+          <div class="ml-auto flex gap-1">
+            <button class="btn btn-sm" @click="exportSelected = shots.filter((x) => x.videoUrl).map((x) => x.id)">全选已生成</button>
+            <button class="btn btn-sm" @click="exportSelected = []">清空</button>
+            <button class="btn btn-sm btn-primary" :disabled="busy || !exportSelected.length" @click="askAssemble">拼接 {{ exportSelected.length }} 段</button>
+          </div>
+        </div>
+        <div class="export-grid">
+          <div v-for="(x, i) in shots" :key="x.id" class="exp-card" :class="{ selected: exportSelected.includes(x.id), playable: !!x.videoUrl }"
+            @click="x.videoUrl && toggleExport(x.id)">
+            <div class="exp-thumb">
+              <video v-if="x.videoUrl" :src="staticUrl(x.videoUrl)" :poster="posterOf(x.videoUrl)" preload="none" muted playsinline tabindex="-1" />
+              <div v-else class="exp-thumb-empty"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg></div>
+              <span class="exp-thumb-index">#{{ String(i + 1).padStart(2, '0') }}</span>
+              <span class="exp-thumb-duration">{{ shotSeconds(x).toFixed(2) }}s</span>
+              <span v-if="x.videoUrl" class="exp-play" title="预览" @click.stop="exportPreview = { url: x.videoUrl, title: '分镜 ' + (i + 1) }">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+              </span>
+              <span v-if="x.videoUrl" class="exp-check" :class="{ on: exportSelected.includes(x.id) }">
+                <svg v-if="exportSelected.includes(x.id)" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+              </span>
+            </div>
+            <div class="exp-row-line"><span class="truncate" style="flex:1;font-size:11px">{{ outlineTextOf(x) || '—' }}</span><span class="dot" :class="{ ok: !!x.videoUrl }" /></div>
+          </div>
           <div v-if="!shots.length" class="video-task-empty">还没有分镜 —— 先去「视频制作」切分</div>
         </div>
-        <template v-if="pj.outputUrl">
-          <div class="mv-block-title" style="margin-top:18px">成片</div>
-          <video class="mv-video mv-export-video" :src="staticUrl(pj.outputUrl)" controls />
-          <div class="mv-row">
-            <a class="btn btn-sm" :href="staticUrl(pj.outputUrl)" download>下载成片</a>
-            <a class="btn btn-sm" :href="staticUrl(pj.outputUrl)" target="_blank">新窗口打开</a>
-          </div>
-        </template>
-        <div v-else class="meta-item" style="margin-top:14px">还没有成片 —— 勾好镜头点「开始拼接」</div>
       </div>
-
 
       <!-- 第 4 页 · 视频制作（照短剧三栏 workbench：左任务列表 / 中编辑区 / 右播放器） -->
       <div v-else class="video-task-workbench has-player" :style="{ '--vleft': '250px', '--vright': '340px' }">
@@ -387,8 +414,18 @@
 
                 <section class="video-inspector-section">
                   <div class="video-inspector-prompt-head">
-                    <span class="video-inspector-label">绑定参考图</span>
-                    <span class="tag mono">已绑定 {{ boundRefs(activeShot).length }} / {{ allRefAssets.length }}</span>
+                    <span class="video-inspector-label">参考素材</span>
+                    <span class="tag mono">本段实际使用 {{ boundRefs(activeShot).length }} / {{ allRefAssets.length }}</span>
+                  </div>
+                  <div class="mv-actual-refs">
+                    <span class="dim" style="font-size:11px">本段实际使用的参考素材：</span>
+                    <template v-if="boundRefs(activeShot).length">
+                      <button v-for="a in boundRefs(activeShot)" :key="'b' + a.id" type="button" class="mv-actual-ref"
+                        :title="a.name" @click="openViewerUrl(a.url, a.name)">
+                        <img :src="staticUrl(a.url)" alt="" loading="lazy" />
+                      </button>
+                    </template>
+                    <span v-else class="dim" style="font-size:11px">没有 —— 点下面的素材缩略图绑定（不绑会用人物+场景各一张）</span>
                   </div>
                   <div class="storyboard-ref-list is-embedded">
                     <div v-for="a in allRefAssets" :key="a.id" class="storyboard-ref-item" :class="{ bound: isBound(activeShot, a.id) }"
@@ -484,18 +521,31 @@
               <a v-if="activeShot.videoUrl" class="btn btn-sm" :href="staticUrl(activeShot.videoUrl)" download>下载</a>
             </div>
             <div class="video-player-stage">
-              <video v-if="activeShot.videoUrl" :src="staticUrl(activeShot.videoUrl)" controls></video>
+              <video :key="playerSrc" v-if="playerSrc" :src="playerSrc" controls></video>
               <div v-else class="video-task-empty">{{ activeShot.status === 'processing' ? '生成中…' : '还没生成' }}</div>
             </div>
-            <div class="video-inspector">
-              <div class="mv-row">
-                <button class="btn btn-primary btn-sm" @click="render(activeShot)" :disabled="busy || activeShot.status === 'processing'">{{ activeShot.videoUrl ? '重绘这一段' : '生成这一段' }}</button>
+            <div v-if="shotHistory(activeShot).length" class="video-history">
+              <div class="video-inspector-prompt-head"><span class="video-inspector-label">历史视频</span><span class="dim" style="font-size:11px">共 {{ shotHistory(activeShot).length }} 条 · 点开切换</span></div>
+              <div class="video-history-strip">
+                <button v-for="(h, i) in shotHistory(activeShot)" :key="h" type="button" class="video-history-card"
+                  :class="{ on: playerSrc === staticUrl(h) }" :title="'第 ' + (shotHistory(activeShot).length - i) + ' 版'" @click="playerSrc = staticUrl(h)">
+                  <video :src="staticUrl(h)" preload="metadata" muted playsinline tabindex="-1"></video>
+                  <span class="video-history-idx">#{{ shotHistory(activeShot).length - i }}</span>
+                </button>
               </div>
+            </div>
+            <div class="video-inspector">
+              <div class="mv-row mv-row-hero"></div>
               <template v-if="pj.outputUrl">
                 <div class="video-inspector-label">成片</div>
                 <video class="mv-video" :src="staticUrl(pj.outputUrl)" controls />
                 <a class="btn btn-sm" :href="staticUrl(pj.outputUrl)" target="_blank">打开成片</a>
               </template>
+            </div>
+            <div class="video-player-foot">
+              <button class="btn btn-primary" @click="render(activeShot)" :disabled="busy || activeShot.status === 'processing'">
+                {{ activeShot.status === 'processing' ? '生成中…' : (activeShot.videoUrl ? '重绘' : '生成') }}
+              </button>
             </div>
           </aside>
         </div>
@@ -576,6 +626,17 @@
           <button class="btn btn-ghost btn-sm" @click="viewer.open = false">关闭</button>
         </div>
         <img :src="viewer.src" :alt="viewer.title" class="mv-viewer-img" />
+      </div>
+    </div>
+
+    <!-- 导出预览（照短剧：点卡片弹大播放器） -->
+    <div v-if="exportPreview" class="mv-modal mv-viewer-overlay" @click.self="exportPreview = null">
+      <div class="card mv-viewer">
+        <div class="mv-viewer-head">
+          <span class="mv-viewer-title">{{ exportPreview.title }}</span>
+          <button class="btn btn-ghost btn-sm" @click="exportPreview = null">关闭</button>
+        </div>
+        <video class="mv-viewer-img" :src="staticUrl(exportPreview.url)" controls autoplay style="max-height:76vh;width:100%;background:#000" />
       </div>
     </div>
 
@@ -839,10 +900,22 @@ async function doDeleteProject() {
 }
 const tab = ref('origin')
 const exportSelected = ref([])
+const exportPreview = ref(null)
+const playerSrc = ref('')   // 预览区当前播放（可切到历史视频）
+const shotHistory = (x) => {
+  try { return x?.history ? JSON.parse(x.history) : [] } catch { return [] }
+}
+watch(() => [activeShotId.value, activeShot.value?.videoUrl], () => {
+  playerSrc.value = activeShot.value?.videoUrl ? staticUrl(activeShot.value.videoUrl) : ''
+}, { immediate: true })
 function enterExport() {
   tab.value = 'export'
   // 默认勾上所有已生成的分段（照短剧导出页）
   exportSelected.value = shots.value.filter((x) => x.videoUrl).map((x) => x.id)
+}
+function posterOf(rel) {
+  if (!rel) return undefined
+  return staticUrl(String(rel).replace(/\.[^./]+$/, '_poster.jpg'))
 }
 function toggleExport(id) {
   exportSelected.value = exportSelected.value.includes(id)
@@ -1204,6 +1277,10 @@ async function saveRatio(v) {
 }
 
 /** 点图看大图（照短剧素材库：点一下弹大图） */
+function openViewerUrl(url, name) {
+  if (!url) return
+  viewer.value = { open: true, src: staticUrl(url), title: name || '' }
+}
 function openViewer(a) {
   if (!a.image) return
   viewer.value = { open: true, src: staticUrl(a.image), title: `${a.kind === 'character' ? '人物' : '场景'} · ${a.name || ''}` }
@@ -1935,5 +2012,47 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); color: var(--
 .mv-export-idx { color: var(--text-3); font-family: var(--font-mono, monospace); font-size: 11px; }
 .mv-export-title { flex: 1; min-width: 0; color: var(--text-0); }
 .mv-export-video { width: 100%; max-height: 62vh; background: #000; border-radius: var(--radius); }
+
+/* 本段实际使用的参考素材 */
+.mv-actual-refs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.mv-actual-ref { width: 54px; height: 34px; padding: 0; border: 1px solid var(--accent); border-radius: 5px; overflow: hidden; cursor: pointer; background: var(--bg-2); }
+.mv-actual-ref img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* 历史视频 */
+.video-history { padding: 8px 14px 10px; border-top: 1px solid var(--border); }
+.video-history-strip { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+.video-history-card { position: relative; flex: 0 0 auto; width: 76px; height: 48px; padding: 0; border: 1px solid var(--border); border-radius: 5px; overflow: hidden; cursor: pointer; background: #000; }
+.video-history-card.on { border-color: var(--accent); }
+.video-history-card video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.video-history-idx { position: absolute; left: 3px; bottom: 2px; font-size: 9.5px; color: #fff; text-shadow: 0 1px 3px #000; }
+/* 右栏底部固定操作条 */
+.video-player-foot { position: sticky; bottom: 0; padding: 10px 14px; border-top: 1px solid var(--border); background: var(--bg-1); }
+.video-player-foot .btn { width: 100%; }
+
+/* 导出页（照短剧导出：成片条 + 素材网格 + 播放弹窗） */
+.export-section-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.export-section-title { font-size: 13px; font-weight: 700; color: var(--text-0); }
+.export-merge-strip { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 4px; }
+.merge-card { flex: 0 0 auto; width: 220px; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--bg-2); }
+.merge-card.playable { cursor: pointer; }
+.merge-card-thumb { position: relative; aspect-ratio: 16/9; background: #000; }
+.merge-card-thumb video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.merge-card-play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; opacity: .85; text-shadow: 0 2px 8px #000; pointer-events: none; }
+.merge-card-meta { display: flex; align-items: center; gap: 6px; padding: 6px 8px; font-size: 11px; }
+.export-merge-empty { padding: 16px; text-align: center; color: var(--text-3); font-size: 12px; border: 1px dashed var(--border); border-radius: var(--radius); }
+.export-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.exp-card { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--bg-2); }
+.exp-card.playable { cursor: pointer; }
+.exp-card.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.exp-thumb { position: relative; aspect-ratio: 16/9; background: #000; }
+.exp-thumb video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.exp-thumb-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--text-3); }
+.exp-thumb-index { position: absolute; left: 5px; top: 4px; font-size: 10px; color: #fff; text-shadow: 0 1px 3px #000; font-family: var(--font-mono, monospace); }
+.exp-thumb-duration { position: absolute; right: 5px; bottom: 4px; font-size: 10px; color: #fff; text-shadow: 0 1px 3px #000; }
+.exp-play { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); color: #fff; opacity: .8; }
+.exp-check { position: absolute; right: 4px; top: 4px; width: 15px; height: 15px; display: flex; align-items: center; justify-content: center; border: 1px solid #fff; border-radius: 50%; color: #fff; background: rgba(0,0,0,.35); }
+.exp-check.on { background: var(--accent); border-color: var(--accent); }
+.exp-row-line { display: flex; align-items: center; gap: 6px; padding: 5px 7px; }
+.exp-row-line .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); flex: 0 0 auto; }
+.exp-row-line .dot.ok { background: #4caf50; }
 
 </style>
