@@ -426,9 +426,19 @@ app.get('/projects/:id', async (c) => {
             patch.history = JSON.stringify([s.videoUrl, ...hist.filter((h) => h !== s.videoUrl)].slice(0, 20))
           }
           patch.videoUrl = t.localPath
-          const c0 = Date.parse(String((t as any).createdAt || ''))
-          const c1 = Date.parse(String((t as any).completedAt || ''))
-          if (Number.isFinite(c0) && Number.isFinite(c1) && c1 > c0) patch.elapsedSeconds = Math.round((c1 - c0) / 1000)
+          // 耗时口径照短剧：优先用中转/ComfyUI 回报的真值 timing.genSeconds（纯生成），没有才退回挂钟差
+          let genSec = 0
+          try {
+            const pp = JSON.parse(String((t as any).params || '{}'))
+            const g = Number(pp?.timing?.genSeconds)
+            if (Number.isFinite(g) && g > 0) genSec = Math.round(g)
+          } catch { genSec = 0 }
+          if (!genSec) {
+            const c0 = Date.parse(String((t as any).createdAt || ''))
+            const c1 = Date.parse(String((t as any).completedAt || ''))
+            if (Number.isFinite(c0) && Number.isFinite(c1) && c1 > c0) genSec = Math.round((c1 - c0) / 1000)
+          }
+          if (genSec) patch.elapsedSeconds = genSec
           // 任务列表的缩略图 = 视频首帧（抽帧失败不阻断，前端按 404 兜底）
           try { await extractVideoPoster(t.localPath) } catch { /* 忽略 */ }
         }

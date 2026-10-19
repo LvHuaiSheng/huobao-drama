@@ -347,6 +347,13 @@
       </div>
 
       <!-- 第 4 页 · 视频制作（照短剧三栏 workbench：左任务列表 / 中编辑区 / 右播放器） -->
+      <div v-if="recentDone.length" class="mv-recent-row">
+        <span class="mv-recent-kicker">最近</span>
+        <span v-for="it in recentDone" :key="it.id" class="mv-recent-item" :class="it.ok ? 'is-ok' : 'is-bad'"
+          :title="it.error || ''" @click="gotoShot(it.n)">
+          {{ it.ok ? '✓' : '✗' }} {{ it.label }}<template v-if="it.dur"> · {{ it.dur }}</template>
+        </span>
+      </div>
       <div v-else class="video-task-workbench has-player" :style="{ '--vleft': '250px', '--vright': '340px' }">
         <section class="video-task-list">
           <div class="video-task-head">
@@ -1176,7 +1183,18 @@ const taskRows = computed(() => shots.value
     state: shotState(s), label: shotStateLabel(s),
     duration: shotSeconds(s) ? shotSeconds(s).toFixed(3) + 's' : '—',
     videoUrl: s.videoUrl, errorMsg: s.errorMsg,
-    elapsed: elapsedLabel(s),
+    elapsed: '',  // 耗时改到「视频制作」那一行的第二行显示（照短剧）
+  })))
+const recentDone = computed(() => shots.value
+  .filter((x) => x.videoUrl || x.status === 'failed')
+  .slice()
+  .sort((a, b) => (Date.parse(String(b.updatedAt || '')) || 0) - (Date.parse(String(a.updatedAt || '')) || 0))
+  .slice(0, 4)
+  .map((x) => ({
+    id: x.id, n: x.shotNumber, ok: !!x.videoUrl,
+    label: `分镜 #${x.shotNumber}`,
+    dur: x.elapsedSeconds ? fmtDur(x.elapsedSeconds) : '',
+    error: x.status === 'failed' ? (x.errorMsg || '失败') : '',
   })))
 const activeTaskCount = computed(() => videoStats.value.pending + videoStats.value.failed)
 const outlineTextOf = (s) => {
@@ -2162,5 +2180,13 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); color: var(--
 .video-history-del { position: absolute; right: 2px; top: 2px; width: 15px; height: 15px; display: flex; align-items: center; justify-content: center;
   border: 0; border-radius: 50%; background: rgba(0,0,0,.6); color: #fff; font-size: 12px; line-height: 1; cursor: pointer; padding: 0; }
 .video-history-del:hover { background: #d33; }
+
+/* 「最近」那一行（照短剧：视频制作行的第二行） */
+.mv-recent-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; font-size: 11.5px; }
+.mv-recent-kicker { color: var(--text-3); font-weight: 700; letter-spacing: .04em; }
+.mv-recent-item { cursor: pointer; color: var(--text-2); }
+.mv-recent-item.is-ok { color: #4caf50; }
+.mv-recent-item.is-bad { color: #e0a83a; }
+.mv-recent-item:hover { text-decoration: underline; }
 
 </style>
