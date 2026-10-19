@@ -415,33 +415,32 @@
                 <section class="video-inspector-section">
                   <div class="video-inspector-prompt-head">
                     <span class="video-inspector-label">参考素材</span>
-                    <span class="tag mono">本段实际使用 {{ boundRefs(activeShot).length }} / {{ allRefAssets.length }}</span>
-                  </div>
-                  <div class="mv-actual-refs">
-                    <span class="dim" style="font-size:11px">本段实际使用的参考素材：</span>
-                    <template v-if="boundRefs(activeShot).length">
-                      <button v-for="a in boundRefs(activeShot)" :key="'b' + a.id" type="button" class="mv-actual-ref"
-                        :title="a.name" @click="openViewerUrl(a.url, a.name)">
-                        <img :src="staticUrl(a.url)" alt="" loading="lazy" />
-                      </button>
-                    </template>
-                    <span v-else class="dim" style="font-size:11px">没有 —— 点下面的素材缩略图绑定（不绑会用人物+场景各一张）</span>
+                    <span class="tag mono">{{ boundRefs(activeShot).length }}/{{ allRefAssets.length }} 已绑定</span>
+                    <button type="button" class="btn btn-sm" @click="rebindRefs(activeShot)">重新拆分</button>
                   </div>
                   <div class="storyboard-ref-list is-embedded">
-                    <div v-for="a in allRefAssets" :key="a.id" class="storyboard-ref-item" :class="{ bound: isBound(activeShot, a.id) }"
-                      :title="isBound(activeShot, a.id) ? '点一下取消绑定' : '点一下绑定到这一段'" @click="toggleRef(activeShot, a.id)">
-                      <button type="button" class="storyboard-ref-thumb" @click.stop="openViewerUrl(a.url, a.name)">
-                        <img :src="staticUrl(a.url)" class="previewable-image" loading="lazy" />
-                      </button>
-                      <div class="storyboard-ref-main">
-                        <span class="storyboard-ref-name">{{ a.name }}</span>
-                        <span class="storyboard-ref-meta">{{ a.kindLabel }}</span>
-                        <span class="storyboard-ref-state" :class="{ 'is-ready': isBound(activeShot, a.id) }">{{ isBound(activeShot, a.id) ? '已绑定 · 可用于生成' : '未绑定' }}</span>
+                    <template v-for="g in REF_GROUPS" :key="g.kind">
+                      <div v-if="refAssetsOf(g.kind).length" class="storyboard-ref-group">
+                        <div class="storyboard-ref-group-label">{{ g.label }}</div>
+                        <div v-for="a in refAssetsOf(g.kind)" :key="a.id" class="storyboard-ref-item"
+                          :class="{ bound: isBound(activeShot, a.id) }"
+                          :title="isBound(activeShot, a.id) ? '点一下取消绑定' : '点一下绑定到这一段'"
+                          @click="toggleRef(activeShot, a.id)">
+                          <button type="button" class="storyboard-ref-thumb" @click.stop="openViewerUrl(a.url, a.name)">
+                            <img :src="staticUrl(a.url)" loading="lazy" />
+                          </button>
+                          <div class="storyboard-ref-main">
+                            <span class="storyboard-ref-name">{{ a.name }}</span>
+                            <span class="storyboard-ref-meta">{{ a.kindLabel }}</span>
+                            <span class="storyboard-ref-state" :class="{ 'is-ready': isBound(activeShot, a.id) }">{{ isBound(activeShot, a.id) ? '可参考' : '未绑定' }}</span>
+                          </div>
+                        </div>
                       </div>
-                    </div>
+                    </template>
                     <div v-if="!allRefAssets.length" class="storyboard-ref-empty">还没有人物/场景图 —— 先去「资产制作」出图</div>
                   </div>
                 </section>
+
               </div>
 
               <section class="video-inspector-section">
@@ -466,45 +465,6 @@
                   <span v-else-if="activeShot.prompt" class="dim video-inspector-prompt-en-miss">英文稿缺失（旧数据）—— 点「重新生成」会补上中英两份</span>
                   <pre v-if="showEn && activeShot.promptEn" class="video-inspector-prompt-en">{{ activeShot.promptEn }}</pre>
                 </div>
-                <div v-if="shotCheck" class="mv-check-panel" :class="{ 'is-bad': !shotCheck.ok }">
-                  <div class="mv-check-head">
-                    <strong>#{{ String(shotCheck.shotNumber).padStart(2,'0') }} 体检：{{ shotCheck.ok ? '通过' : '有问题' }}</strong>
-                    <button class="btn btn-ghost btn-sm" @click="shotCheck = null">收起</button>
-                  </div>
-                  <div v-for="(m, i) in shotCheck.problems" :key="i" class="mv-check-row">
-                    <span class="mv-check-idx">·</span><span class="mv-check-msg">{{ m }}</span>
-                  </div>
-                  <div v-if="shotCheck.ok" class="mv-check-ok">这一段合规，可以生成。</div>
-                </div>
-                <div v-if="checkResult" class="mv-check-panel" :class="{ 'is-bad': checkResult.bad }">
-                  <div class="mv-check-head">
-                    <strong>体检结果：{{ checkResult.ok }} 条通过 / {{ checkResult.bad }} 条有问题</strong>
-                    <button class="btn btn-ghost btn-sm" @click="checkResult = null">收起</button>
-                  </div>
-                  <div v-for="r in checkResult.rows.filter(x => !x.ok)" :key="r.shotNumber" class="mv-check-row">
-                    <span class="mv-check-idx">#{{ String(r.shotNumber).padStart(2,'0') }}</span>
-                    <span class="mv-check-msg">{{ r.problems.join('；') || '不合规' }}</span>
-                  </div>
-                  <div v-if="!checkResult.bad" class="mv-check-ok">全部通过，可以逐段生成。</div>
-                </div>
-                <div class="video-inspector-prompt-extra">
-                  <div class="video-inspector-fields">
-                    <label class="mv-field"><span>唱/非唱</span>
-                      <BaseSelect :model-value="activeShot.vocalState || 'vocal_active'" :options="VOCAL_OPTS"
-                        @update:model-value="(v) => { activeShot.vocalState = v; saveShot(activeShot) }" />
-                    </label>
-                    <label class="mv-field"><span>景别</span>
-                      <BaseSelect :model-value="activeShot.shotSize || '中景'" :options="SIZE_OPTS"
-                        @update:model-value="(v) => { activeShot.shotSize = v; saveShot(activeShot) }" />
-                    </label>
-                    <label class="mv-field is-wide"><span>机位（中文即可，编译时自动转英文）</span>
-                      <input v-model="activeShot.camera" class="input" placeholder="固定机位，中景，正脸三分之四，平视" @blur="saveShot(activeShot)" />
-                    </label>
-                    <label class="mv-field is-wide"><span>补充说明（中文即可，编译时自动转英文追加；可留空直接生成）</span>
-                      <textarea v-model="activeShot.promptExtra" class="textarea" rows="2" placeholder="不要出现手，保持构图稳定" @blur="saveShot(activeShot)" />
-                    </label>
-                  </div>
-                </div>
               </section>
             </div>
           </div>
@@ -521,14 +481,15 @@
               <a v-if="activeShot.videoUrl" class="btn btn-sm" :href="staticUrl(activeShot.videoUrl)" download>下载</a>
             </div>
             <div class="video-player-stage">
-              <video :key="playerSrc" v-if="playerSrc" :src="playerSrc" controls></video>
+              <video v-if="historyPick" :key="historyPick" :src="staticUrl(historyPick)" controls autoplay></video>
+              <video v-else-if="activeShot.videoUrl" :src="staticUrl(activeShot.videoUrl)" controls></video>
               <div v-else class="video-task-empty">{{ activeShot.status === 'processing' ? '生成中…' : '还没生成' }}</div>
             </div>
             <div v-if="shotHistory(activeShot).length" class="video-history">
               <div class="video-inspector-prompt-head"><span class="video-inspector-label">历史视频</span><span class="dim" style="font-size:11px">共 {{ shotHistory(activeShot).length }} 条 · 点开切换</span></div>
               <div class="video-history-strip">
                 <button v-for="(h, i) in shotHistory(activeShot)" :key="h" type="button" class="video-history-card"
-                  :class="{ on: playerSrc === staticUrl(h) }" :title="'第 ' + (shotHistory(activeShot).length - i) + ' 版'" @click="playerSrc = staticUrl(h)">
+                  :class="{ on: (historyPick || activeShot.videoUrl) === h }" :title="'第 ' + (shotHistory(activeShot).length - i) + ' 版'" @click="historyPick = h">
                   <video :src="staticUrl(h)" preload="metadata" muted playsinline tabindex="-1"></video>
                   <span class="video-history-idx">#{{ shotHistory(activeShot).length - i }}</span>
                 </button>
@@ -626,6 +587,29 @@
           <button class="btn btn-ghost btn-sm" @click="viewer.open = false">关闭</button>
         </div>
         <img :src="viewer.src" :alt="viewer.title" class="mv-viewer-img" />
+      </div>
+    </div>
+
+    <!-- 体检结果（照短剧：弹窗给结果，点某条跳到该段） -->
+    <div v-if="checkDlg" class="mv-modal mv-viewer-overlay" @click.self="checkDlg = null">
+      <div class="card mv-viewer mv-check-dlg">
+        <div class="mv-viewer-head">
+          <span class="mv-viewer-title">{{ checkDlg.title }}</span>
+          <span class="tag" :class="checkDlg.bad ? 'tag-warn' : 'tag-success'">
+            {{ checkDlg.bad ? checkDlg.bad + ' 条有问题' : '全部通过' }}
+          </span>
+          <button class="btn btn-ghost btn-sm ml-auto" @click="checkDlg = null">关闭</button>
+        </div>
+        <div class="mv-check-body">
+          <div v-for="r in checkDlg.rows" :key="r.shotNumber" class="mv-check-line" :class="{ bad: !r.ok }"
+            :role="r.ok ? undefined : 'button'" @click="!r.ok && gotoShot(r.shotNumber)">
+            <span class="mv-check-no">#{{ String(r.shotNumber).padStart(2, '0') }}</span>
+            <span class="mv-check-state" :class="r.ok ? 'ok' : 'bad'">{{ r.ok ? '通过' : '有问题' }}</span>
+            <span v-if="!r.ok" class="mv-check-msgs">{{ (r.problems || []).join('；') }}</span>
+            <span v-if="!r.ok" class="dim" style="font-size:11px">点一下跳到这一段</span>
+          </div>
+          <div v-if="!checkDlg.rows.length" class="mv-check-ok">没有分镜。</div>
+        </div>
       </div>
     </div>
 
@@ -901,13 +885,14 @@ async function doDeleteProject() {
 const tab = ref('origin')
 const exportSelected = ref([])
 const exportPreview = ref(null)
-const playerSrc = ref('')   // 预览区当前播放（可切到历史视频）
+const historyPick = ref('')   // 预览区切到某条历史视频（空 = 看当前这条）
 const shotHistory = (x) => {
-  try { return x?.history ? JSON.parse(x.history) : [] } catch { return [] }
+  let old = []
+  try { old = x?.history ? JSON.parse(x.history) : [] } catch { old = [] }
+  const all = [x?.videoUrl, ...old].filter(Boolean)
+  return [...new Set(all)]
 }
-watch(() => [activeShotId.value, activeShot.value?.videoUrl], () => {
-  playerSrc.value = activeShot.value?.videoUrl ? staticUrl(activeShot.value.videoUrl) : ''
-}, { immediate: true })
+watch(() => activeShotId.value, () => { historyPick.value = '' })   // 换段时回到当前版本
 function enterExport() {
   tab.value = 'export'
   // 默认勾上所有已生成的分段（照短剧导出页）
@@ -916,6 +901,13 @@ function enterExport() {
 function posterOf(rel) {
   if (!rel) return undefined
   return staticUrl(String(rel).replace(/\.[^./]+$/, '_poster.jpg'))
+}
+function gotoShot(no) {
+  const t = shots.value.find((x) => Number(x.shotNumber) === Number(no))
+  if (!t) return
+  checkDlg.value = null
+  tab.value = 'video'
+  activeShotId.value = t.id
 }
 function toggleExport(id) {
   exportSelected.value = exportSelected.value.includes(id)
@@ -955,7 +947,20 @@ function shotRefIdList(s) {
   try { const v = JSON.parse(String(s?.refIds || '[]')); if (Array.isArray(v)) ids = v.map(Number).filter(Boolean) } catch { ids = [] }
   return ids.length ? ids : defaultRefIds()
 }
+const REF_GROUPS = [{ kind: 'character', label: '角色' }, { kind: 'scene', label: '场景' }, { kind: 'prop', label: '道具' }]
+const refAssetsOf = (kind) => allRefAssets.value.filter((a) => a.kind === kind)
 const boundRefs = (s) => allRefAssets.value.filter((a) => shotRefIdList(s).includes(a.id))
+async function rebindRefs(s) {
+  if (!s) return
+  askConfirm('重新拆分参考素材',
+    '会按这一段重新挑参考素材（人物 + 场景各一张），当前手动的绑定会被覆盖。继续？', '重新拆分',
+    async () => {
+      const ids = [characters.value.find((a) => a.image)?.id, scenes.value.find((a) => a.image)?.id].filter(Boolean)
+      s.refIds = JSON.stringify(ids)
+      await saveShot(s)
+      await refresh()
+    })
+}
 const isBound = (s, id) => shotRefIdList(s).includes(id)
 async function toggleRef(s, id) {
   if (!s) return
@@ -979,7 +984,7 @@ const videoRows = computed(() => {
   if (videoFilter.value === 'pending') return shots.value.filter((s) => s.status === 'processing')
   return shots.value.filter((s) => s.status === 'failed')
 })
-const openViewerUrl = (src, title) => { viewer.value = { open: true, src, title } }
+const openViewerUrl = (src, title) => { viewer.value = { open: true, src: staticUrl(src), title } }
 // 任务抽屉（照短剧）：只列本项目各段的生成记录
 const taskDrawer = ref(false)
 const confirmDlg = ref(null)
@@ -1008,13 +1013,13 @@ const checking = ref(false)
 const shotPromptBusy = ref(null)
 const showEn = ref(false)
 const checkingShot = ref(null)
-const shotCheck = ref(null)
+const checkDlg = ref(null)   // 体检结果弹窗
 async function genShotPrompt(s) {
   if (!s) return
   showEn.value = false
   if (!need(!!pj.value.vocalStem, '先做人声分离')) return
   shotPromptBusy.value = s.id
-  shotCheck.value = null
+
   try {
     const r = await call(() => api.post(`/mv/projects/${pj.value.id}/shots/${s.id}/prompt`, {}), '正在生成这一段的提示词…')
     if (r) { s.prompt = r.prompt }
@@ -1030,7 +1035,11 @@ async function checkShot(s) {
       try {
         const r = await api.post(`/mv/projects/${pj.value.id}/shots/${s.id}/check`, {})
           .catch((e) => { alert('体检失败：' + String(e?.message || e)); return null })
-        if (r) shotCheck.value = r
+        if (r) checkDlg.value = {
+          title: `体检 · 分镜 ${String(r.shotNumber).padStart(2, '0')}`,
+          ok: r.ok ? 1 : 0, bad: r.ok ? 0 : 1,
+          rows: [{ shotNumber: r.shotNumber, ok: !!r.ok, problems: r.problems || [] }],
+        }
       } finally { checkingShot.value = null }
     })
 }
@@ -1039,7 +1048,7 @@ async function doCheckAll() {
   try {
     const r = await call(() => api.post(`/mv/projects/${pj.value.id}/check`, {}), '正在体检全部分镜…')
       .catch((e) => { alert('体检失败：' + String(e?.message || e)); return null })
-    if (r) { checkResult.value = r; shotCheck.value = null }
+    if (r) checkDlg.value = { title: '全部体检结果', ok: r.ok || 0, bad: r.bad || 0, rows: r.rows || [] }
   } finally { checking.value = false }
 }
 const askCheckAll = () => askConfirm('全部体检',
@@ -1060,13 +1069,12 @@ async function separateVocals() {
     }
   } finally { separating.value = false }
 }
-const checkResult = ref(null)
 async function runCheck() {
   if (!need(shots.value.length, '还没有分镜')) return
   checking.value = true
   try {
     const r = await call(() => api.post(`/mv/projects/${pj.value.id}/check`, {}), '正在体检全部提示词…')
-    if (r) checkResult.value = r
+    if (r) checkDlg.value = { title: '全部体检结果', ok: r.ok || 0, bad: r.bad || 0, rows: r.rows || [] }
   } finally { checking.value = false }
 }
 // 批量选择（照短剧 videoSelectMode）
@@ -2050,5 +2058,16 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); color: var(--
 .exp-row-line { display: flex; align-items: center; gap: 6px; padding: 5px 7px; }
 .exp-row-line .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); flex: 0 0 auto; }
 .exp-row-line .dot.ok { background: #4caf50; }
+
+/* 体检结果弹窗 */
+.mv-check-dlg { width: min(720px, calc(100vw - 48px)); }
+.mv-check-body { display: flex; flex-direction: column; gap: 6px; max-height: 62vh; overflow-y: auto; }
+.mv-check-line { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-2); font-size: 12.5px; }
+.mv-check-line.bad { border-color: rgba(210,153,34,.55); cursor: pointer; }
+.mv-check-line.bad:hover { background: var(--bg-hover); }
+.mv-check-no { font-family: var(--font-mono, monospace); color: var(--text-3); font-size: 11px; }
+.mv-check-state.ok { color: #4caf50; font-weight: 650; }
+.mv-check-state.bad { color: #e0a83a; font-weight: 650; }
+.mv-check-msgs { flex: 1; min-width: 0; color: var(--text-1); }
 
 </style>
