@@ -531,11 +531,21 @@ app.get('/projects/:id', async (c) => {
       }
     }
   }
-  // 本项目所有「视频任务」：前端按 storyboard_id(=段 id) 归组出每段的历史视频（照短剧）
-  const shotIds = shots.map((x: any) => x.id)
-  const tasks = shotIds.length
+  // 历史视频：只认本段 task_ids 里记的任务（短剧分镜 id 与 MV 段 id 会撞号，不能用 storyboard_id 反查）
+  const taskOwner = new Map<number, number>()
+  const allTaskIds: number[] = []
+  for (const x of shots as any[]) {
+    try {
+      for (const t of JSON.parse(String(x.taskIds || '[]'))) {
+        const n = Number(t)
+        if (Number.isFinite(n)) { allTaskIds.push(n); taskOwner.set(n, x.id) }
+      }
+    } catch { /* 脏数据忽略 */ }
+  }
+  const ownerShotId = (tid: number) => taskOwner.get(Number(tid)) ?? null
+  const tasks = allTaskIds.length
     ? await db.select().from(schema.sysTask)
-      .where(and(eq(schema.sysTask.type, 'video'), inArray(schema.sysTask.storyboardId, shotIds)))
+      .where(and(eq(schema.sysTask.type, 'video'), inArray(schema.sysTask.id, allTaskIds)))
       .orderBy(desc(schema.sysTask.id)).limit(500)
     : []
   const merges = await db.select().from(schema.mvMerges)
@@ -544,7 +554,7 @@ app.get('/projects/:id', async (c) => {
   return success(c, {
     project, assets: await assetsOf(id), shots, merges,
     videoTasks: tasks.map((t: any) => ({
-      id: t.id, shotId: t.storyboardId, url: t.localPath || t.resultUrl || '',
+      id: t.id, shotId: ownerShotId(t.id), url: t.localPath || t.resultUrl || '',
       status: t.status, createdAt: t.createdAt, error: t.errorMsg || null,
     })),
   })
@@ -1282,11 +1292,16 @@ app.delete('/projects/:id/shots/:sid/video', async (c) => {
   const [shot] = await db.select().from(schema.mvShots)
     .where(and(eq(schema.mvShots.id, sid), eq(schema.mvShots.projectId, id)))
   if (!shot) return notFound(c, '分镜不存在')
-  const rows = await db.select().from(schema.sysTask)
-    .where(and(eq(schema.sysTask.type, 'video'), eq(schema.sysTask.storyboardId, sid)))
+  let tids: number[] = []
+  try { tids = (JSON.parse(String(shot.taskIds || '[]')) as any[]).map(Number).filter(Number.isFinite) } catch { tids = [] }
+  const rows = tids.length
+    ? await db.select().from(schema.sysTask).where(inArray(schema.sysTask.id, tids))
+    : []
   const hit = rows.find((t: any) => (t.localPath || t.resultUrl) === url)
   if (hit) {
     await db.delete(schema.sysTask).where(eq(schema.sysTask.id, hit.id))
+    const keep = tids.filter((x) => Number(x) !== Number(hit.id))
+    await db.update(schema.mvShots).set({ taskIds: JSON.stringify(keep), updatedAt: now() }).where(eq(schema.mvShots.id, sid))
   }
   try { fs.rmSync(getAbsolutePath(url), { force: true }) } catch { /* 文件不在就算了 */ }
   // 当前版本被删 → 指回剩下最新的一条
@@ -1326,7 +1341,6 @@ app.post('/projects/:id/shots/:sid/render', async (c) => {
       aspectRatio: project.aspectRatio || '9:16',
       resolution: `${videoSize(project)[0]}x${videoSize(project)[1]}`,
       referenceImageUrls: refs,
-      storyboardId: sid,   // 复用短剧的字段：让这条任务能被「本段历史视频」查到（照短剧）
       seed: body.seed ? Number(body.seed) : undefined,
       // MV 专用字段（适配器原样并进请求体；短剧路径不传这些）
       mvExtras: {
@@ -1337,7 +1351,11 @@ app.post('/projects/:id/shots/:sid/render', async (c) => {
         refmod_files: cards,
       },
     })
-    await db.update(schema.mvShots).set({ taskId: String(taskId), status: 'processing', errorMsg: null, updatedAt: now() })
+    // 历史视频只认本段自己的任务 id（存 task_ids），不再用 storyboard_id —— 短剧分镜 id 与 MV 段 id 会撞号（实测 145/146/147）
+    let prevTasks: string[] = []
+    try { prevTasks = JSON.parse(String(shot.taskIds || '[]')) } catch { prevTasks = [] }
+    const mergedTasks = [String(taskId), ...prevTasks.filter((x) => String(x) !== String(taskId))].slice(0, 50)
+    await db.update(schema.mvShots).set({ taskId: String(taskId), taskIds: JSON.stringify(mergedTasks), status: 'processing', errorMsg: null, updatedAt: now() })
       .where(eq(schema.mvShots.id, sid))
     await db.update(schema.mvProjects).set({ status: 'rendering', updatedAt: now() }).where(eq(schema.mvProjects.id, id))
     logTaskStart('MV', 'render', { id, sid, task: taskId, frames: shot.frames })

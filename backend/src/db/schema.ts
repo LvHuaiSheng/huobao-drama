@@ -345,6 +345,7 @@ export const mvAssets = sqliteTable('mv_assets', {
 })
 
 export const mvShots = sqliteTable('mv_shots', {
+  taskIds: text('task_ids'),        // 本段历次生成的任务 id（JSON 数组，新的在前）——历史视频只认它，别用 storyboard_id（会和短剧撞号）
   id: integer('id').primaryKey({ autoIncrement: true }),
   projectId: integer('project_id').notNull(),
   shotNumber: integer('shot_number').notNull(),
