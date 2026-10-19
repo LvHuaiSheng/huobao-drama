@@ -410,6 +410,8 @@ export const sqliteSchemaStatements = [
   // 2026-10-18 按项目锁通道（顶部标签栏可改）：空 = 跟随「设置 → AI 服务」里当前启用的那条
   `ALTER TABLE mv_projects ADD COLUMN vocal_stem TEXT`,
   `ALTER TABLE mv_shots ADD COLUMN task_ids TEXT`,
+  `ALTER TABLE mv_assets ADD COLUMN scope TEXT DEFAULT 'project'`,
+  `ALTER TABLE mv_assets ADD COLUMN source_asset_id INTEGER`,
   `ALTER TABLE mv_shots ADD COLUMN ref_ids TEXT`,
   `ALTER TABLE mv_shots ADD COLUMN prompt_extra TEXT`,
   `ALTER TABLE mv_shots ADD COLUMN prompt_en TEXT`,

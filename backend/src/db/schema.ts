@@ -328,6 +328,8 @@ export const mvProjects = sqliteTable('mv_projects', {
 
 /** 音乐 MV 自带的人物 / 场景资产（不写短剧的 characters / scenes，避免污染） */
 export const mvAssets = sqliteTable('mv_assets', {
+  scope: text('scope').default('project'),      // project = 本项目专用；library = 公共素材库（所有 MV 可见/可引用，2026-10-19）
+  sourceAssetId: integer('source_asset_id'),    // 从素材库引用进本项目时记下来源 id（图共用，不复制文件）
   id: integer('id').primaryKey({ autoIncrement: true }),
   projectId: integer('project_id').notNull(),
   kind: text('kind').notNull(),          // character | scene

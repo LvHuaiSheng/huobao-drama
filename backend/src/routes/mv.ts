@@ -19,7 +19,7 @@
  */
 import { Hono } from 'hono'
 import { extractVideoPoster } from '../utils/video-poster.js'
-import { eq, desc, and, isNull, inArray } from 'drizzle-orm'
+import { eq, desc, and, or, isNull, inArray } from 'drizzle-orm'
 import fs from 'fs'
 import path from 'path'
 import { db, schema, getInsertId } from '../db/index.js'
@@ -36,11 +36,7 @@ import { STORAGE_ROOT } from '../utils/paths.js'
 import { success, created, badRequest, notFound, serverError, now } from '../utils/response.js'
 import { logTaskStart, logTaskSuccess, logTaskError } from '../utils/task-logger.js'
 import { ffmpeg } from '../utils/ffmpeg.js'
-// 2026-10-19：MV 段提示词改由 App 内 video-prompt 技能生成（与短剧同一套规则链）
-import { mastra } from '../mastra/index.js'
-import { buildAgentRequestContext } from '../agents/context.js'
-import { stripZhPreamble, looksLikeChinese } from '../services/zh-lang.js'
-import { cleanSegText, sanitizeEnPrompt } from '../services/video-prompts.js'
+// 2026-10-19：MV 提示词完全走自己的链路（askText + 只读技能文本），**不引短剧的任何服务/Agent**
 
 // 4080 模板 mv_shot.api.json 节点14 的音频窗口 warmup_seconds（那边改了这里要同步）
 const MV_WARMUP_SECONDS = 0.5
@@ -168,47 +164,62 @@ const ZH_FORMAT = `格式（严格，不要多余说明）：
  * （那是读短剧表的工具，MV 段不在其中）；短剧链路 services/video-prompts.ts 一行未动。
  * 失败返回 null，调用方回退到中转编译（旧行为）。
  */
+/** MV 自己的中文判定/清洗（不引短剧的 zh-lang） */
+function mvLooksChinese(text: string): boolean {
+  const t = String(text || '').replace(/\s/g, '')
+  if (!t) return false
+  return ((t.match(/[\u4e00-\u9fa5]/g) || []).length / t.length) >= 0.3
+}
+function mvCleanText(raw: string): string {
+  let t = String(raw || '').trim()
+  t = t.replace(/^```[a-zA-Z]*\n?/, '').replace(/\n?```$/, '').trim()
+  // 砍掉正文前的英文闲聊/思考（首个含中文的行之前，最多 6 行）
+  const lines = t.split('\n')
+  const startIdx = lines.findIndex((l) => /[\u4e00-\u9fa5]/.test(l))
+  if (startIdx > 0 && startIdx < 6) t = lines.slice(startIdx).join('\n').trim()
+  return t
+}
+
+/**
+ * 2026-10-19：MV 段提示词 —— **完全走 MV 自己的链路**：
+ * 只读视频提示词技能文本（readSkillFile 是只读）+ 用 mv.ts 自己的 askText 调文本模型，
+ * **不引短剧的 services/video-prompts、不引 mastra Agent、不改短剧任何文件**。
+ */
 async function mvShotPromptSkill(
   project: any, shot: any, picked: any[], character: any, sc: any,
 ): Promise<{ zh: string; en: string } | null> {
-  const agent: any = (mastra as any).getAgent('prompt_generator')
-  if (!agent) return null
-  const rc = buildAgentRequestContext({
-    episodeId: undefined as any, dramaId: undefined as any,
-    textConfigId: project.textConfigId || undefined,
-    promptTask: 'video', promptStage: 'zh',
-  })
-  let beats: any[] = []
-  try { beats = JSON.parse(String(shot.beats || '[]')) } catch { beats = [] }
-  const order = (picked || []).map((a: any, i: number) => `@图片${i + 1} ${a.name}`).join(' → ')
-  const secs = Number(shot.seconds) || 6
-  const ctx = [
-    '【本段落上下文 —— 这就是你要写的分镜；**不要调用任何读取工具**，下面的信息已经完整】',
-    `- 段落：第 ${shot.shotNumber} 段，时长 ${secs} 秒（${shot.frames} 帧）`,
-    `- 景别：${shot.shotSize || '未指定'}；运镜：${shot.camera || '未指定'}；${shot.vocalState === 'silent' ? '本段无人生' : '本段有人声'}`,
-    `- 出场人物：@${character?.name || '主角'}`,
-    `- 场景：@${sc?.name || '主场景'}`,
-    `- 参考图顺序（出场 header 的顺序必须与它一致）：${order || '（本段无参考图）'}`,
-    shot.lyric ? `- 本段歌词/台词：${String(shot.lyric)}` : '',
-    beats.length ? `- 拍点：${JSON.stringify(beats)}` : '',
-    `- 本段画面稿（已定稿，按它写，不要另编剧情）：${String(shot.description || '')}`,
-    shot.promptExtra ? `- 补充说明（逐条满足）：${String(shot.promptExtra)}` : '',
-  ].filter(Boolean).join('\n')
-  const call = async (stage: 'zh' | 'en', ask: string) => {
-    rc.set('promptStage' as never, stage as never)
-    const r: any = await agent.generate([{ role: 'user', content: `${ctx}\n\n${ask}` }], { maxSteps: 6, requestContext: rc })
-    return String(r?.text || '')
-  }
   try {
-    const zh = stripZhPreamble(cleanSegText(await call('zh',
-      `请按 video-prompt 技能的**中文工作版**章节，写出中文工作版 video_prompt：首行必须是出场 header（\`出场人物：@…；场景：@…\`，有道具再加），正文按 0-${secs} 秒分拍，每拍用 @名 引用出场实体。**只输出正文**：不要解释、不要前言结语、不要代码块、不要调用任何保存工具。`)))
-    if (!zh || !looksLikeChinese(zh)) throw new Error('中文工作版不是中文 ')
-    const en = sanitizeEnPrompt(cleanSegText(await call('en',
-      '请按 video-prompt 技能的**英文发送版**章节，写出 video_prompt_en（官方六段式骨架，英文），实体用 @名 引用、顺序与上面的 header 一致。**只输出正文**，不要解释、不要代码块。')))
+    const skill = String(await readSkillFile('prompt-generator/video-prompt') || '').slice(0, 12000)
+    let beats: any[] = []
+    try { beats = JSON.parse(String(shot.beats || '[]')) } catch { beats = [] }
+    const order = (picked || []).map((a: any, i: number) => `@图片${i + 1} ${a.name}`).join(' → ')
+    const secs = Number(shot.seconds) || 6
+    const ctx = [
+      '【本段落上下文 —— 这就是你要写的分镜，信息已完整】',
+      `- 段落：第 ${shot.shotNumber} 段，时长 ${secs} 秒（${shot.frames} 帧）`,
+      `- 景别：${shot.shotSize || '未指定'}；运镜：${shot.camera || '未指定'}；${shot.vocalState === 'silent' ? '本段无人生' : '本段有人声'}`,
+      `- 出场人物：@${character?.name || '主角'}`,
+      `- 场景：@${sc?.name || '主场景'}`,
+      `- 参考图顺序（出场 header 必须与它一致）：${order || '（本段无参考图）'}`,
+      shot.lyric ? `- 本段歌词/台词：${String(shot.lyric)}` : '',
+      beats.length ? `- 拍点：${JSON.stringify(beats)}` : '',
+      `- 本段画面稿（已定稿，按它写，不要另编剧情）：${String(shot.description || '')}`,
+      shot.promptExtra ? `- 补充说明（逐条满足）：${String(shot.promptExtra)}` : '',
+    ].filter(Boolean).join('\n')
+    const sys = `你是影视分镜视频提示词写手。下面是你必须严格遵守的技能规范：\n\n${skill}`
+    const zhRaw = await askText(sys,
+      `${ctx}\n\n任务：按规范写**中文工作版** video_prompt。首行必须是出场 header（\`出场人物：@…；场景：@…\`，有道具再加），正文按 0-${secs} 秒分拍、每拍用 @名 引用出场实体。只输出正文，不要解释、不要代码块。`,
+      4000, project.textConfigId)
+    const zh = mvCleanText(zhRaw)
+    if (!zh || !mvLooksChinese(zh)) throw new Error('中文工作版无效')
+    const enRaw = await askText(sys,
+      `${ctx}\n\n任务：按规范写**英文发送版** video_prompt_en（官方六段式骨架，全英文），实体用 @名 引用、顺序与 header 一致。只输出正文，不要解释、不要代码块。`,
+      4000, project.textConfigId)
+    const en = mvCleanText(enRaw).replace(/[\u4e00-\u9fa5]/g, '')
     if (!en) throw new Error('英文发送版为空')
     return { zh, en }
   } catch (err: any) {
-    logTaskError('MV', 'shot-prompt-skill', { sid: shot.id, error: err?.message })
+    logTaskError('MV', 'shot-prompt', { sid: shot.id, error: err?.message })
     return null
   }
 }
@@ -405,6 +416,7 @@ async function shotRefs(projectId: number, shot: any) {
 }
 
 async function assetsOf(projectId: number, kind?: Kind) {
+  // 2026-10-19：本项目资产（语义不变，前端零改动）+ 单独一组公共素材库
   const rows = await db.select().from(schema.mvAssets).where(
     kind ? and(eq(schema.mvAssets.projectId, projectId), eq(schema.mvAssets.kind, kind)) : eq(schema.mvAssets.projectId, projectId))
   return rows.sort((a, b) => (Number(a.sortOrder || 0) - Number(b.sortOrder || 0)) || a.id - b.id)
@@ -873,6 +885,43 @@ function enqueueRender(pid: number, job: () => Promise<unknown>) {
   renderQueue.set(pid, next.catch(() => { }))
   return next
 }
+
+/**
+ * 2026-10-19 素材库（MV 侧实现，短剧那边一行不改）：
+ * - import：把公共素材库里的资产引用到本项目 —— 插一条本项目记录，图片文件共用，不复制
+ * - share：把本项目资产存进公共素材库 —— scope 置 library，所有 MV 都能看到/引用
+ */
+app.post('/projects/:id/assets/:aid/import', async (c) => {
+  const id = Number(c.req.param('id'))
+  const aid = Number(c.req.param('aid'))
+  const [src] = await db.select().from(schema.mvAssets).where(eq(schema.mvAssets.id, aid))
+  if (!src) return notFound(c, '素材不存在')
+  if (String((src as any).scope || 'project') !== 'library') return badRequest(c, '不是素材库里的资产')
+  const [dup] = await db.select().from(schema.mvAssets).where(and(
+    eq(schema.mvAssets.projectId, id), eq(schema.mvAssets.sourceAssetId, aid)))
+  if (dup) return success(c, { id: dup.id, skipped: true })
+  const nowIso = now()
+  const ins = await db.insert(schema.mvAssets).values({
+    projectId: id, kind: (src as any).kind, name: (src as any).name,
+    description: (src as any).description, appearance: (src as any).appearance,
+    styling: (src as any).styling, image: (src as any).image, card: (src as any).card,
+    prompt: (src as any).prompt, imageStatus: (src as any).imageStatus,
+    scope: 'project', sourceAssetId: aid, sortOrder: 999,
+    createdAt: nowIso, updatedAt: nowIso,
+  } as any)
+  return success(c, { id: getInsertId(ins) })
+})
+
+app.post('/projects/:id/assets/:aid/share', async (c) => {
+  const id = Number(c.req.param('id'))
+  const aid = Number(c.req.param('aid'))
+  const [a0] = await db.select().from(schema.mvAssets)
+    .where(and(eq(schema.mvAssets.id, aid), eq(schema.mvAssets.projectId, id)))
+  if (!a0) return notFound(c, '资产不存在')
+  await db.update(schema.mvAssets).set({ scope: 'library', updatedAt: now() } as any)
+    .where(eq(schema.mvAssets.id, aid))
+  return success(c, { id: aid, scope: 'library' })
+})
 
 app.post('/projects/:id/assets/:aid/image', async (c) => {
   const id = Number(c.req.param('id'))
