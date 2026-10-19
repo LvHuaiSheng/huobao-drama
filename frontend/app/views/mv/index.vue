@@ -475,8 +475,13 @@
                     <button type="button" class="btn btn-sm" @click="saveShot(activeShot)">保存这条</button>
                   </div>
                 </div>
-                <textarea v-model="activeShot.prompt" class="textarea video-inspector-prompt" rows="14"
-                  placeholder="还没有分镜稿 —— 点上面的「AI 生成」，或顶部「批量补齐提示词」；生成后可在这里手改" />
+                <MentionTextarea
+                  :model-value="activeShot.prompt || ''"
+                  :options="mvMentionOptions"
+                  :rows="14"
+                  input-class="textarea video-inspector-prompt"
+                  placeholder="还没有分镜稿 —— 点上面的「AI 生成」，或顶部「批量补齐提示词」；生成后可在这里手改（输入 @ 可引用人物 / 场景）"
+                  @commit="(v) => { activeShot.prompt = v; saveShot(activeShot) }" />
                 <div class="video-inspector-prompt-extra">
                   <button v-if="activeShot.promptEn" type="button" class="btn btn-sm video-inspector-prompt-en-toggle"
                     @click="showEn = !showEn">{{ showEn ? '收起英文提示词' : '显示英文提示词（发给 H3 的就是它）' }}</button>
@@ -949,6 +954,22 @@ const shotVideoList = (x) => videoTasks.value
 const shotHistoryOld = (x) => shotVideoList(x).filter((t) => !t.cur).map((t) => t.url)
 
 // —— 本段内容（分镜描述）：景别 / 机位运镜 / 动作 / 出场（照短剧 @引用展示形式）
+// 视频提示词 @ 引用候选（照短剧 MentionTextarea）：本项目的参考素材，人物在前场景在后
+const mvMentionOptions = computed(() => {
+  const picked = (assets.value || []).filter((a) => a.image)
+  const order = { character: 0, scene: 1 }
+  return [...picked]
+    .sort((a, b) => (order[a.kind] ?? 9) - (order[b.kind] ?? 9))
+    .map((a) => ({
+      label: a.name || (a.kind === 'character' ? '人物' : '场景'),
+      value: a.name || '',
+      kind: a.kind === 'character' ? 'character' : 'scene',
+      group: a.kind === 'character' ? '人物' : '场景',
+      image: a.image ? staticUrl(a.image) : undefined,
+    }))
+    .filter((o) => o.value)
+})
+
 const shotBeats = (s2) => {
   if (!s2) return []
   try { const v = JSON.parse(String(s2.beats || '[]')); return Array.isArray(v) ? v : [] } catch { return [] }
