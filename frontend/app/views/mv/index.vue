@@ -410,7 +410,13 @@
             <div class="video-main-scroll">
               <div class="video-main-grid">
                 <section class="video-inspector-section">
-                  <span class="video-inspector-label">本段内容</span>
+                  <span class="video-inspector-label">本段内容（分镜描述）</span>
+                  <div class="mv-shot-fields">
+                    <div class="mv-shot-field"><span class="k">景别</span><span class="v">{{ activeShot.shotSize || '—' }}</span></div>
+                    <div class="mv-shot-field"><span class="k">机位 / 运镜</span><span class="v">{{ shotCamera(activeShot) }}</span></div>
+                    <div class="mv-shot-field"><span class="k">人物动作</span><span class="v">{{ shotAction(activeShot) }}</span></div>
+                    <div class="mv-shot-field"><span class="k">出场</span><span class="v mv-cast">{{ shotCast(activeShot) }}</span></div>
+                  </div>
                   <pre class="mv-outline-pre">{{ outlineTextOf(activeShot) || '（初步分镜里这一段没有文字）' }}</pre>
                   <label class="field" style="margin-top:8px">
                     <span class="field-label">补充说明 <span class="dim">（中文即可，编译时自动转英文追加到提示词末尾；可留空）</span></span>
@@ -941,6 +947,27 @@ const shotVideoList = (x) => videoTasks.value
   .filter((t) => Number(t.shotId) === Number(x?.id) && t.url)
   .map((t) => ({ id: t.id, url: t.url, createdAt: t.createdAt, cur: t.url === x?.videoUrl }))
 const shotHistoryOld = (x) => shotVideoList(x).filter((t) => !t.cur).map((t) => t.url)
+
+// —— 本段内容（分镜描述）：景别 / 机位运镜 / 动作 / 出场（照短剧 @引用展示形式）
+const shotBeats = (s2) => {
+  if (!s2) return []
+  try { const v = JSON.parse(String(s2.beats || '[]')); return Array.isArray(v) ? v : [] } catch { return [] }
+}
+const shotCamera = (s2) => {
+  const b = shotBeats(s2)
+  const cams = [...new Set(b.map((x) => String(x.camera || '').trim()).filter(Boolean))]
+  return cams.length ? cams.join(' → ') : '固定机位'
+}
+const shotAction = (s2) => {
+  const b = shotBeats(s2)
+  const acts = [...new Set(b.map((x) => String(x.action_zh || '').trim()).filter(Boolean))]
+  return acts.length ? acts.join(' → ') : (s2?.vocalState === 'non_vocal' ? '安静呼吸，肩放松（间奏）' : '对着镜头唱，随节拍轻摆')
+}
+// 出场参考素材：用 @名字 展示（和短剧提示词里的 @引用同一种读法）
+const shotCast = (s2) => {
+  const picked = boundRefs(s2).map((a) => a.name).filter(Boolean)
+  return picked.length ? picked.map((n) => '@' + n).join('、') : '未绑定参考素材'
+}
 
 // 照抄短剧 episode.vue 的 formatHistoryTime：MM-DD HH:MM
 function formatHistoryTime(iso) {
@@ -2144,6 +2171,13 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); color: var(--
 .video-inspector-prompt-en-toggle { align-self: flex-start; }
 .video-inspector-prompt-en-miss { font-size: 11px; }
 .video-inspector-prompt-en { margin: 6px 0 0; padding: 10px; max-height: 260px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-2); color: var(--text-2); font-family: var(--font-mono, monospace); font-size: 10.5px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+
+/* 本段内容：结构化分镜描述（照短剧 inspector 的 label+值） */
+.mv-shot-fields { display: flex; flex-direction: column; gap: 4px; }
+.mv-shot-field { display: flex; gap: 8px; font-size: 12px; line-height: 1.5; }
+.mv-shot-field .k { flex: 0 0 74px; color: var(--text-2); }
+.mv-shot-field .v { flex: 1; color: var(--text-0); }
+.mv-cast { color: var(--accent); }
 
 /* 本段内容的行内标签 */
 .mv-inline-tags { display: flex; gap: 6px; flex-wrap: wrap; }
