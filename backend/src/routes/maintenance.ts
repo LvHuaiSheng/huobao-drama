@@ -54,6 +54,21 @@ async function collectAliveRefs(): Promise<Set<string>> {
     addJson(m.scenes)
   }
 
+  // MV（2026-10-19 修）：旧清单只登记短剧的表 ⇒ MV 的资产图/首帧/成片全被判成「孤儿」，
+  // 用户点一次「扫描垃圾文件」就被删光（实测 2026-10-19 女主+场景两张资产图被清）。
+  const mvTaskIds = new Set<number>()
+  for (const a0 of await db.select().from(schema.mvAssets)) add((a0 as any).image)
+  for (const s0 of await db.select().from(schema.mvShots)) {
+    add((s0 as any).firstFrameImage)
+    add((s0 as any).videoUrl)
+    try {
+      for (const t of JSON.parse(String((s0 as any).taskIds || '[]'))) {
+        const n = Number(t); if (Number.isFinite(n)) mvTaskIds.add(n)
+      }
+    } catch { /* 脏数据忽略 */ }
+  }
+  for (const m0 of await db.select().from(schema.mvMerges)) add((m0 as any).mergedUrl)
+
   // 任务产物（只算所属剧未删的）
   const aliveDramas = (await db.select({ id: schema.dramas.id }).from(schema.dramas).where(isNull(schema.dramas.deletedAt))).map(r => r.id)
   const aliveEps = (await db.select({ id: schema.episodes.id, dramaId: schema.episodes.dramaId }).from(schema.episodes).where(isNull(schema.episodes.deletedAt)))
@@ -61,7 +76,8 @@ async function collectAliveRefs(): Promise<Set<string>> {
   const aliveDramaSet = new Set(aliveDramas)
   for (const t of await db.select().from(schema.sysTask)) {
     // 任务归属：剧活着 或 其分镜所属集活着
-    const alive = (t.dramaId && aliveDramaSet.has(t.dramaId)) || (t.storyboardId && aliveEpIds.size > 0)
+    // MV 段自己记的任务（按任务 id 认，不用 storyboard_id —— MV 段 id 与短剧分镜 id 会撞号）
+    const alive = mvTaskIds.has(t.id) || (t.dramaId && aliveDramaSet.has(t.dramaId)) || (t.storyboardId && aliveEpIds.size > 0)
     if (!alive) continue
     add(t.localPath)
     add(t.resultUrl)

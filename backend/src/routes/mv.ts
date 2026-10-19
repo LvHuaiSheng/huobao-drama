@@ -1128,66 +1128,9 @@ app.post('/projects/:id/prompts', async (c) => {
     }
     return success(c, { ok: true, done: shots.length, skipped: allShots.length - shots.length, engine: 'skill' })
   } catch (err: any) {
-    logTaskError('MV', 'batch-prompt-skill-fallback', { id, error: err?.message })
-  }
-  // —— 以下为中转编译（回退路径，保持原行为）
-  // 补充说明用户写中文；编译前整批翻一次英文（失败就原样，不阻塞编译）
-  const extras = shots.map((s) => String(s.promptExtra || '').trim())
-  const extrasEn = await translateExtras(extras, project.textConfigId)
-  const pictures = (character.image ? 1 : 0) + (scene?.image ? 1 : 0)
-  try {
-    const out = await shimPost<{ shots: any[] }>('/v2/mv/prompts', {
-      pictures: Math.max(1, pictures),
-      // 编译时吃「定妆三件套 + 最终提示词 + 提取描述」：原来只读 description（提取原文），
-      // 用户在「最终提示词」里改的内容（比如删掉耳机）根本不生效
-      performer: ([character.appearance, character.styling, character.prompt, character.description]
-        .map((x: any) => String(x || '').trim()).filter(Boolean).join('  ').slice(0, 1400) || 'the lead singer'),
-      style: (await styleHead(project)) || undefined,
-      scene_note: scene?.description ? String(scene.description) : '',
-      language: 'Chinese',
-      lyrics: shots.map((s) => s.lyric || ''),
-      shots: await Promise.all(shots.map(async (s) => {
-        const picked = (await shotRefs(id, s)).filter((a) => a.image)
-        const scene = picked.find((a) => a.kind === 'scene')
-        return {
-          index: s.shotNumber - 1,
-          start: s.startSeconds, end: s.endSeconds, frames: s.frames, seconds: s.seconds,
-          shot: s.shotSize || '', camera: s.camera || '', vocal_state: s.vocalState || 'vocal_active',
-          pictures: Math.max(1, picked.length),
-          scene_note: scene?.description ? String(scene.description) : '',
-          prompt_extra: extrasEn[s.shotNumber - 1] || '',
-          beats: JSON.parse(String(s.beats || '[]')),
-        }
-      })),
-    })
-    const items = out?.shots || []
-    if (items.length !== shots.length) throw new Error(`编译结果条数不对（${items.length}/${shots.length}）`)
-    const ens = items.map((it: any, i: number) => {
-      const ex = String(shots[i].promptExtra || '').trim()
-      return String(it.prompt || '') + (ex ? `\n\n[extra notes] ${ex}` : '')
-    })
-    const zhItems: ZhItem[] = shots.map((sh: any, i: number) => {
-      let beats: any[] = []
-      try { beats = JSON.parse(String(sh.beats || '[]')) } catch { beats = [] }
-      return { en: ens[i], beats, seconds: Number(sh.seconds) || 5.167, vocalState: sh.vocalState }
-    })
-    const zhs = await toChineseStoryboards(zhItems, project.textConfigId)
-    for (let i = 0; i < shots.length; i++) {
-      const sh = shots[i]
-      let beats: any[] = []
-      try { beats = JSON.parse(String(sh.beats || '[]')) } catch { beats = [] }
-      await db.update(schema.mvShots).set({
-        prompt: zhs[i] || renderZhStoryboard(sh, beats),   // LLM 失败时退回机械渲染稿
-        promptEn: ens[i],
-        updatedAt: now(),
-      })
-        .where(eq(schema.mvShots.id, sh.id))
-    }
-    logTaskSuccess('MV', 'prompts', { id, count: items.length })
-    return success(c, { count: items.length, shots: await shotsOf(id) })
-  } catch (err: any) {
-    logTaskError('MV', 'prompts', { id, error: err?.message })
-    return serverError(c, err?.message || '提示词编译失败')
+    // 2026-10-19 用户拍板：失败就如实报失败，不再回退中转编译
+    logTaskError('MV', 'batch-prompt-failed', { id, error: err?.message })
+    return serverError(c, err?.message || '提示词生成失败')
   }
 })
 
@@ -1205,46 +1148,12 @@ app.post('/projects/:id/shots/:sid/prompt', async (c) => {
   const picked = (await shotRefs(id, shot)).filter((a) => a.image)
   const sc = picked.find((a) => a.kind === 'scene') || scene
   // 2026-10-19：先走 App 内 video-prompt 技能（同名规则链）；失败回退中转编译
+  // 2026-10-19 用户拍板：生成失败就如实报失败，**不偷偷回退旧编译**
   const skill = await mvShotPromptSkill(project, shot, picked, character, sc)
-  if (skill) {
-    await db.update(schema.mvShots).set({ prompt: skill.zh, promptEn: skill.en, updatedAt: now() })
-      .where(eq(schema.mvShots.id, sid))
-    return success(c, { id: sid, prompt: skill.zh, promptEn: skill.en, engine: 'skill' })
-  }
-  // —— 以下为中转编译（回退路径，保持原行为）
-  const extrasEn = await translateExtras([String(shot.promptExtra || '')], project.textConfigId)
-  try {
-    const out = await shimPost<{ shots: any[] }>('/v2/mv/prompts', {
-      pictures: Math.max(1, picked.length),
-      // 编译时吃「定妆三件套 + 最终提示词 + 提取描述」：原来只读 description（提取原文），
-      // 用户在「最终提示词」里改的内容（比如删掉耳机）根本不生效
-      performer: ([character.appearance, character.styling, character.prompt, character.description]
-        .map((x: any) => String(x || '').trim()).filter(Boolean).join('  ').slice(0, 1400) || 'the lead singer'),
-      style: (await styleHead(project)) || undefined,
-      language: 'Chinese',
-      lyrics: [String(shot.lyric || '')],
-      shots: [{
-        index: 0, start: shot.startSeconds, end: shot.endSeconds, frames: shot.frames, seconds: shot.seconds,
-        shot: shot.shotSize || '', camera: shot.camera || '', vocal_state: shot.vocalState || 'vocal_active',
-        pictures: Math.max(1, picked.length),
-        scene_note: sc?.description ? String(sc.description) : '',
-        prompt_extra: extrasEn[0] || '',
-        beats: JSON.parse(String(shot.beats || '[]')),
-      }],
-    })
-    const extra1 = String(shot.promptExtra || '').trim()
-    const en = String(out?.shots?.[0]?.prompt || '') + (extra1 ? `\n\n[extra notes] ${extra1}` : '')
-    if (!en.trim()) throw new Error('编译结果为空')
-    let beats: any[] = []
-    try { beats = JSON.parse(String(shot.beats || '[]')) } catch { beats = [] }
-    const [zh] = await toChineseStoryboards([{ en, beats, seconds: Number(shot.seconds) || 5.167, vocalState: String(shot.vocalState || '') }], project.textConfigId)
-    const prompt = zh || renderZhStoryboard(shot, beats)
-    await db.update(schema.mvShots).set({ prompt, promptEn: en, updatedAt: now() }).where(eq(schema.mvShots.id, sid))
-    return success(c, { id: sid, prompt, promptEn: en })
-  } catch (err: any) {
-    logTaskError('MV', 'shot-prompt', { id, sid, error: err?.message })
-    return serverError(c, err?.message || '提示词生成失败')
-  }
+  if (!skill) return serverError(c, '提示词生成失败（技能未返回有效内容）')
+  await db.update(schema.mvShots).set({ prompt: skill.zh, promptEn: skill.en, updatedAt: now() })
+    .where(eq(schema.mvShots.id, sid))
+  return success(c, { id: sid, prompt: skill.zh, promptEn: skill.en, engine: 'skill' })
 })
 
 /** 单段体检 */
