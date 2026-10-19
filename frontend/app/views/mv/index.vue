@@ -921,6 +921,8 @@ async function doDeleteProject() {
   if (r) await loadProjects()
 }
 const tab = ref('origin')
+const nowTick = ref(0)
+if (typeof window !== 'undefined') setInterval(() => { nowTick.value++ }, 2000)   // 任务运行时间实时刷新
 const exportSelected = ref([])
 const exportPreview = ref(null)
 const historyPick = ref('')   // 预览区切到某条历史视频（空 = 看当前这条）
@@ -1175,16 +1177,19 @@ async function renderSelected() {
 }
 const VOCAL_OPTS = [{ label: '唱', value: 'vocal_active' }, { label: '非唱', value: 'non_vocal' }]
 const SIZE_OPTS = [{ label: '中远景', value: '中远景' }, { label: '中景', value: '中景' }, { label: '近景', value: '近景' }, { label: '特写', value: '特写' }]
-const taskRows = computed(() => shots.value
-  .filter((s) => s.status === 'processing' || s.videoUrl || s.status === 'failed' || s.taskId)
-  .map((s) => ({
-    id: s.id, shotNumber: s.shotNumber, kind: '视频',
-    title: outlineTextOf(s) || (s.vocalState === 'vocal_active' ? '唱段' : '间奏'),
-    state: shotState(s), label: shotStateLabel(s),
-    duration: shotSeconds(s) ? shotSeconds(s).toFixed(3) + 's' : '—',
-    videoUrl: s.videoUrl, errorMsg: s.errorMsg,
-    elapsed: '',  // 耗时改到「视频制作」那一行的第二行显示（照短剧）
-  })))
+const taskRows = computed(() => {
+  void nowTick.value   // 依赖心跳 → 运行中的时间每 2 秒重算
+  return shots.value
+    .filter((s) => s.status === 'processing' || s.videoUrl || s.status === 'failed' || s.taskId)
+    .map((s) => ({
+      id: s.id, shotNumber: s.shotNumber, kind: '视频',
+      title: outlineTextOf(s) || (s.vocalState === 'vocal_active' ? '唱段' : '间奏'),
+      state: shotState(s), label: shotStateLabel(s),
+      duration: shotSeconds(s) ? shotSeconds(s).toFixed(3) + 's' : '—',
+      videoUrl: s.videoUrl, errorMsg: s.errorMsg,
+      elapsed: elapsedLabel(s),
+    }))
+})
 const recentDone = computed(() => shots.value
   .filter((x) => x.videoUrl || x.status === 'failed')
   .slice()
