@@ -372,3 +372,18 @@ export const mvShots = sqliteTable('mv_shots', {
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 })
+
+
+/** MV 成片（拼接记录）：一条一次拼接，多家并存（照短剧 video_merges） */
+export const mvMerges = sqliteTable('mv_merges', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  projectId: integer('project_id'),
+  shotIds: text('shot_ids'),
+  mergedUrl: text('merged_url'),
+  duration: real('duration'),
+  seconds: integer('seconds'),
+  status: text('status').default('completed'),
+  errorMsg: text('error_msg'),
+  createdAt: text('created_at').notNull(),
+  deletedAt: text('deleted_at'),
+})

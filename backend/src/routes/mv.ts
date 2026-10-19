@@ -455,8 +455,11 @@ app.get('/projects/:id', async (c) => {
       .where(and(eq(schema.sysTask.type, 'video'), inArray(schema.sysTask.storyboardId, shotIds)))
       .orderBy(desc(schema.sysTask.id)).limit(500)
     : []
+  const merges = await db.select().from(schema.mvMerges)
+    .where(and(eq(schema.mvMerges.projectId, id), isNull(schema.mvMerges.deletedAt)))
+    .orderBy(desc(schema.mvMerges.id)).limit(200)
   return success(c, {
-    project, assets: await assetsOf(id), shots,
+    project, assets: await assetsOf(id), shots, merges,
     videoTasks: tasks.map((t: any) => ({
       id: t.id, shotId: t.storyboardId, url: t.localPath || t.resultUrl || '',
       status: t.status, createdAt: t.createdAt, error: t.errorMsg || null,
@@ -1142,6 +1145,35 @@ app.delete('/projects/:id/output', async (c) => {
   return success(c, { ok: true })
 })
 
+/** 本项目所有成片（一次拼接一条，多家并存） */
+app.get('/projects/:id/merges', async (c) => {
+  const id = Number(c.req.param('id'))
+  const rows = await db.select().from(schema.mvMerges)
+    .where(and(eq(schema.mvMerges.projectId, id), isNull(schema.mvMerges.deletedAt)))
+    .orderBy(desc(schema.mvMerges.id)).limit(200)
+  return success(c, { merges: rows })
+})
+
+/** 删一条成片：删记录 + 文件；删的若是当前那条，项目成片指回剩下最新 */
+app.delete('/projects/:id/merges/:mid', async (c) => {
+  const id = Number(c.req.param('id'))
+  const mid = Number(c.req.param('mid'))
+  const [m] = await db.select().from(schema.mvMerges)
+    .where(and(eq(schema.mvMerges.id, mid), eq(schema.mvMerges.projectId, id)))
+  if (!m) return notFound(c, '成片不存在')
+  await db.delete(schema.mvMerges).where(eq(schema.mvMerges.id, mid))
+  try { fs.rmSync(getAbsolutePath(String(m.mergedUrl)), { force: true }) } catch { /* 文件不在就算了 */ }
+  const [p0] = await db.select().from(schema.mvProjects).where(eq(schema.mvProjects.id, id))
+  if (p0 && String(p0.outputUrl || '') === String(m.mergedUrl || '')) {
+    const [next] = await db.select().from(schema.mvMerges)
+      .where(and(eq(schema.mvMerges.projectId, id), isNull(schema.mvMerges.deletedAt)))
+      .orderBy(desc(schema.mvMerges.id)).limit(1)
+    await db.update(schema.mvProjects).set({ outputUrl: next?.mergedUrl || null, updatedAt: now() }).where(eq(schema.mvProjects.id, id))
+  }
+  logTaskSuccess('MV', 'delete-merge', { id, mid })
+  return success(c, { ok: true })
+})
+
 /** 删掉某一段的某一版视频：删任务记录 + 文件；删的若是当前版本，自动把当前指回剩下最新的一条（照短剧） */
 app.delete('/projects/:id/shots/:sid/video', async (c) => {
   const id = Number(c.req.param('id'))
@@ -1235,7 +1267,8 @@ app.post('/projects/:id/assemble', async (c) => {
   const listPath = path.join(STORAGE_ROOT, rel, 'concat.txt')
   fs.writeFileSync(listPath, done.map((s) => `file '${getAbsolutePath(s.videoUrl as string)}'`).join('\n'))
   const videoOnly = path.join(STORAGE_ROOT, rel, 'video_only.mp4')
-  const outAbs = path.join(STORAGE_ROOT, rel, 'mv_final.mp4')
+  const outName = `mv_final_${Date.now()}.mp4`
+  const outAbs = path.join(STORAGE_ROOT, rel, outName)
   const start = Number(done[0].startSeconds) || 0
   const total = done.reduce((a, s) => a + (Number(s.seconds) || 0), 0)
   try {
@@ -1252,7 +1285,12 @@ app.post('/projects/:id/assemble', async (c) => {
     logTaskError('MV', 'assemble', { id, error: err?.message })
     return serverError(c, err?.message)
   }
-  const outRel = `${rel}/mv_final.mp4`
+  const outRel = `${rel}/${outName}`
+  // 每拼一次就留一条记录，多家并存（照短剧 video_merges）
+  await db.insert(schema.mvMerges).values({
+    projectId: id, shotIds: JSON.stringify(done.map((s) => s.id)), mergedUrl: outRel,
+    seconds: total, status: 'completed', createdAt: now(),
+  })
   await db.update(schema.mvProjects).set({ outputUrl: outRel, status: 'done', updatedAt: now() }).where(eq(schema.mvProjects.id, id))
   logTaskSuccess('MV', 'assemble', { id, seconds: total })
   return success(c, { output_url: outRel, seconds: total })

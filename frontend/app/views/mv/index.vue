@@ -302,21 +302,22 @@
         <!-- 成片列表 -->
         <div class="export-section-head">
           <span class="export-section-title">成片</span>
-          <span class="dim" style="font-size:11px">{{ pj.outputUrl ? 1 : 0 }} 条</span>
+          <span class="dim" style="font-size:11px">{{ mergeList.length }} 条</span>
           <div class="ml-auto flex gap-1">
-            <button v-if="pj.outputUrl" class="btn btn-sm" @click="enterExport">刷新</button>
+            <button v-if="mergeList.length" class="btn btn-sm" @click="enterExport">刷新</button>
           </div>
         </div>
-        <div v-if="pj.outputUrl" class="export-merge-strip">
-          <div class="merge-card playable" role="button" tabindex="0" @click="exportPreview = { url: pj.outputUrl, title: '成片' }">
+        <div v-if="mergeList.length" class="export-merge-strip">
+          <div v-for="m in mergeList" :key="m.id" class="merge-card playable" role="button" tabindex="0"
+            @click="exportPreview = { url: m.mergedUrl, title: '成片' }" @keydown.enter.prevent="exportPreview = { url: m.mergedUrl, title: '成片' }">
             <div class="merge-card-thumb">
-              <video :src="staticUrl(pj.outputUrl)" :poster="posterOf(pj.outputUrl)" preload="none" muted playsinline tabindex="-1" />
+              <video :src="staticUrl(m.mergedUrl)" :poster="posterOf(m.mergedUrl)" preload="none" muted playsinline tabindex="-1" />
               <span class="merge-card-play"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="6 3 20 12 6 21 6 3"/></svg></span>
             </div>
             <div class="merge-card-meta">
-              <span class="mono">{{ shots.filter((x) => x.videoUrl).length }} 段已并</span>
-              <a :href="staticUrl(pj.outputUrl)" download class="btn btn-sm" @click.stop>下载</a>
-              <button class="btn btn-sm" @click.stop="askDeleteOutput">删除</button>
+              <span class="mono">{{ mergeTitle(m) }}</span>
+              <a :href="staticUrl(m.mergedUrl)" download class="btn btn-sm" @click.stop>下载</a>
+              <button class="btn btn-sm" @click.stop="askDeleteMerge(m)">删除</button>
             </div>
           </div>
         </div>
@@ -1046,6 +1047,30 @@ const openViewerUrl = (src, title) => { viewer.value = { open: true, src: static
 const taskDrawer = ref(false)
 const confirmDlg = ref(null)
 function askConfirm(title, body, okText, action) { confirmDlg.value = { title, body, okText, action } }
+
+// 拼接 + 删成片（这两个函数之前被我一次误删，4.0.161 补回）
+async function assemble() {
+  const picked = exportSelected.value
+  if (!need(picked.length, '先在「合成导出」页勾选要拼接的镜头')) return
+  const r = await call(() => api.post(`/mv/projects/${pj.value.id}/assemble`, { shot_ids: picked }), '正在拼接并混入原曲…')
+  if (r) { await refresh(); exportSelected.value = shots.value.filter((x) => x.videoUrl).map((x) => x.id) }
+}
+const askAssemble = () => askConfirm('开始拼接',
+  `会把勾选的 ${exportSelected.value.length} 段按顺序拼接、并混入原曲（从头对齐）。继续？`, '开始拼接', assemble)
+const mergeList = ref([])
+// 一条成片显示：N 段已并 · 时长 · 拼的时间（照短剧成片卡片）
+const mergeTitle = (m) => {
+  let n = 0
+  try { n = (JSON.parse(m.shotIds || '[]') || []).length } catch { n = 0 }
+  return `${n || '?'} 段已并 · ${Math.round(Number(m.seconds) || 0)}s`
+}
+const askDeleteMerge = (m) => askConfirm('删除成片',
+  '会删掉这条成片文件（各段视频都保留，可以随时重新拼接）。继续？', '删除',
+  async () => {
+    await call(() => api.del(`/mv/projects/${pj.value.id}/merges/${m.id}`), '正在删除成片…')
+    mergeList.value = mergeList.value.filter((x) => x.id !== m.id)
+    await refresh()
+  })
 function runConfirm() {
   const fn = confirmDlg.value?.action
   confirmDlg.value = null
@@ -1504,12 +1529,6 @@ async function renderAll() {
   }
 }
 
-async function assemble() {
-  const picked = exportSelected.value
-  if (!need(picked.length, '先在「合成导出」页勾选要拼接的镜头')) return
-  const r = await call(() => api.post(`/mv/projects/${pj.value.id}/assemble`, { shot_ids: picked }), '正在拼接并混入原曲…')
-  if (r) { await refresh(); exportSelected.value = shots.value.filter((x) => x.videoUrl).map((x) => x.id) }
-}
 
 async function pollOnce() {
   if (!current.value || busy.value) return

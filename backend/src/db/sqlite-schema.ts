@@ -7,6 +7,19 @@
 import type Database from 'better-sqlite3'
 
 export const sqliteSchemaStatements = [
+  `CREATE TABLE IF NOT EXISTS mv_merges (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER,
+    shot_ids TEXT,
+    merged_url TEXT,
+    duration REAL,
+    seconds INTEGER,
+    status TEXT DEFAULT 'completed',
+    error_msg TEXT,
+    created_at TEXT NOT NULL,
+    deleted_at TEXT
+  )`,
+
   `CREATE TABLE IF NOT EXISTS dramas (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL,
