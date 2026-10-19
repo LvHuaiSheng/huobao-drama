@@ -45,7 +45,7 @@
           <span class="mv-step-hint">②</span>
           <input v-model.number="maxSeconds" class="input mv-num" type="number" min="5" max="15" step="0.5" title="最长切分（秒，H3 上限 15）" />
           <button class="btn btn-sm" @click="genShots" :disabled="busy || !pj.vocalStem"
-            :title="pj.vocalStem ? '按人声轨切分并标唱/非唱' : '先做人声分离——分镜的唱/非唱要靠人声轨判断'">拆分分镜</button>
+            :title="pj.vocalStem ? (shots.length ? '按人声轨重新切分（会重建现有分镜）' : '按人声轨切分并标唱/非唱') : '先做人声分离——分镜的唱/非唱要靠人声轨判断'">{{ shots.length ? '重新拆分' : '拆分分镜' }}</button>
           <span class="mv-step-hint">③</span>
           <button class="btn btn-sm" @click="askGenPrompts" :disabled="busy || !shots.length">编译全部提示词</button>
           <button class="btn btn-sm" @click="askCheckAll" :disabled="!shots.length" title="只读文本检查，不会打断正在生成的视频">全部体检</button>
@@ -421,7 +421,6 @@
                   <div class="video-inspector-prompt-head">
                     <span class="video-inspector-label">参考素材</span>
                     <span class="tag mono">{{ boundRefs(activeShot).length }}/{{ allRefAssets.length }} 已绑定</span>
-                    <button type="button" class="btn btn-sm" @click="rebindRefs(activeShot)">重新拆分</button>
                   </div>
                   <div class="storyboard-ref-list is-embedded">
                     <template v-for="g in REF_GROUPS" :key="g.kind">
@@ -990,17 +989,6 @@ function shotRefIdList(s) {
 const REF_GROUPS = [{ kind: 'character', label: '角色' }, { kind: 'scene', label: '场景' }, { kind: 'prop', label: '道具' }]
 const refAssetsOf = (kind) => allRefAssets.value.filter((a) => a.kind === kind)
 const boundRefs = (s) => allRefAssets.value.filter((a) => shotRefIdList(s).includes(a.id))
-async function rebindRefs(s) {
-  if (!s) return
-  askConfirm('重新拆分参考素材',
-    '会按这一段重新挑参考素材（人物 + 场景各一张），当前手动的绑定会被覆盖。继续？', '重新拆分',
-    async () => {
-      const ids = [characters.value.find((a) => a.image)?.id, scenes.value.find((a) => a.image)?.id].filter(Boolean)
-      s.refIds = JSON.stringify(ids)
-      await saveShot(s)
-      await refresh()
-    })
-}
 const isBound = (s, id) => shotRefIdList(s).includes(id)
 async function toggleRef(s, id) {
   if (!s) return
