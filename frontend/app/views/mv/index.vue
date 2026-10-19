@@ -347,14 +347,14 @@
       </div>
 
       <!-- 第 4 页 · 视频制作（照短剧三栏 workbench：左任务列表 / 中编辑区 / 右播放器） -->
-      <div v-if="recentDone.length" class="mv-recent-row">
+      <div v-if="tab === 'video' && recentDone.length" class="mv-recent-row">
         <span class="mv-recent-kicker">最近</span>
         <span v-for="it in recentDone" :key="it.id" class="mv-recent-item" :class="it.ok ? 'is-ok' : 'is-bad'"
           :title="it.error || ''" @click="gotoShot(it.n)">
           {{ it.ok ? '✓' : '✗' }} {{ it.label }}<template v-if="it.dur"> · {{ it.dur }}</template>
         </span>
       </div>
-      <div v-else class="video-task-workbench has-player" :style="{ '--vleft': '250px', '--vright': '340px' }">
+      <div v-if="tab === 'video'" class="video-task-workbench has-player" :style="{ '--vleft': '250px', '--vright': '340px' }">
         <section class="video-task-list">
           <div class="video-task-head">
             <div>
