@@ -404,6 +404,11 @@
                 <section class="video-inspector-section">
                   <span class="video-inspector-label">本段内容</span>
                   <pre class="mv-outline-pre">{{ outlineTextOf(activeShot) || '（初步分镜里这一段没有文字）' }}</pre>
+                  <label class="field" style="margin-top:8px">
+                    <span class="field-label">补充说明 <span class="dim">（中文即可，编译时自动转英文追加到提示词末尾；可留空）</span></span>
+                    <textarea v-model="activeShot.promptExtra" class="textarea" rows="3"
+                      placeholder="例：这一段她手里不要拿东西；背景不要出现其他人" @blur="saveShot(activeShot)" />
+                  </label>
                   <div class="mv-inline-tags">
                     <span class="tag" :class="activeShot.vocalState === 'non_vocal' ? '' : 'tag-accent'">{{ activeShot.vocalState === 'non_vocal' ? '间奏 · 无唱' : '唱段' }}</span>
                     <span class="tag">{{ shotSeconds(activeShot).toFixed(3) }}s</span>
@@ -470,6 +475,7 @@
           </div>
 
           <aside class="video-task-player">
+           <div class="video-player-scroll">
             <div class="video-player-head">
               <div class="video-player-head-info">
                 <div class="video-player-title">预览 分镜{{ String(activeShot.shotNumber).padStart(2, '0') }}</div>
@@ -518,6 +524,7 @@
                 <span v-if="!boundRefs(activeShot).length" class="dim" style="font-size:11px">没绑定参考图</span>
               </div>
             </div>
+           </div>
             <div class="video-player-foot">
               <div class="video-foot-row">
                 <span class="video-foot-label">分镜时长</span>
@@ -1921,7 +1928,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 .video-prompt-box { margin: 0; padding: 10px; max-height: 220px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-1); color: var(--text-2); font-size: 11px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
 
 /* ===== 视频制作：三栏 workbench（照短剧 .video-task-* / .video-main-* / .video-inspector-*） ===== */
-.video-task-workbench.has-player { display: grid; grid-template-columns: var(--vleft, 250px) minmax(0, 1fr); min-height: 560px; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-1); }
+.video-task-workbench.has-player { display: grid; grid-template-columns: var(--vleft, 250px) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); height: calc(100vh - 232px); min-height: 480px; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-1); }
 .video-task-workbench { display: grid; grid-template-columns: minmax(0, 1fr); min-height: 560px; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-1); }
 .video-task-side { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(280px, 1fr) minmax(300px, var(--vright, 340px)); border-left: 1px solid var(--border); background: var(--bg-2); }
 .video-task-list { min-height: 0; overflow: hidden; display: flex; flex-direction: column; background: var(--bg-1); }
@@ -1990,7 +1997,8 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); color: var(--
 .storyboard-ref-state { font-size: 10.5px; font-weight: 700; color: var(--text-3); }
 .storyboard-ref-state.is-ready { color: #3fb950; }
 .storyboard-ref-empty { padding: 16px 8px; text-align: center; font-size: 11.5px; color: var(--text-3); }
-.video-task-player { min-width: 0; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--border); background: var(--bg-1); overflow-y: auto; }
+.video-task-player { min-width: 0; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--border); background: var(--bg-1); overflow: hidden; }
+.video-player-scroll { flex: 1; min-height: 0; overflow-y: auto; }
 .video-player-head { min-height: 44px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 12px; padding: 8px 14px; border-bottom: 1px solid var(--border); }
 .video-player-head-info { min-width: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .video-player-title { color: var(--text-0); font-size: 13px; font-weight: 700; white-space: nowrap; }
@@ -2062,7 +2070,7 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); color: var(--
 .video-history-card video { width: 100%; height: 100%; object-fit: cover; display: block; }
 .video-history-idx { position: absolute; left: 3px; bottom: 2px; font-size: 9.5px; color: #fff; text-shadow: 0 1px 3px #000; }
 /* 右栏底部固定操作条 */
-.video-player-foot { position: sticky; bottom: 0; padding: 10px 14px; border-top: 1px solid var(--border); background: var(--bg-1); }
+.video-player-foot { flex: 0 0 auto; padding: 10px 14px; border-top: 1px solid var(--border); background: var(--bg-1); }
 .video-player-foot .btn { width: 100%; }
 
 /* 导出页（照短剧导出：成片条 + 素材网格 + 播放弹窗） */
