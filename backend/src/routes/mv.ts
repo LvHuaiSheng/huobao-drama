@@ -43,22 +43,46 @@ const MV_WARMUP_SECONDS = 0.5
 /** 音频窗口带 warmup 前导 → 成片开头多 warmup、总长按帧网格取整变长（192 帧 vs 声明 175）。
  *  按「跳过 warmup + 只取声明帧数」裁一遍：本段画面 0 秒才对齐它在原曲里的起点，
  *  否则拼接时画面比音轨长，口型错位（实测分镜2/3 各多 17 帧 = 0.708s）。 */
-async function trimToSegment(rel: string, shot: any): Promise<string> {
+async function trimToSegment(rel: string, shot: any, songRel: string): Promise<string> {
   const want = Number(shot?.frames) || 0
-  if (!rel || !want) return rel
+  const sec = Number(shot?.seconds) || 0
+  const start = Number(shot?.startSeconds) || 0
+  if (!rel || !want || !sec) return rel
   const abs = getAbsolutePath(rel)
   const got = await new Promise<number>((res) =>
     ffmpeg.ffprobe(abs, (e: any, m: any) =>
       res(e ? 0 : Number((m?.streams || []).find((x: any) => x.codec_type === 'video')?.nb_frames) || 0)))
   if (!got || got <= want) return rel
-  const out = abs.replace(/\.mp4$/i, '.cut.mp4')
-  await new Promise<void>((resolve, reject) => {
-    ffmpeg(abs).inputOptions([`-ss ${MV_WARMUP_SECONDS}`])
-      .outputOptions(['-frames:v ' + want, '-c:v libx264', '-crf 18', '-preset veryfast', '-pix_fmt yuv420p',
-        '-c:a aac', '-b:a 192k', '-shortest', '-movflags +faststart', '-y'])   // 音轨跟着一起裁，别再 -an（预览要出声）
+  const tmpV = abs.replace(/\.mp4$/i, '.v.mp4')
+  const tmpA = abs.replace(/\.mp4$/i, '.a.m4a')
+  const tmpO = abs.replace(/\.mp4$/i, '.out.mp4')
+  const run = (p: string, inOpts: string[], outOpts: string[], out: string) => new Promise<void>((resolve, reject) => {
+    ffmpeg(p).inputOptions(inOpts).outputOptions(outOpts)
       .on('end', () => resolve()).on('error', (e: Error) => reject(e)).save(out)
   })
-  fs.renameSync(out, abs)
+  try {
+    // 步1：跳过 warmup 前导，只取本段声明帧数
+    await run(abs, [`-ss ${MV_WARMUP_SECONDS}`],
+      ['-frames:v', String(want), '-c:v', 'libx264', '-crf', '18', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-an', '-y'], tmpV)
+    // 步2：音轨从原曲按本段起点切窗（和拼接口径一致，也避免原文件没音轨时丢声）
+    if (songRel) {
+      await run(getAbsolutePath(songRel), [`-ss ${start}`],
+        ['-t', String(sec), '-c:a', 'aac', '-b:a', '192k', '-y'], tmpA)
+      await new Promise<void>((resolve, reject) => {
+        ffmpeg(tmpV).input(tmpA)
+          .outputOptions(['-map', '0:v', '-map', '1:a', '-c:v', 'copy', '-c:a', 'copy', '-shortest', '-movflags', '+faststart', '-y'])
+          .on('end', () => resolve()).on('error', (e: Error) => reject(e)).save(tmpO)
+      })
+      fs.renameSync(tmpO, abs)
+      fs.rmSync(tmpV, { force: true }); fs.rmSync(tmpA, { force: true })
+    } else {
+      fs.renameSync(tmpV, abs)
+    }
+  } catch (err: any) {
+    logTaskError('MV', 'trim', { rel, error: err?.message })
+    for (const f of [tmpV, tmpA, tmpO]) { try { fs.rmSync(f, { force: true }) } catch { /* 忽略 */ } }
+    return rel
+  }
   return rel
 }
 
@@ -450,7 +474,7 @@ app.get('/projects/:id', async (c) => {
             try { hist = JSON.parse(String(s.history || '[]')) } catch { hist = [] }
             patch.history = JSON.stringify([s.videoUrl, ...hist.filter((h) => h !== s.videoUrl)].slice(0, 20))
           }
-          patch.videoUrl = await trimToSegment(t.localPath, s)   // 多给的 warmup 前导帧裁掉，否则拼接口型错位
+          patch.videoUrl = await trimToSegment(t.localPath, s, project.songFile as string)   // 多给的 warmup 前导帧裁掉，否则拼接口型错位
           // 耗时口径照短剧：优先用中转/ComfyUI 回报的真值 timing.genSeconds（纯生成），没有才退回挂钟差
           let genSec = 0
           try {
@@ -955,6 +979,10 @@ app.put('/projects/:id/shots/:sid', async (c) => {
   if (body.camera !== undefined) patch.camera = String(body.camera).slice(0, 300)
   if (body.vocal_state !== undefined) patch.vocalState = String(body.vocal_state).slice(0, 20)
   if (body.lyric !== undefined) patch.lyric = String(body.lyric).slice(0, 300)
+  // 把历史视频里选中的那一版设为当前（照短剧 setAsMainVideo）
+  if (body.video_url !== undefined || body.videoUrl !== undefined) {
+    patch.videoUrl = String(body.video_url ?? body.videoUrl) || null
+  }
   if (body.prompt !== undefined) patch.prompt = String(body.prompt)
   await db.update(schema.mvShots).set(patch).where(eq(schema.mvShots.id, sid))
   return success(c, { id: sid })

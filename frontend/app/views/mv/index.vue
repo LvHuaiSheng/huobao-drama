@@ -491,6 +491,7 @@
                 </span>
                 <span class="video-player-sub">{{ shotSeconds(activeShot).toFixed(3) }}s · {{ activeShot.frames }}帧</span>
               </div>
+              <button v-if="historyPick" class="btn btn-sm btn-primary" @click="setAsCurrent">设为当前</button>
               <a v-if="activeShot.videoUrl" class="btn btn-sm" :href="staticUrl(activeShot.videoUrl)" download>下载</a>
             </div>
             <div class="video-player-stage">
@@ -923,6 +924,17 @@ if (typeof window !== 'undefined') setInterval(() => { nowTick.value++ }, 2000) 
 const exportSelected = ref([])
 const exportPreview = ref(null)
 const historyPick = ref('')   // 预览区切到某条历史视频（空 = 看当前这条）
+
+// 把历史里选中的那一版设为当前（照短剧 setAsMainVideo：改分镜自己的 video_url）
+async function setAsCurrent() {
+  const s = activeShot.value
+  const url = historyPick.value
+  if (!s || !url) return
+  await call(() => api.put(`/mv/projects/${pj.value.id}/shots/${s.id}`, { video_url: url }), '正在设为当前…')
+  s.videoUrl = url
+  historyPick.value = ''
+  await refresh()
+}
 // 本段的历史视频 = 本项目里 storyboard_id 等于这段的所有 video 任务（照短剧）
 const videoTasks = ref([])
 const shotVideoList = (x) => videoTasks.value
