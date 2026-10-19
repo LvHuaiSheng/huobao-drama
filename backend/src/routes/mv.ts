@@ -292,10 +292,36 @@ function fitBeats(raw: any, seconds: number, size: string, camera: string, shotN
   // 运镜兜底：按段号交替「固定 → 缓慢推近 → 固定 → 缓慢拉远」，别整片一个机位
   const CAM_CYCLE = ['固定机位', '缓慢推近', '固定机位', '缓慢拉远']
   const camFallback = camera || CAM_CYCLE[(Math.max(1, shotNumber) - 1) % CAM_CYCLE.length]
+  // 动作兜底必须按段轮换：写死同一句会让每一段动作完全一样（实测分镜1/2 都"往镜头走"）
+  const ACT_CYCLE = [
+    'she sings steadily into the lens, swaying gently with the beat',
+    'she turns to a three-quarter angle and keeps singing, one hand rising with the phrase',
+    'she closes her eyes for a moment mid-line, shoulders easing with the beat',
+    'she tilts her head toward the light and sings, hair drifting across her cheek',
+    'she shifts her weight and sings on, chin lifting slightly on the phrase',
+  ]
+  const ACT_ZH_CYCLE = [
+    '她对着镜头稳稳唱，随节拍轻轻摆动',
+    '她转向三分之四侧继续唱，一只手随乐句抬起',
+    '她唱到一半轻轻闭眼，肩膀随节拍放松',
+    '她微微偏头朝光而唱，发丝扫过脸颊',
+    '她换了个重心继续唱，唱到乐句时下巴轻抬',
+  ]
+  const ACT_NV_CYCLE = [
+    'she breathes quietly, shoulders relaxing, gaze drifting off the lens',
+    'she stands still and lets the room breathe, only her hair moving slightly',
+  ]
+  const ACT_NV_ZH_CYCLE = [
+    '她安静呼吸，肩膀放松，视线自然移开',
+    '她一语不发地站着，只有发丝轻轻动',
+  ]
+  const idx0 = Math.max(1, shotNumber) - 1
   const actFallback = vocal
-    ? 'she sings steadily into the lens, swaying gently with the beat'
-    : 'she breathes quietly, shoulders relaxing, gaze drifting off the lens'
-  const actZhFallback = vocal ? '她对着镜头稳稳唱，随节拍轻轻摆动' : '她安静呼吸，肩膀放松，视线自然移开'
+    ? ACT_CYCLE[idx0 % ACT_CYCLE.length]
+    : ACT_NV_CYCLE[idx0 % ACT_NV_CYCLE.length]
+  const actZhFallback = vocal
+    ? ACT_ZH_CYCLE[idx0 % ACT_ZH_CYCLE.length]
+    : ACT_NV_ZH_CYCLE[idx0 % ACT_NV_ZH_CYCLE.length]
   return bounds.slice(1).map((end, k) => {
     const start = bounds[k]
     const src = Array.isArray(list) ? list[k] || {} : {}
@@ -941,6 +967,7 @@ ${lyricLines.length ? `歌词行：\n${lyricLines.map((l, i) => `${i + 1}. ${l}`
 - **景别要跳**：相邻两拍不要同一个景别（例：中景 → 特写 → 中景），景别在 中远景/中景/近景/特写 里选
 - **机位/角度每拍都要换**（正面 → 四分之三侧 → 侧脸過肩），运镜也跟着换（固定 ↗ 缓慢推近 ↗ 固定）
 - **段级景别必须交替（硬规则）**：全曲所有段的 shot_size（整段主导景别）**不许连续 3 段相同** —— 严禁一路都是「近景」（现在实测就是这么错的：分镜3/4/5/6 全是近景，拼起来整片怼脸）。按「中远景 → 中景 → 近景 → 特写 → 中景 → 中远景 …」交替推进；副歌可以近景/特写为主，但每 2~3 段必须插一段中景或中远景换气；首尾段用中远景收放
+- **相邻段的 action（人物动作）也不许重复或近似**：连着两段都写"往镜头走""对着镜头唱"这类同一动作是**不允许**的 —— 每段的动作要换（例：对镜头唱 → 侧身唱手随乐句抬起 → 闭眼投入 → 偏头朝光 → 换重心下巴抬起），整首歌要有动作起伏
 - **相邻段不许重复同样的推进方式**：通篇看一遍你排的所有段，连着两段都是"中景 → 特写"这类同样的景别走向是**不允许**的（拼在一起会跳）；相邻段的景别顺序、机位角度、运镜方向都要明显不同（例：上段「中景 → 特写」，这段就写「近景 → 中远景」或「特写 → 近景」），整首歌的景别要有交替推进的节奏
 - 有唱段：**每一拍都必须看得见脸和嘴**（只换角度/景别，不许切背影、手部、空镜）；间奏段才可以切空镜/背影/手部/环境
 - 不管怎么切，段内**只能是同一个场景**，不许换地方
