@@ -379,7 +379,6 @@
                   <span class="video-task-state" :class="'is-' + shotState(s)"><i class="dot" :class="{ ok: shotState(s) === 'done', pending: shotState(s) === 'pending' }" />{{ shotStateLabel(s) }}</span>
                   <span class="video-task-sep">·</span><span>{{ shotSeconds(s).toFixed(3) }}s（{{ s.frames }}帧）</span>
                   <span class="video-task-sep">·</span><span class="truncate">{{ s.shotSize }} · {{ s.vocalState === 'vocal_active' ? '唱' : '非唱' }} · 图{{ boundRefs(s).length }}</span>
-                  <template v-if="elapsedLabel(s)"><span class="video-task-sep">·</span><span :class="{ 'is-running': s.status === 'processing' }">{{ elapsedLabel(s) }}</span></template>
                 </div>
                 <div v-if="s.errorMsg" class="video-task-error" :title="s.errorMsg">{{ s.errorMsg.slice(0, 100) }}</div>
               </div>
@@ -579,6 +578,7 @@
               <div class="video-task-meta-line">
                 <span class="video-task-state" :class="'is-' + r.state"><i class="dot" :class="{ ok: r.state === 'done', pending: r.state === 'pending' }" />{{ r.label }}</span>
                 <span class="video-task-sep">·</span><span>{{ r.duration }}</span>
+                <template v-if="r.elapsed"><span class="video-task-sep">·</span><span :class="{ 'is-running': r.state === 'pending' }">{{ r.elapsed }}</span></template>
               </div>
               <div v-if="r.errorMsg" class="video-task-error" :title="r.errorMsg">{{ r.errorMsg.slice(0, 90) }}</div>
             </div>
@@ -1176,6 +1176,7 @@ const taskRows = computed(() => shots.value
     state: shotState(s), label: shotStateLabel(s),
     duration: shotSeconds(s) ? shotSeconds(s).toFixed(3) + 's' : '—',
     videoUrl: s.videoUrl, errorMsg: s.errorMsg,
+    elapsed: elapsedLabel(s),
   })))
 const activeTaskCount = computed(() => videoStats.value.pending + videoStats.value.failed)
 const outlineTextOf = (s) => {
