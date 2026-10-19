@@ -279,7 +279,7 @@ async function shotsOf(projectId: number) {
 }
 
 /** 把 LLM 给的拍点夹进段内：首尾相接、正好铺满 seconds（1~3 拍） */
-function fitBeats(raw: any, seconds: number, size: string, camera: string): any[] {
+function fitBeats(raw: any, seconds: number, size: string, camera: string, shotNumber = 1, vocal = true): any[] {
   const list = Array.isArray(raw) ? raw : []
   const total = Math.max(0.5, seconds)
   const cuts: number[] = []
@@ -289,6 +289,13 @@ function fitBeats(raw: any, seconds: number, size: string, camera: string): any[
   }
   const uniq = [...new Set(cuts.map((c) => Math.round(c * 1000) / 1000))].sort((a, b) => a - b).slice(0, 3)
   const bounds = [0, ...uniq, total]
+  // 运镜兜底：按段号交替「固定 → 缓慢推近 → 固定 → 缓慢拉远」，别整片一个机位
+  const CAM_CYCLE = ['固定机位', '缓慢推近', '固定机位', '缓慢拉远']
+  const camFallback = camera || CAM_CYCLE[(Math.max(1, shotNumber) - 1) % CAM_CYCLE.length]
+  const actFallback = vocal
+    ? 'she sings steadily into the lens, swaying gently with the beat'
+    : 'she breathes quietly, shoulders relaxing, gaze drifting off the lens'
+  const actZhFallback = vocal ? '她对着镜头稳稳唱，随节拍轻轻摆动' : '她安静呼吸，肩膀放松，视线自然移开'
   return bounds.slice(1).map((end, k) => {
     const start = bounds[k]
     const src = Array.isArray(list) ? list[k] || {} : {}
@@ -296,9 +303,10 @@ function fitBeats(raw: any, seconds: number, size: string, camera: string): any[
       start: Math.round(start * 1000) / 1000,
       end: Math.round(end * 1000) / 1000,
       size: String(src.size || size).slice(0, 10),
-      camera: String(src.camera || camera).slice(0, 200),
-      action: String(src.action || '').slice(0, 300),
-      action_zh: String(src.action_zh || '').slice(0, 300),
+      // 编排模型经常把动作/机位留空（实测：beats 里 action/camera 全空 → 画面全靠模型自由发挥）
+      camera: String(src.camera || camFallback).slice(0, 200),
+      action: String(src.action || actFallback).slice(0, 300),
+      action_zh: String(src.action_zh || actZhFallback).slice(0, 300),
     }
   })
 }
@@ -928,6 +936,7 @@ ${lyricLines.length ? `歌词行：\n${lyricLines.map((l, i) => `${i + 1}. ${l}`
 你就是这支 MV 的导演。给每段做**镜头编排**（beat），按这一段时长切成 2~4 个镜头，**每拍 2~3.5 秒**（5~6s 段 2 拍；7~9s 段 2~3 拍；10s 以上 3~4 拍）：
 - 每个镜头要有起始秒、结束秒（必须首尾相接、从 0 开始、正好铺满这一段时长）
 - 景别/机位用**中文**写（机位像 "固定机位，平视，正脸三分之四"，允许 "缓慢推近" 这类运镜）
+- **action 和 camera 一律不许留空**（留空等于让模型自由发挥画面）
 - action 是这一段镜头里人物/画面**在做什么**，用英文一句短语（如 "she looks down and smiles"），action_zh 给同一句的中文
 - **景别要跳**：相邻两拍不要同一个景别（例：中景 → 特写 → 中景），景别在 中远景/中景/近景/特写 里选
 - **机位/角度每拍都要换**（正面 → 四分之三侧 → 侧脸過肩），运镜也跟着换（固定 ↗ 缓慢推近 ↗ 固定）
@@ -953,7 +962,7 @@ ${lyricLines.length ? `歌词行：\n${lyricLines.map((l, i) => `${i + 1}. ${l}`
         frames: Number(s.frames), seconds: Number(s.seconds),
         shotSize: SIZES.includes(String(extra?.shot_size || '')) ? String(extra.shot_size) : (sizes[i] || '中景'),
         camera: String(extra?.camera || '').slice(0, 300),
-        beats: JSON.stringify(fitBeats(extra?.beats, Number(s.seconds) || 5.167, String(extra?.shot_size || sizes[i] || '中景'), String(extra?.camera || ''))),
+        beats: JSON.stringify(fitBeats(extra?.beats, Number(s.seconds) || 5.167, String(extra?.shot_size || sizes[i] || '中景'), String(extra?.camera || ''), i + 1, String(s.vocal_state || '') === 'vocal_active')),
         vocalState: String(s.vocal_state || 'vocal_active'), lyric: String(extra?.lyric || '').slice(0, 300),
         status: 'pending', createdAt: ts, updatedAt: ts,
       })
