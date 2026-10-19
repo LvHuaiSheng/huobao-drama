@@ -497,23 +497,18 @@
               <video v-else-if="activeShot.videoUrl" :key="'c' + activeShot.id + activeShot.videoUrl" :src="staticUrl(activeShot.videoUrl)" controls></video>
               <div v-else class="video-task-empty">{{ activeShot.status === 'processing' ? '生成中…' : '还没生成' }}</div>
             </div>
-            <div v-if="shotHistoryOld(activeShot).length" class="video-history">
+            <div v-if="shotVideoList(activeShot).length > 1" class="video-history">
               <div class="video-inspector-prompt-head">
                 <span class="video-inspector-label">历史视频</span>
-                <span class="dim" style="font-size:11px">共 {{ 1 + shotHistoryOld(activeShot).length }} 条 · 点缩略图切换</span>
+                <span class="dim" style="font-size:11px">共 {{ shotVideoList(activeShot).length }} 条 · 点缩略图切换</span>
               </div>
               <div class="video-history-strip">
-                <!-- 默认当前（每条分镜都有）：没生成就是占位 -->
-                <div class="video-history-card" :class="{ on: !historyPick }" title="当前版本" @click="historyPick = ''">
-                  <video v-if="activeShot.videoUrl" :src="staticUrl(activeShot.videoUrl)" preload="metadata" muted playsinline tabindex="-1"></video>
-                  <span v-else class="video-history-empty">还没生成</span>
-                  <span class="video-history-current">当前</span>
-                </div>
-                <!-- 历史版本（可切、可删） -->
-                <div v-for="h in shotHistoryOld(activeShot)" :key="h" class="video-history-card" role="button" tabindex="0"
-                  :class="{ on: historyPick === h }" @click="historyPick = h" @keydown.enter.prevent="historyPick = h">
-                  <video :src="staticUrl(h)" preload="metadata" muted playsinline tabindex="-1"></video>
-                  <button type="button" class="video-history-del" title="删除这一版" @click.stop="removeHistory(activeShot, h)">×</button>
+                <div v-for="t in shotVideoList(activeShot)" :key="t.id" class="video-history-card" role="button" tabindex="0"
+                  :class="{ on: t.cur ? !historyPick : historyPick === t.url }"
+                  @click="historyPick = t.cur ? '' : t.url" @keydown.enter.prevent="historyPick = t.cur ? '' : t.url">
+                  <video :src="staticUrl(t.url)" preload="metadata" muted playsinline tabindex="-1"></video>
+                  <span v-if="t.cur" class="video-history-current">当前</span>
+                  <button v-else type="button" class="video-history-del" title="删除这一版" @click.stop="removeHistory(activeShot, t.url)">×</button>
                 </div>
               </div>
             </div>
@@ -926,11 +921,12 @@ if (typeof window !== 'undefined') setInterval(() => { nowTick.value++ }, 2000) 
 const exportSelected = ref([])
 const exportPreview = ref(null)
 const historyPick = ref('')   // 预览区切到某条历史视频（空 = 看当前这条）
-const shotHistoryOld = (x) => {
-  let old = []
-  try { old = x?.history ? JSON.parse(x.history) : [] } catch { old = [] }
-  return [...new Set(old.filter((h) => h && h !== x?.videoUrl))]
-}
+// 本段的历史视频 = 本项目里 storyboard_id 等于这段的所有 video 任务（照短剧）
+const videoTasks = ref([])
+const shotVideoList = (x) => videoTasks.value
+  .filter((t) => Number(t.shotId) === Number(x?.id) && t.url)
+  .map((t) => ({ id: t.id, url: t.url, createdAt: t.createdAt, cur: t.url === x?.videoUrl }))
+const shotHistoryOld = (x) => shotVideoList(x).filter((t) => !t.cur).map((t) => t.url)
 watch(() => activeShotId.value, () => { historyPick.value = '' })   // 换段时回到当前版本
 function enterExport() {
   tab.value = 'export'
@@ -969,7 +965,7 @@ async function setShotDuration(s, sec) {
 }
 async function removeHistory(s, url) {
   askConfirm('删除这一版历史视频', '只删这一版（当前版本和所有分段都不动）。继续？', '删除', async () => {
-    await call(() => api.del(`/mv/projects/${pj.value.id}/shots/${s.id}/history?url=${encodeURIComponent(url)}`), '正在删除…')
+    await call(() => api.del(`/mv/projects/${pj.value.id}/shots/${s.id}/video?url=${encodeURIComponent(url)}`), '正在删除…')
     if (historyPick.value === url) historyPick.value = ''
     await refresh()
   })

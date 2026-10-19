@@ -19,7 +19,7 @@
  */
 import { Hono } from 'hono'
 import { extractVideoPoster } from '../utils/video-poster.js'
-import { eq, desc, and, isNull } from 'drizzle-orm'
+import { eq, desc, and, isNull, inArray } from 'drizzle-orm'
 import fs from 'fs'
 import path from 'path'
 import { db, schema, getInsertId } from '../db/index.js'
@@ -448,7 +448,20 @@ app.get('/projects/:id', async (c) => {
       }
     }
   }
-  return success(c, { project, assets: await assetsOf(id), shots })
+  // 本项目所有「视频任务」：前端按 storyboard_id(=段 id) 归组出每段的历史视频（照短剧）
+  const shotIds = shots.map((x: any) => x.id)
+  const tasks = shotIds.length
+    ? await db.select().from(schema.sysTask)
+      .where(and(eq(schema.sysTask.type, 'video'), inArray(schema.sysTask.storyboardId, shotIds)))
+      .orderBy(desc(schema.sysTask.id)).limit(500)
+    : []
+  return success(c, {
+    project, assets: await assetsOf(id), shots,
+    videoTasks: tasks.map((t: any) => ({
+      id: t.id, shotId: t.storyboardId, url: t.localPath || t.resultUrl || '',
+      status: t.status, createdAt: t.createdAt, error: t.errorMsg || null,
+    })),
+  })
 })
 
 app.delete('/projects/:id', async (c) => {
@@ -1129,8 +1142,8 @@ app.delete('/projects/:id/output', async (c) => {
   return success(c, { ok: true })
 })
 
-/** 删掉某一段的某一版历史视频（只动 history 数组那一项 + 删文件） */
-app.delete('/projects/:id/shots/:sid/history', async (c) => {
+/** 删掉某一段的某一版视频：删任务记录 + 文件；删的若是当前版本，自动把当前指回剩下最新的一条（照短剧） */
+app.delete('/projects/:id/shots/:sid/video', async (c) => {
   const id = Number(c.req.param('id'))
   const sid = Number(c.req.param('sid'))
   const url = String(c.req.query('url') || '')
@@ -1138,12 +1151,20 @@ app.delete('/projects/:id/shots/:sid/history', async (c) => {
   const [shot] = await db.select().from(schema.mvShots)
     .where(and(eq(schema.mvShots.id, sid), eq(schema.mvShots.projectId, id)))
   if (!shot) return notFound(c, '分镜不存在')
-  let hist: string[] = []
-  try { hist = JSON.parse(String(shot.history || '[]')) } catch { hist = [] }
-  await db.update(schema.mvShots).set({ history: JSON.stringify(hist.filter((h) => h !== url)), updatedAt: now() })
-    .where(eq(schema.mvShots.id, sid))
+  const rows = await db.select().from(schema.sysTask)
+    .where(and(eq(schema.sysTask.type, 'video'), eq(schema.sysTask.storyboardId, sid)))
+  const hit = rows.find((t: any) => (t.localPath || t.resultUrl) === url)
+  if (hit) {
+    await db.delete(schema.sysTask).where(eq(schema.sysTask.id, hit.id))
+  }
   try { fs.rmSync(getAbsolutePath(url), { force: true }) } catch { /* 文件不在就算了 */ }
-  logTaskSuccess('MV', 'delete-history', { id, sid })
+  // 当前版本被删 → 指回剩下最新的一条
+  if (String(shot.videoUrl || '') === url) {
+    const rest = rows.filter((t: any) => (t.localPath || t.resultUrl) !== url)
+    await db.update(schema.mvShots).set({ videoUrl: rest[0]?.localPath || null, updatedAt: now() })
+      .where(eq(schema.mvShots.id, sid))
+  }
+  logTaskSuccess('MV', 'delete-video', { id, sid })
   return success(c, { ok: true })
 })
 
@@ -1174,6 +1195,7 @@ app.post('/projects/:id/shots/:sid/render', async (c) => {
       aspectRatio: project.aspectRatio || '9:16',
       resolution: `${videoSize(project)[0]}x${videoSize(project)[1]}`,
       referenceImageUrls: refs,
+      storyboardId: sid,   // 复用短剧的字段：让这条任务能被「本段历史视频」查到（照短剧）
       seed: body.seed ? Number(body.seed) : undefined,
       // MV 专用字段（适配器原样并进请求体；短剧路径不传这些）
       mvExtras: {
