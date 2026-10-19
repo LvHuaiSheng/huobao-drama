@@ -924,8 +924,15 @@ app.post('/projects/:id/prompts', async (c) => {
   const id = Number(c.req.param('id'))
   const project = await loadProject(id)
   if (!project) return notFound(c, 'MV 项目不存在')
-  const shots = await shotsOf(id)
-  if (!shots.length) return badRequest(c, '还没有分镜表，先切分详细分镜')
+  const allShots = await shotsOf(id)
+  if (!allShots.length) return badRequest(c, '还没有分镜表，先切分详细分镜')
+  // 批量「补齐」：默认只补没有英文稿的段，已生成的不重写（要重写请点该段的「重新生成」）
+  const body = await c.req.json().catch(() => ({} as any))
+  const missingOnly = body?.missing_only !== false
+  const shots = missingOnly ? allShots.filter((x: any) => !String(x.promptEn || '').trim()) : allShots
+  if (!shots.length) {
+    return success(c, { ok: true, done: 0, skipped: allShots.length, message: '每一段都已有提示词，没有需要补齐的' })
+  }
   const { character, scene } = await primaryAssets(id)
   if (!character) return badRequest(c, '还没有人物资产（先提取人物并出图）')
   // 补充说明用户写中文；编译前整批翻一次英文（失败就原样，不阻塞编译）

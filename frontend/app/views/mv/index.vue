@@ -35,6 +35,13 @@
         </span>
       </div>
       <div class="head-actions">
+        <span v-if="current && tab === 'video' && recentDone.length" class="mv-recent-row">
+          <span class="mv-recent-kicker">最近</span>
+          <span v-for="it in recentDone" :key="it.id" class="mv-recent-item" :class="it.ok ? 'is-ok' : 'is-bad'"
+            :title="it.error || ''" @click="gotoShot(it.n)">
+            {{ it.ok ? '✓' : '✗' }} {{ it.label }}<template v-if="it.dur"> · {{ it.dur }}</template>
+          </span>
+        </span>
         <span v-if="busy && stepMsg" class="busy-hint">{{ stepMsg }}</span>
         <template v-if="current && tab === 'video'">
           <span class="mv-step-hint">①</span>
@@ -47,7 +54,7 @@
           <button class="btn btn-sm" @click="genShots" :disabled="busy || !pj.vocalStem"
             :title="pj.vocalStem ? (shots.length ? '按人声轨重新切分（会重建现有分镜）' : '按人声轨切分并标唱/非唱') : '先做人声分离——分镜的唱/非唱要靠人声轨判断'">{{ shots.length ? '重新拆分' : '拆分分镜' }}</button>
           <span class="mv-step-hint">③</span>
-          <button class="btn btn-sm" @click="askGenPrompts" :disabled="busy || !shots.length">编译全部提示词</button>
+          <button class="btn btn-sm" @click="askGenPrompts" :disabled="busy || !shots.length" title="只给还没有提示词的分镜补上；已生成的不动（要重写点该段的「重新生成」）">批量补齐提示词</button>
           <button class="btn btn-sm" @click="askCheckAll" :disabled="!shots.length" title="只读文本检查，不会打断正在生成的视频">全部体检</button>
           <span class="mv-step-hint">④</span>
           <button class="btn btn-sm" @click="askRenderAll" :disabled="busy || !shots.length">生成全部</button>
@@ -347,13 +354,6 @@
       </div>
 
       <!-- 第 4 页 · 视频制作（照短剧三栏 workbench：左任务列表 / 中编辑区 / 右播放器） -->
-      <div v-if="tab === 'video' && recentDone.length" class="mv-recent-row">
-        <span class="mv-recent-kicker">最近</span>
-        <span v-for="it in recentDone" :key="it.id" class="mv-recent-item" :class="it.ok ? 'is-ok' : 'is-bad'"
-          :title="it.error || ''" @click="gotoShot(it.n)">
-          {{ it.ok ? '✓' : '✗' }} {{ it.label }}<template v-if="it.dur"> · {{ it.dur }}</template>
-        </span>
-      </div>
       <div v-if="tab === 'video'" class="video-task-workbench has-player" :style="{ '--vleft': '250px', '--vright': '340px' }">
         <section class="video-task-list">
           <div class="video-task-head">
@@ -469,7 +469,7 @@
                   </div>
                 </div>
                 <textarea v-model="activeShot.prompt" class="textarea video-inspector-prompt" rows="14"
-                  placeholder="还没有分镜稿 —— 点上面的「AI 生成」，或顶部「编译全部提示词」；生成后可在这里手改" />
+                  placeholder="还没有分镜稿 —— 点上面的「AI 生成」，或顶部「批量补齐提示词」；生成后可在这里手改" />
                 <div class="video-inspector-prompt-extra">
                   <button v-if="activeShot.promptEn" type="button" class="btn btn-sm video-inspector-prompt-en-toggle"
                     @click="showEn = !showEn">{{ showEn ? '收起英文提示词' : '显示英文提示词（发给 H3 的就是它）' }}</button>
@@ -1055,25 +1055,17 @@ function runConfirm() {
   confirmDlg.value = null
   if (typeof fn === 'function') fn()
 }
-const askGenPrompts = () => askConfirm('编译全部提示词',
-  `会用当前文本模型重写这 ${shots.value.length} 段的提示词，手改过的内容会被覆盖。继续？`, '开始编译', genPrompts)
-const askRenderAll = () => {
-  const left = shots.value.filter((s) => !s.videoUrl).length
-  askConfirm('生成全部',
-    `还有 ${left} 段没生成，每段约 2~4 分钟，共约 ${left * 3} 分钟，期间队列串行跑。继续？`, '开始生成', renderAll)
+const askGenPrompts = () => {
+  const miss = shots.value.filter((x) => !String(x.promptEn || '').trim()).length
+  const have = shots.value.length - miss
+  if (!miss) { alert(`每一段都已有提示词（${have} 段），没有需要补齐的。\n要重写某一段，请点那一段的「重新生成」。`); return }
+  askConfirm('批量补齐提示词',
+    `只给还没有提示词的 ${miss} 段生成（已有 ${have} 段不动）。继续？`, '开始补齐',
+    async () => {
+      const r = await call(() => api.post(`/mv/projects/${pj.value.id}/prompts`, { missing_only: true }), '正在补齐提示词…')
+      if (r) await refresh()
+    })
 }
-const askDeleteOutput = () => askConfirm('删除成片',
-  '会删掉这条成片文件（各段视频都保留，可以随时重新拼接）。继续？', '删除', async () => {
-    await call(() => api.del(`/mv/projects/${pj.value.id}/output`), '正在删除成片…')
-    await refresh()
-  })
-const askAssemble = () => askConfirm('开始拼接',
-  `会把勾选的 ${exportSelected.value.length} 段按顺序拼接、并混入原曲（从头对齐）。继续？`, '开始拼接', assemble)
-const askSeparate = () => askConfirm('人声分离',
-  pj.value.vocalStem
-    ? '这首歌已经分离过，会直接复用已有的人声轨（现有分镜不动）。继续？'
-    : `会用 demucs 分离人声（首次约 1~3 分钟）。分离完会清空现有 ${shots.value.length} 段分镜（含提示词和生成记录），因为旧切分是按旧判据做的，需要重新「拆分分镜」。继续？`,
-  pj.value.vocalStem ? '复用' : '开始分离', separateVocals)
 
 const checking = ref(false)
 const shotPromptBusy = ref(null)
@@ -1985,7 +1977,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 /* ===== 视频制作：三栏 workbench（照短剧 .video-task-* / .video-main-* / .video-inspector-*） ===== */
 .video-task-workbench.has-player { display: grid; grid-template-columns: var(--vleft, 250px) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); height: calc(100vh - 232px); min-height: 480px; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-1); }
 .video-task-workbench { display: grid; grid-template-columns: minmax(0, 1fr); min-height: 560px; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-1); }
-.video-task-side { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(280px, 1fr) minmax(300px, var(--vright, 340px)); border-left: 1px solid var(--border); background: var(--bg-2); }
+.video-task-side { min-width: 0; min-height: 0; height: 100%; overflow: hidden; display: grid; grid-template-columns: minmax(280px, 1fr) minmax(300px, var(--vright, 340px)); grid-template-rows: minmax(0, 1fr); border-left: 1px solid var(--border); background: var(--bg-2); }
 .video-task-list { min-height: 0; overflow: hidden; display: flex; flex-direction: column; background: var(--bg-1); }
 .video-task-title { font-size: 13px; line-height: 1.2; font-weight: 850; color: var(--text-0); }
 .video-task-meta { margin-top: 3px; font-size: 11px; color: var(--text-3); }
@@ -2187,7 +2179,7 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); color: var(--
 .video-history-del:hover { background: #d33; }
 
 /* 「最近」那一行（照短剧：视频制作行的第二行） */
-.mv-recent-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; font-size: 11.5px; }
+.mv-recent-row { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-right: auto; font-size: 11.5px; }
 .mv-recent-kicker { color: var(--text-3); font-weight: 700; letter-spacing: .04em; }
 .mv-recent-item { cursor: pointer; color: var(--text-2); }
 .mv-recent-item.is-ok { color: #4caf50; }
