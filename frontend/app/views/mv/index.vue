@@ -487,25 +487,29 @@
               <a v-if="activeShot.videoUrl" class="btn btn-sm" :href="staticUrl(activeShot.videoUrl)" download>下载</a>
             </div>
             <div class="video-player-stage">
-              <video v-if="historyPick" :key="historyPick" :src="staticUrl(historyPick)" controls autoplay></video>
-              <video v-else-if="activeShot.videoUrl" :src="staticUrl(activeShot.videoUrl)" controls></video>
+              <video v-if="historyPick" :key="'h' + activeShot.id + historyPick" :src="staticUrl(historyPick)" controls></video>
+              <video v-else-if="activeShot.videoUrl" :key="'c' + activeShot.id + activeShot.videoUrl" :src="staticUrl(activeShot.videoUrl)" controls></video>
               <div v-else class="video-task-empty">{{ activeShot.status === 'processing' ? '生成中…' : '还没生成' }}</div>
             </div>
-            <div v-if="shotHistory(activeShot).length" class="video-history">
-              <div class="video-inspector-prompt-head"><span class="video-inspector-label">历史视频</span><span class="dim" style="font-size:11px">共 {{ shotHistory(activeShot).length }} 条 · 点开切换</span></div>
-              <div class="video-history-strip">
-                <button v-for="(h, i) in shotHistory(activeShot)" :key="h" type="button" class="video-history-card"
-                  :class="{ on: (historyPick || activeShot.videoUrl) === h }" :title="'第 ' + (shotHistory(activeShot).length - i) + ' 版'" @click="historyPick = h">
-                  <video :src="staticUrl(h)" preload="metadata" muted playsinline tabindex="-1"></video>
-                  <span v-if="(historyPick || activeShot.videoUrl) === h" class="video-history-current">当前</span>
-                  <button v-else type="button" class="video-history-del" title="删除这一版" @click.stop="removeHistory(activeShot, h)">×</button>
-                  <span class="video-history-idx">#{{ shotHistory(activeShot).length - i }}</span>
-                </button>
+            <div class="video-history">
+              <div class="video-inspector-prompt-head">
+                <span class="video-inspector-label">历史视频</span>
+                <span class="dim" style="font-size:11px">共 {{ 1 + shotHistoryOld(activeShot).length }} 条 · 点缩略图切换</span>
               </div>
-            </div>
-            <div class="video-inspector">
-              <div class="mv-row mv-row-hero"></div>
-              
+              <div class="video-history-strip">
+                <!-- 默认当前（每条分镜都有）：没生成就是占位 -->
+                <div class="video-history-card" :class="{ on: !historyPick }" title="当前版本" @click="historyPick = ''">
+                  <video v-if="activeShot.videoUrl" :src="staticUrl(activeShot.videoUrl)" preload="metadata" muted playsinline tabindex="-1"></video>
+                  <span v-else class="video-history-empty">还没生成</span>
+                  <span class="video-history-current">当前</span>
+                </div>
+                <!-- 历史版本（可切、可删） -->
+                <div v-for="h in shotHistoryOld(activeShot)" :key="h" class="video-history-card" role="button" tabindex="0"
+                  :class="{ on: historyPick === h }" @click="historyPick = h" @keydown.enter.prevent="historyPick = h">
+                  <video :src="staticUrl(h)" preload="metadata" muted playsinline tabindex="-1"></video>
+                  <button type="button" class="video-history-del" title="删除这一版" @click.stop="removeHistory(activeShot, h)">×</button>
+                </div>
+              </div>
             </div>
             <div class="video-ref-block">
               <div class="video-inspector-prompt-head">
@@ -913,11 +917,10 @@ const tab = ref('origin')
 const exportSelected = ref([])
 const exportPreview = ref(null)
 const historyPick = ref('')   // 预览区切到某条历史视频（空 = 看当前这条）
-const shotHistory = (x) => {
+const shotHistoryOld = (x) => {
   let old = []
   try { old = x?.history ? JSON.parse(x.history) : [] } catch { old = [] }
-  const all = [x?.videoUrl, ...old].filter(Boolean)
-  return [...new Set(all)]
+  return [...new Set(old.filter((h) => h && h !== x?.videoUrl))]
 }
 watch(() => activeShotId.value, () => { historyPick.value = '' })   // 换段时回到当前版本
 function enterExport() {
