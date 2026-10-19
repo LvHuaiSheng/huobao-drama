@@ -35,13 +35,6 @@
         </span>
       </div>
       <div class="head-actions">
-        <span v-if="current && tab === 'video' && recentDone.length" class="mv-recent-row">
-          <span class="mv-recent-kicker">最近</span>
-          <span v-for="it in recentDone" :key="it.id" class="mv-recent-item" :class="it.ok ? 'is-ok' : 'is-bad'"
-            :title="it.error || ''" @click="gotoShot(it.n)">
-            {{ it.ok ? '✓' : '✗' }} {{ it.label }}<template v-if="it.dur"> · {{ it.dur }}</template>
-          </span>
-        </span>
         <span v-if="busy && stepMsg" class="busy-hint">{{ stepMsg }}</span>
         <template v-if="current && tab === 'video'">
           <span class="mv-step-hint">①</span>
@@ -142,6 +135,23 @@
             <span class="mv-side-label">合成导出</span>
             <span v-if="pj.outputUrl" class="mv-side-count">✓</span>
           </button>
+          <div v-if="shots.length" class="mv-side-progress">
+            <div class="mv-side-progress-head">
+              <span class="mv-side-progress-title">制作进度</span>
+              <span class="mv-side-progress-count">{{ progressVideo }}/{{ shots.length }}</span>
+            </div>
+            <div class="mv-side-progress-track">
+              <button v-for="p in progressSteps" :key="p.key" type="button" class="mv-side-progress-seg"
+                :class="{ done: p.total > 0 && p.done === p.total, current: p.done > 0 && p.done < p.total }"
+                :title="p.label + ' ' + p.done + '/' + p.total" @click="tab = 'video'">
+                <span class="mv-side-progress-seg-fill" :style="{ width: p.pct + '%' }" />
+              </button>
+            </div>
+            <div class="mv-side-progress-labels">
+              <span v-for="p in progressSteps" :key="p.key" class="mv-side-progress-label"
+                :class="{ on: p.total > 0 && p.done === p.total }">{{ p.label }} {{ p.done }}/{{ p.total }}</span>
+            </div>
+          </div>
           <div class="mv-side-foot">
             <button type="button" class="mv-side-refresh" @click="loadProjects" :disabled="busy">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
@@ -1245,6 +1255,20 @@ async function runCheck() {
 }
 // 批量选择（照短剧 videoSelectMode）
 const selectMode = ref(false)
+// 三段进度（拆分 / 提示词 / 出片）——照短剧左栏 sidebar-progress 的分段形式
+const progressSteps = computed(() => {
+  const total = shots.value.length
+  const donePrompt = shots.value.filter((x) => String(x.promptEn || '').trim()).length
+  const doneVideo = shots.value.filter((x) => x.videoUrl).length
+  const mk = (key, label, done, t) => ({ key, label, done, total: t, pct: t ? Math.round((done / t) * 100) : 0 })
+  return [
+    mk('split', '拆分', total ? 1 : 0, 1),
+    mk('prompt', '提示词', donePrompt, total),
+    mk('video', '出片', doneVideo, total),
+  ]
+})
+const progressVideo = computed(() => shots.value.filter((x) => x.videoUrl).length)
+
 const selectedIds = ref([])
 function toggleSelectMode() {
   selectMode.value = !selectMode.value
@@ -2202,6 +2226,19 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); color: var(--
 
 /* 本段内容的行内标签 */
 .mv-inline-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* 左栏三段进度（照短剧 sidebar-progress） */
+.mv-side-progress { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
+.mv-side-progress-head { display: flex; align-items: baseline; justify-content: space-between; }
+.mv-side-progress-title { font-size: 11px; font-weight: 700; color: var(--text-2); }
+.mv-side-progress-count { font-size: 11px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.mv-side-progress-track { display: flex; gap: 3px; }
+.mv-side-progress-seg { flex: 1; height: 6px; padding: 0; border: 0; border-radius: 3px; background: var(--bg-2); overflow: hidden; cursor: pointer; }
+.mv-side-progress-seg-fill { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s ease; }
+.mv-side-progress-seg.done .mv-side-progress-seg-fill { background: #34c759; }
+.mv-side-progress-labels { display: flex; gap: 3px; }
+.mv-side-progress-label { flex: 1; font-size: 10px; color: var(--text-2); text-align: center; font-variant-numeric: tabular-nums; }
+.mv-side-progress-label.on { color: #34c759; font-weight: 600; }
 
 /* 左侧栏底部「刷新数据」：铺满宽度（照短剧左侧栏底部） */
 .mv-side-foot { margin-top: auto; padding-top: 8px; border-top: 1px solid var(--border); }
