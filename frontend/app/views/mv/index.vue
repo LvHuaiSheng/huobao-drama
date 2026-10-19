@@ -1277,10 +1277,6 @@ async function saveRatio(v) {
 }
 
 /** 点图看大图（照短剧素材库：点一下弹大图） */
-function openViewerUrl(url, name) {
-  if (!url) return
-  viewer.value = { open: true, src: staticUrl(url), title: name || '' }
-}
 function openViewer(a) {
   if (!a.image) return
   viewer.value = { open: true, src: staticUrl(a.image), title: `${a.kind === 'character' ? '人物' : '场景'} · ${a.name || ''}` }
