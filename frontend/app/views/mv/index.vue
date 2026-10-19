@@ -491,6 +491,7 @@
                 <button v-for="(h, i) in shotHistory(activeShot)" :key="h" type="button" class="video-history-card"
                   :class="{ on: (historyPick || activeShot.videoUrl) === h }" :title="'第 ' + (shotHistory(activeShot).length - i) + ' 版'" @click="historyPick = h">
                   <video :src="staticUrl(h)" preload="metadata" muted playsinline tabindex="-1"></video>
+                  <span v-if="(historyPick || activeShot.videoUrl) === h" class="video-history-current">当前</span>
                   <span class="video-history-idx">#{{ shotHistory(activeShot).length - i }}</span>
                 </button>
               </div>
@@ -503,8 +504,30 @@
                 <a class="btn btn-sm" :href="staticUrl(pj.outputUrl)" target="_blank">打开成片</a>
               </template>
             </div>
+            <div class="video-ref-block">
+              <div class="video-inspector-prompt-head">
+                <span class="video-inspector-label">绑定参考图</span>
+                <span class="tag mono">{{ boundRefs(activeShot).length }}</span>
+              </div>
+              <div class="video-ref-strip">
+                <button v-for="a in boundRefs(activeShot)" :key="'rb' + a.id" type="button" class="video-ref-card"
+                  :title="a.name" @click="openViewerUrl(a.url, a.name)">
+                  <img :src="staticUrl(a.url)" alt="" loading="lazy" />
+                  <span class="truncate">{{ a.name }}</span>
+                </button>
+                <span v-if="!boundRefs(activeShot).length" class="dim" style="font-size:11px">没绑定参考图</span>
+              </div>
+            </div>
             <div class="video-player-foot">
-              <button class="btn btn-primary" @click="render(activeShot)" :disabled="busy || activeShot.status === 'processing'">
+              <div class="video-foot-row">
+                <span class="video-foot-label">分镜时长</span>
+                <input class="input mv-num" type="number" min="2" max="15" step="0.1"
+                  :value="shotSeconds(activeShot).toFixed(3)" @change="setShotDuration(activeShot, $event.target.value)"
+                  :disabled="busy || activeShot.status === 'processing'" title="改完自动吸附到合法帧数（17n+5 帧）并保存" />
+                <span class="dim" style="font-size:11px">s · 修改即保存</span>
+              </div>
+              <div class="video-foot-model mono">minimax-h3-mv · {{ pj.aspectRatio || '9:16' }} · {{ shotSeconds(activeShot).toFixed(2) }}s</div>
+              <button class="btn btn-primary show-all" @click="render(activeShot)" :disabled="busy || activeShot.status === 'processing'">
                 {{ activeShot.status === 'processing' ? '生成中…' : (activeShot.videoUrl ? '重绘' : '生成') }}
               </button>
             </div>
@@ -901,6 +924,16 @@ function enterExport() {
 function posterOf(rel) {
   if (!rel) return undefined
   return staticUrl(String(rel).replace(/\.[^./]+$/, '_poster.jpg'))
+}
+function snapFramesFor(sec) {
+  const n = Math.max(1, Math.round((Number(sec) * 24 - 5) / 17))
+  return 17 * n + 5
+}
+async function setShotDuration(s, sec) {
+  const f = snapFramesFor(sec)
+  if (f / 24 > 15.001) { alert('最长 15 秒（345 帧）'); return }
+  s.frames = f
+  await saveShot(s)
 }
 function gotoShot(no) {
   const t = shots.value.find((x) => Number(x.shotNumber) === Number(no))
@@ -2069,5 +2102,18 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); color: var(--
 .mv-check-state.ok { color: #4caf50; font-weight: 650; }
 .mv-check-state.bad { color: #e0a83a; font-weight: 650; }
 .mv-check-msgs { flex: 1; min-width: 0; color: var(--text-1); }
+
+/* 右栏：绑定参考图 + 底部参数块（照短剧） */
+.video-ref-block { padding: 8px 14px 10px; border-top: 1px solid var(--border); }
+.video-ref-strip { display: flex; gap: 6px; overflow-x: auto; }
+.video-ref-card { flex: 0 0 auto; width: 68px; padding: 0; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-2); cursor: pointer; overflow: hidden; }
+.video-ref-card img { width: 100%; height: 42px; object-fit: cover; display: block; }
+.video-ref-card span { display: block; font-size: 9.5px; padding: 2px 3px; color: var(--text-2); }
+.video-history-current { position: absolute; right: 3px; top: 2px; font-size: 9px; font-weight: 700; color: #000; background: var(--accent); border-radius: 3px; padding: 0 3px; }
+.video-player-foot .video-foot-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.video-foot-label { font-size: 12px; color: var(--text-2); }
+.video-player-foot .mv-num { width: 84px; height: 28px; }
+.video-foot-model { font-size: 11px; color: var(--text-3); margin-bottom: 8px; }
+.video-player-foot .btn.show-all { width: 100%; }
 
 </style>
