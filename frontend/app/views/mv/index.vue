@@ -56,7 +56,7 @@
         <button v-if="current" class="btn btn-sm" @click="taskDrawer = true">
           任务<span v-if="activeTaskCount" class="mv-task-badge">{{ activeTaskCount }}</span>
         </button>
-        <button v-if="!current" class="btn btn-primary btn-sm" @click="curSeries ? (showNewSong = true) : createSeries()" :disabled="busy">{{ curSeries ? '新建 MV' : '新建 MV 项目' }}</button>
+        <button v-if="!current" class="btn btn-primary btn-sm" @click="curSeries ? (showNewSong = true) : (showNewSeries = true)" :disabled="busy">{{ curSeries ? '新建 MV' : '新建 MV 项目' }}</button>
       </div>
     </div>
 
@@ -65,6 +65,11 @@
       <div class="mv-launch-head">
         <input v-model="q" class="input mv-search" placeholder="搜索 MV 项目" />
         <span class="field-hint">一个项目下可以建多个 MV（歌），人物和场景在项目里共用</span>
+      </div>
+      <div v-if="showNewSeries" class="mv-row">
+        <input v-model="newSeriesTitle" class="input" placeholder="MV 项目名字（比如 翻到那一页）" @keyup.enter="createSeries()" />
+        <button class="btn btn-primary btn-sm" @click="createSeries()">建项目</button>
+        <button class="btn btn-sm" @click="showNewSeries = false">取消</button>
       </div>
       <div v-if="!seriesList.length" class="card mv-empty">还没有 MV 项目，点右上角「新建 MV 项目」开始。</div>
       <div v-else class="mv-project-grid">
@@ -893,6 +898,8 @@ const seriesList = ref([])        // MV 项目列表
 const curSeries = ref(null)       // 当前打开的 MV 项目
 const seriesSongs = ref([])       // 项目下的 MV（歌）
 const seriesAssets = ref([])      // 项目级素材库（人物/场景，同项目下所有 MV 共用）
+const newSeriesTitle = ref('')
+const showNewSeries = ref(false)
 const newSongTitle = ref('')
 const showNewSong = ref(false)
 
@@ -1475,10 +1482,10 @@ async function loadSeries() {
 }
 
 async function createSeries() {
-  const title = prompt('新建 MV 项目，起个名字：')
+  const title = String(newSeriesTitle.value || '').trim()
   if (!title) return
   const r = await call(() => api.post('/mv/series', { title }))
-  if (r) { await loadSeries(); await openSeries(r.id) }
+  if (r) { newSeriesTitle.value = ''; showNewSeries.value = false; await loadSeries(); await openSeries(r.id) }
 }
 
 async function openSeries(sid) {
