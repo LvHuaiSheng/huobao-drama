@@ -34,7 +34,7 @@
           <span class="mv-sel-k">画幅</span><span class="mv-sel-v">{{ editRatio }}</span>
         </span>
       </div>
-      <div class="head-actions" :class="{ 'is-video': current && tab === 'video' }">
+      <div class="head-actions">
         <span v-if="busy && stepMsg" class="busy-hint">{{ stepMsg }}</span>
         <template v-if="current && tab === 'video'">
           <span class="mv-step-hint">①</span>
@@ -57,7 +57,6 @@
         <button v-if="current" class="btn btn-sm" @click="taskDrawer = true">
           任务<span v-if="activeTaskCount" class="mv-task-badge">{{ activeTaskCount }}</span>
         </button>
-        <button v-if="tab !== 'video'" class="btn btn-sm" @click="loadProjects" :disabled="busy">刷新</button>
         <button v-if="!current" class="btn btn-primary btn-sm" @click="showCreate = true" :disabled="busy">新建 MV</button>
       </div>
     </div>
@@ -132,6 +131,12 @@
             <span class="mv-side-label">视频制作</span>
             <span v-if="shots.length" class="mv-side-count">{{ shots.length }}</span>
           </button>
+          <div class="mv-side-foot">
+            <button type="button" class="mv-side-refresh" @click="loadProjects" :disabled="busy">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+              刷新数据
+            </button>
+          </div>
         </aside>
         <div class="mv-main">
 
@@ -321,10 +326,6 @@
               </button>
             </div>
             <div v-if="!videoRows.length" class="video-task-empty">{{ shots.length ? '这个筛选下没有段落' : '还没有分镜 —— 先点上方「拆分分镜」（需先人声分离）' }}</div>
-          </div>
-          <div v-if="!selectMode" class="video-task-foot">
-            <button class="shot-quick-btn" @click="loadProjects" :disabled="busy">刷新</button>
-            <span class="meta-item">共 {{ shots.length }} 段</span>
           </div>
           <div v-if="selectMode" class="video-task-foot is-batch">
             <button class="shot-quick-btn" @click="selectedIds = videoRows.map(x => x.id)">全选</button>
@@ -1862,7 +1863,13 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); color: var(--
 /* 本段内容的行内标签 */
 .mv-inline-tags { display: flex; gap: 6px; flex-wrap: wrap; }
 
-/* 视频制作页：顶栏按钮组铺满右侧（刷新已挪到左栏左下角） */
-.head-actions.is-video { flex: 1; min-width: 0; justify-content: space-between; }
+/* 左侧栏底部「刷新数据」：铺满宽度（照短剧左侧栏底部） */
+.mv-side-foot { margin-top: auto; padding-top: 8px; border-top: 1px solid var(--border); }
+.mv-side-refresh { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%;
+  padding: 8px 10px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit;
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-2); color: var(--text-2);
+  transition: all .16s var(--ease-out); }
+.mv-side-refresh:hover { background: var(--bg-hover); color: var(--text-0); }
+.mv-side-refresh:disabled { opacity: .5; cursor: default; }
 
 </style>
