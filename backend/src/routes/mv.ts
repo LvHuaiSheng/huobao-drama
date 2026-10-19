@@ -433,6 +433,21 @@ async function assetsOf(projectId: number, kind?: Kind) {
   return rows.sort((a, b) => (Number(a.sortOrder || 0) - Number(b.sortOrder || 0)) || a.id - b.id)
 }
 
+/**
+ * 按「项目上下文」取一条资产行。
+ * 资产库挂项目级（series_id），同一项目下的歌共用 ⇒ 只要同系列就算可见；
+ * 老数据没有 series_id 的按 project_id 判。
+ */
+async function assetInProject(projectId: number, assetId: number) {
+  const [asset] = await db.select().from(schema.mvAssets).where(eq(schema.mvAssets.id, assetId))
+  if (!asset) return null
+  if (Number(asset.projectId) === Number(projectId)) return asset
+  const sid = Number(asset.seriesId) || 0
+  if (!sid) return null
+  const [pj] = await db.select().from(schema.mvProjects).where(eq(schema.mvProjects.id, Number(projectId)))
+  return Number((pj as any)?.seriesId) === sid ? asset : null
+}
+
 /** 出片用的「主」资产：每一类取第一个 */
 async function primaryAssets(projectId: number) {
   const rows = await assetsOf(projectId)
@@ -543,14 +558,54 @@ async function ensureRemoteSong(project: any): Promise<string> {
  */
 app.get('/series', async (c) => {
   const rows = await db.select().from(schema.mvSeries).orderBy(desc(schema.mvSeries.id))
+  const allAssets = await db.select().from(schema.mvAssets)
   const out: any[] = []
   for (const r of rows) {
-    const songs = await db.select().from(schema.mvProjects).where(eq(schema.mvProjects.seriesId, r.id))
-    const assets = await db.select().from(schema.mvAssets).where(eq(schema.mvAssets.seriesId, r.id))
-    out.push({ ...r, songCount: songs.length, assetCount: assets.length, songs: songs.map((x) => ({ id: x.id, title: x.title })) })
+    const songs = await db.select().from(schema.mvProjects)
+      .where(and(eq(schema.mvProjects.seriesId, r.id), isNull(schema.mvProjects.deletedAt)))
+    const assets = allAssets.filter((a) => a.seriesId === r.id)
+    out.push({
+      ...r,
+      songCount: songs.length,
+      assetCount: assets.length,
+      // 封面 = 项目里第一张已出的资产图（没有就用首字兜底）；状态按「有没有 MV」派生（不加列）
+      cover: assets.find((a) => !!a.image)?.image || null,
+      status: songs.length ? 'active' : 'empty',
+      songs: songs.map((x) => ({ id: x.id, title: x.title })),
+    })
   }
   return success(c, { series: out })
 })
+
+/**
+ * 项目详情（照短剧 GET /dramas/:id）：一次返回项目 + 下面的 MV（歌）+ 项目级素材库。
+ * 素材的增删改仍走 /projects/:id/assets/:aid（资产行自带 projectId，前端拿它当上下文）——
+ * 不另开一套 series 级 CRUD，避免两条路径写同一张表。
+ */
+app.get('/series/:sid', async (c) => {
+  const sid = Number(c.req.param('sid'))
+  const [series] = await db.select().from(schema.mvSeries).where(eq(schema.mvSeries.id, sid))
+  if (!series) return notFound(c, 'MV 项目不存在')
+  const songs = await db.select().from(schema.mvProjects)
+    .where(and(eq(schema.mvProjects.seriesId, sid), isNull(schema.mvProjects.deletedAt)))
+    .orderBy(desc(schema.mvProjects.id))
+  const assets = (await db.select().from(schema.mvAssets))
+    .filter((a) => a.seriesId === sid || songs.some((s) => s.id === a.projectId))
+    .sort((a, b) => (Number(a.sortOrder || 0) - Number(b.sortOrder || 0)) || a.id - b.id)
+  const shots = await db.select().from(schema.mvShots)
+  const items = songs.map((p) => {
+    const mine = assets.filter((a) => a.projectId === p.id)
+    return {
+      ...p,
+      cover: mine.find((a) => !!a.image)?.image || p.outputUrl || null,
+      characters: mine.filter((a) => a.kind === 'character').length,
+      scenes: mine.filter((a) => a.kind === 'scene').length,
+      shots: shots.filter((s) => s.projectId === p.id).length,
+    }
+  })
+  return success(c, { series, songs: items, assets })
+})
+
 
 app.post('/series', async (c) => {
   const body = await c.req.json().catch(() => ({} as any))
@@ -575,10 +630,23 @@ app.put('/series/:sid', async (c) => {
   return success(c, { id: sid })
 })
 
+/**
+ * 删 MV 项目 = 连项目下的歌一起删（照短剧删剧级联）。
+ * 只删 mv_series 会留一堆看不见的歌/资产/分镜（列表按 series 取，界面看不出残留）。
+ */
 app.delete('/series/:sid', async (c) => {
   const sid = Number(c.req.param('sid'))
+  const songs = await db.select().from(schema.mvProjects).where(eq(schema.mvProjects.seriesId, sid))
+  for (const s of songs) {
+    await db.delete(schema.mvShots).where(eq(schema.mvShots.projectId, s.id))
+    await db.delete(schema.mvAssets).where(eq(schema.mvAssets.projectId, s.id))
+    await db.delete(schema.mvProjects).where(eq(schema.mvProjects.id, s.id))
+  }
+  // 项目级资产（series_id 挂上、但 project_id 属于别的歌或已不存在）一并清
+  await db.delete(schema.mvAssets).where(eq(schema.mvAssets.seriesId, sid))
   await db.delete(schema.mvSeries).where(eq(schema.mvSeries.id, sid))
-  return success(c, { ok: true })
+  logTaskSuccess('MV', 'delete-series', { id: sid, songs: songs.length })
+  return success(c, { ok: true, songs: songs.length })
 })
 
 app.get('/channels', async (c) => {
@@ -845,8 +913,7 @@ appearance 只写脸/身形容貌，styling 只写服装配饰；拆不出来就
 app.put('/projects/:id/assets/:aid', async (c) => {
   const id = Number(c.req.param('id'))
   const aid = Number(c.req.param('aid'))
-  const [asset] = await db.select().from(schema.mvAssets)
-    .where(and(eq(schema.mvAssets.id, aid), eq(schema.mvAssets.projectId, id)))
+  const asset = await assetInProject(id, aid)
   if (!asset) return notFound(c, '资产不存在')
   const body = await c.req.json().catch(() => ({} as any))
   const patch: Record<string, any> = { updatedAt: now() }
@@ -865,7 +932,9 @@ app.put('/projects/:id/assets/:aid', async (c) => {
 app.delete('/projects/:id/assets/:aid', async (c) => {
   const id = Number(c.req.param('id'))
   const aid = Number(c.req.param('aid'))
-  await db.delete(schema.mvAssets).where(and(eq(schema.mvAssets.id, aid), eq(schema.mvAssets.projectId, id)))
+  const doomed = await assetInProject(id, aid)
+  if (!doomed) return notFound(c, '资产不存在')
+  await db.delete(schema.mvAssets).where(eq(schema.mvAssets.id, aid))
   return success(c, { assets: await assetsOf(id) })
 })
 
@@ -886,8 +955,7 @@ app.post('/projects/:id/assets/:aid/prompt', async (c) => {
   const aid = Number(c.req.param('aid'))
   const project = await loadProject(id)
   if (!project) return notFound(c, 'MV 项目不存在')
-  const [asset] = await db.select().from(schema.mvAssets)
-    .where(and(eq(schema.mvAssets.id, aid), eq(schema.mvAssets.projectId, id)))
+  const asset = await assetInProject(id, aid)
   if (!asset) return notFound(c, '资产不存在')
   const body = await c.req.json().catch(() => ({} as any))
   const desc = String(body.description ?? asset.description ?? '').trim()
@@ -996,8 +1064,7 @@ app.post('/projects/:id/assets/:aid/import', async (c) => {
 app.post('/projects/:id/assets/:aid/share', async (c) => {
   const id = Number(c.req.param('id'))
   const aid = Number(c.req.param('aid'))
-  const [a0] = await db.select().from(schema.mvAssets)
-    .where(and(eq(schema.mvAssets.id, aid), eq(schema.mvAssets.projectId, id)))
+  const a0 = await assetInProject(id, aid)
   if (!a0) return notFound(c, '资产不存在')
   await db.update(schema.mvAssets).set({ scope: 'library', updatedAt: now() } as any)
     .where(eq(schema.mvAssets.id, aid))
@@ -1009,8 +1076,7 @@ app.post('/projects/:id/assets/:aid/image', async (c) => {
   const aid = Number(c.req.param('aid'))
   const project = await loadProject(id)
   if (!project) return notFound(c, 'MV 项目不存在')
-  const [asset] = await db.select().from(schema.mvAssets)
-    .where(and(eq(schema.mvAssets.id, aid), eq(schema.mvAssets.projectId, id)))
+  const asset = await assetInProject(id, aid)
   if (!asset) return notFound(c, '资产不存在')
   const body = await c.req.json().catch(() => ({} as any))
   if (body.description !== undefined || body.name !== undefined) {
@@ -1061,8 +1127,7 @@ app.post('/projects/:id/assets/:aid/image', async (c) => {
 app.post('/projects/:id/assets/:aid/card', async (c) => {
   const id = Number(c.req.param('id'))
   const aid = Number(c.req.param('aid'))
-  const [asset] = await db.select().from(schema.mvAssets)
-    .where(and(eq(schema.mvAssets.id, aid), eq(schema.mvAssets.projectId, id)))
+  const asset = await assetInProject(id, aid)
   if (!asset) return notFound(c, '资产不存在')
   if (!asset.image) return badRequest(c, '先出图，再生卡')
   const cardName = `refmod_${asset.kind}-mv${id}a${aid}_v1`

@@ -24,9 +24,20 @@ export default defineNuxtConfig({
         },
         {
           // 2026-10-18 音乐 MV：独立页面，与短剧链路不共用任何组件
+          // 三级结构照短剧：项目列表 /mv → 项目详情 /mv/series/:id → 单支 MV /mv/:id
           name: 'mv',
           path: '/mv',
           file: fileURLToPath(new URL('./app/views/mv/index.vue', import.meta.url)),
+        },
+        {
+          name: 'mv-series-detail',
+          path: '/mv/series/:id',
+          file: fileURLToPath(new URL('./app/views/mv/detail.vue', import.meta.url)),
+        },
+        {
+          name: 'mv-episode',
+          path: '/mv/:id',
+          file: fileURLToPath(new URL('./app/views/mv/episode.vue', import.meta.url)),
         },
       )
     },

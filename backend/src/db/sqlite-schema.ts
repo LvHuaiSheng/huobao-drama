@@ -328,10 +328,9 @@ export const sqliteSchemaStatements = [
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   )`,
-  `ALTER TABLE mv_projects ADD COLUMN series_id INTEGER`,
-  `ALTER TABLE mv_assets ADD COLUMN series_id INTEGER`,
   `CREATE TABLE IF NOT EXISTS mv_projects (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    series_id INTEGER,            -- 属于哪个 MV 项目（上一级；= 短剧的 drama_id）
     title TEXT,
     idea TEXT,                    -- 用户写的 MV 想法（一句话/一段梗概）
     song_file TEXT,               -- 本地 32k wav（static/ 相对路径）
@@ -396,6 +395,7 @@ export const sqliteSchemaStatements = [
   // MV 自带的人物 / 场景资产（不写短剧的 characters / scenes，避免污染）
   `CREATE TABLE IF NOT EXISTS mv_assets (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    series_id INTEGER,             -- 资产库归属的 MV 项目（= 短剧角色的 drama_id）
     project_id INTEGER NOT NULL,
     kind TEXT NOT NULL,            -- character | scene
     name TEXT,
@@ -420,6 +420,8 @@ export const sqliteSchemaStatements = [
   // 2026-10-18 按项目锁通道（顶部标签栏可改）：空 = 跟随「设置 → AI 服务」里当前启用的那条
   `ALTER TABLE mv_projects ADD COLUMN vocal_stem TEXT`,
   `ALTER TABLE mv_shots ADD COLUMN task_ids TEXT`,
+  `ALTER TABLE mv_projects ADD COLUMN series_id INTEGER`,
+  `ALTER TABLE mv_assets ADD COLUMN series_id INTEGER`,
   `ALTER TABLE mv_assets ADD COLUMN scope TEXT DEFAULT 'project'`,
   `ALTER TABLE mv_assets ADD COLUMN source_asset_id INTEGER`,
   `ALTER TABLE mv_shots ADD COLUMN ref_ids TEXT`,
