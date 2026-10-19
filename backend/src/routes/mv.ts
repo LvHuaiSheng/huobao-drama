@@ -415,6 +415,13 @@ async function shotRefs(projectId: number, shot: any) {
   return picked
 }
 
+/** 2026-10-19：公共素材库（scope='library'，所有 MV 共用） */
+async function libraryAssetsOf(kind?: Kind) {
+  const rows = await db.select().from(schema.mvAssets).where(
+    kind ? and(eq(schema.mvAssets.scope, 'library'), eq(schema.mvAssets.kind, kind)) : eq(schema.mvAssets.scope, 'library'))
+  return rows.sort((a, b) => (Number(a.sortOrder || 0) - Number(b.sortOrder || 0)) || a.id - b.id)
+}
+
 async function assetsOf(projectId: number, kind?: Kind) {
   // 2026-10-19：本项目资产（语义不变，前端零改动）+ 单独一组公共素材库
   const rows = await db.select().from(schema.mvAssets).where(
@@ -621,7 +628,7 @@ app.get('/projects/:id', async (c) => {
     .where(and(eq(schema.mvMerges.projectId, id), isNull(schema.mvMerges.deletedAt)))
     .orderBy(desc(schema.mvMerges.id)).limit(200)
   return success(c, {
-    project, assets: await assetsOf(id), shots, merges,
+    project, assets: await assetsOf(id), libraryAssets: await libraryAssetsOf(), shots, merges,
     videoTasks: tasks.map((t: any) => ({
       id: t.id, shotId: ownerShotId(t.id), url: t.localPath || t.resultUrl || '',
       status: t.status, createdAt: t.createdAt, error: t.errorMsg || null,
