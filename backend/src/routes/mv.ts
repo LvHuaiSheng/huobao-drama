@@ -237,7 +237,7 @@ function fitBeats(raw: any, seconds: number, size: string, camera: string): any[
     const e = Number(b?.end)
     if (Number.isFinite(e) && e > 0.2 && e < total - 0.2) cuts.push(e)
   }
-  const uniq = [...new Set(cuts.map((c) => Math.round(c * 1000) / 1000))].sort((a, b) => a - b).slice(0, 2)
+  const uniq = [...new Set(cuts.map((c) => Math.round(c * 1000) / 1000))].sort((a, b) => a - b).slice(0, 3)
   const bounds = [0, ...uniq, total]
   return bounds.slice(1).map((end, k) => {
     const start = bounds[k]
@@ -836,14 +836,17 @@ ${raw.map((s, i) => `${i}: ${s.start}s 起 ${s.seconds}s（${s.frames}帧） ${s
 ${outlineLine || '(无)'}
 ${lyricLines.length ? `歌词行：\n${lyricLines.map((l, i) => `${i + 1}. ${l}`).join('\n')}` : ''}
 
-你就是这支 MV 的导演。给每段做**镜头编排**（beat），按这一段的时长把它切成 1~3 个镜头（≤5s 建议 1 个；6~9s 建议 1~2 个；10s 以上 2~3 个）：
+你就是这支 MV 的导演。给每段做**镜头编排**（beat），按这一段时长切成 2~4 个镜头，**每拍 2~3.5 秒**（5~6s 段 2 拍；7~9s 段 2~3 拍；10s 以上 3~4 拍）：
 - 每个镜头要有起始秒、结束秒（必须首尾相接、从 0 开始、正好铺满这一段时长）
 - 景别/机位用**中文**写（机位像 "固定机位，平视，正脸三分之四"，允许 "缓慢推近" 这类运镜）
 - action 是这一段镜头里人物/画面**在做什么**，用英文一句短语（如 "she looks down and smiles"），action_zh 给同一句的中文
-- 有唱段必须保证脸和嘴全程可见；间奏段可以给空镜/背影/手部，但同一段内不要跳场
+- **景别要跳**：相邻两拍不要同一个景别（例：中景 → 特写 → 中景），景别在 中远景/中景/近景/特写 里选
+- **机位/角度每拍都要换**（正面 → 四分之三侧 → 侧脸過肩），运镜也跟着换（固定 ↗ 缓慢推近 ↗ 固定）
+- 有唱段：**每一拍都必须看得见脸和嘴**（只换角度/景别，不许切背影、手部、空镜）；间奏段才可以切空镜/背影/手部/环境
+- 不管怎么切，段内**只能是同一个场景**，不许换地方
 
 只输出 JSON 数组，长度必须等于 ${raw.length}：
-[{"index":0,"shot_size":"中景","camera":"固定机位，平视","beats":[{"start":0,"end":4.2,"size":"中景","camera":"固定机位，平视","action":"she looks at the camera","action_zh":"她看着镜头"},{"start":4.2,"end":8.0,"size":"近景","camera":"缓慢推近","action":"she sings softly","action_zh":"她低声唱"}]}, …]`
+[{"index":0,"shot_size":"中景","beats":[{"start":0,"end":2.9,"size":"中景","camera":"固定机位，平视，正脸","action":"she looks up slowly","action_zh":"她缓缓抬头"},{"start":2.9,"end":5.8,"size":"特写","camera":"侧脸过肩，微微俯视","action":"her lips part as she sings","action_zh":"她张嘴唱出第一句"},{"start":5.8,"end":8.0,"size":"中景","camera":"固定机位，四分之三侧","action":"she turns to the light","action_zh":"她转向光"}]}, …]`
     perShot = pickJson<any[]>(await askText(await mvPrompt('mv_camera'), ask, 3000, project.textConfigId))
   } catch { perShot = [] }
 
