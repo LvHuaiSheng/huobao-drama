@@ -215,7 +215,7 @@
           <div class="mv-char-grid">
             <article v-for="a in characters" :key="'c' + a.id" class="card mv-char-card" tabindex="0" role="button"
               @click="openEdit(a)" @keydown.enter.prevent="openEdit(a)">
-              <button class="mv-del" title="删除" @click.stop="removeAsset(a)">✕</button>
+              <button class="mv-del" title="删除" @click.stop="askRemoveAsset(a)">✕</button>
               <div class="mv-char-main">
                 <div class="mv-portrait">
                   <img v-if="a.image" :src="staticUrl(a.image)" :alt="a.name" class="previewable-image" @click.stop="openViewer(a)" />
@@ -259,7 +259,7 @@
           <div class="mv-scene-grid">
             <article v-for="a in scenes" :key="'s' + a.id" class="card mv-scene-card" tabindex="0" role="button"
               @click="openEdit(a)" @keydown.enter.prevent="openEdit(a)">
-              <button class="mv-del" title="删除" @click.stop="removeAsset(a)">✕</button>
+              <button class="mv-del" title="删除" @click.stop="askRemoveAsset(a)">✕</button>
               <div class="mv-cover" :style="{ aspectRatio: coverAspect }">
                 <img v-if="a.image" :src="staticUrl(a.image)" :alt="a.name" class="previewable-image" @click.stop="openViewer(a)" />
                 <div v-else class="mv-cover-empty">未出图</div>
@@ -1467,9 +1467,18 @@ async function extract() {
   }
 }
 
+// 删人物/场景卡之前先弹窗确认（误点一次就没了）
+function askRemoveAsset(a) {
+  const kind = a.kind === 'character' ? '人物' : '场景'
+  askConfirm(`删除${kind}卡`,
+    `确定删除「${a.name || '未命名'}」？已生成的图、已抽的身份卡和它上面的提示词都会一起删掉，这一步不能撤销。`,
+    '确定删除', () => removeAsset(a))
+}
+
 async function removeAsset(a) {
-  const r = await call(() => api.delete(`/mv/projects/${pj.value.id}/assets/${a.id}`))
+  const r = await call(() => api.delete(`/mv/projects/${pj.value.id}/assets/${a.id}`), '正在删除…')
   if (r) assets.value = r.assets || []
+  if (editAsset.value && editAsset.value.id === a.id) editAsset.value = null
 }
 
 /** 出图：提交后立刻返回，真出图在后台按项目排队（一张在跑，别的卡照样能点） */
