@@ -426,6 +426,9 @@ app.get('/projects/:id', async (c) => {
             patch.history = JSON.stringify([s.videoUrl, ...hist.filter((h) => h !== s.videoUrl)].slice(0, 20))
           }
           patch.videoUrl = t.localPath
+          const c0 = Date.parse(String((t as any).createdAt || ''))
+          const c1 = Date.parse(String((t as any).completedAt || ''))
+          if (Number.isFinite(c0) && Number.isFinite(c1) && c1 > c0) patch.elapsedSeconds = Math.round((c1 - c0) / 1000)
           // 任务列表的缩略图 = 视频首帧（抽帧失败不阻断，前端按 404 兜底）
           try { await extractVideoPoster(t.localPath) } catch { /* 忽略 */ }
         }

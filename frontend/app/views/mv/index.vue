@@ -379,6 +379,7 @@
                   <span class="video-task-state" :class="'is-' + shotState(s)"><i class="dot" :class="{ ok: shotState(s) === 'done', pending: shotState(s) === 'pending' }" />{{ shotStateLabel(s) }}</span>
                   <span class="video-task-sep">·</span><span>{{ shotSeconds(s).toFixed(3) }}s（{{ s.frames }}帧）</span>
                   <span class="video-task-sep">·</span><span class="truncate">{{ s.shotSize }} · {{ s.vocalState === 'vocal_active' ? '唱' : '非唱' }} · 图{{ boundRefs(s).length }}</span>
+                  <template v-if="elapsedLabel(s)"><span class="video-task-sep">·</span><span :class="{ 'is-running': s.status === 'processing' }">{{ elapsedLabel(s) }}</span></template>
                 </div>
                 <div v-if="s.errorMsg" class="video-task-error" :title="s.errorMsg">{{ s.errorMsg.slice(0, 100) }}</div>
               </div>
@@ -930,6 +931,22 @@ function enterExport() {
 function posterOf(rel) {
   if (!rel) return undefined
   return staticUrl(String(rel).replace(/\.[^./]+$/, '_poster.jpg'))
+}
+function fmtDur(sec) {
+  const t = Math.max(0, Math.round(Number(sec) || 0))
+  if (t < 60) return t + 's'
+  const m = Math.floor(t / 60)
+  return `${m}m${String(t % 60).padStart(2, '0')}s`
+}
+// 任务行运行时间：生成中按提交时刻实时算，完成后用后端记录的用时（照短剧）
+function elapsedLabel(s) {
+  if (s.status === 'processing') {
+    const t0 = Date.parse(String(s.updatedAt || ''))
+    const sec = Number.isFinite(t0) ? (Date.now() - t0) / 1000 : 0
+    return sec > 1 ? '运行 ' + fmtDur(sec) : '生成中'
+  }
+  if (s.elapsedSeconds) return '用时 ' + fmtDur(s.elapsedSeconds)
+  return ''
 }
 function snapFramesFor(sec) {
   const n = Math.max(1, Math.round((Number(sec) * 24 - 5) / 17))
@@ -2111,5 +2128,7 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); color: var(--
 .video-player-foot .mv-num { width: 84px; height: 28px; }
 .video-foot-model { font-size: 11px; color: var(--text-3); margin-bottom: 8px; }
 .video-player-foot .btn.show-all { width: 100%; }
+
+.video-task-meta-line .is-running { color: var(--accent); font-weight: 600; }
 
 </style>

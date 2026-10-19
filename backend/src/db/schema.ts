@@ -361,6 +361,7 @@ export const mvShots = sqliteTable('mv_shots', {
   promptEn: text('prompt_en'),       // 英文六段稿（真正发给 H3，按钮展开看）
   beats: text('beats'),               // 段内拍点（JSON：[{start,end,size,camera,action,action_zh}]）
   history: text('history'),           // 这一段历次生成过的视频（JSON 数组，最新在前）
+  elapsedSeconds: integer('elapsed_seconds'),   // 这一段上一次生成用了多少秒
   refIds: text('ref_ids'),          // 这一段绑定的参考图（资产 id，JSON 数组；空=人物卡+场景卡）
   promptExtra: text('prompt_extra'),// 补充说明（英文，编译后原样追加到提示词末尾）
   firstFrameImage: text('first_frame_image'),

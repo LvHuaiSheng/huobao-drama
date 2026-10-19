@@ -401,6 +401,7 @@ export const sqliteSchemaStatements = [
   `ALTER TABLE mv_shots ADD COLUMN prompt_en TEXT`,
   `ALTER TABLE mv_shots ADD COLUMN beats TEXT`,
   `ALTER TABLE mv_shots ADD COLUMN history TEXT`,
+  `ALTER TABLE mv_shots ADD COLUMN elapsed_seconds INTEGER`,
   `ALTER TABLE mv_projects ADD COLUMN text_config_id INTEGER`,
   `ALTER TABLE mv_projects ADD COLUMN image_config_id INTEGER`,
   `ALTER TABLE mv_projects ADD COLUMN video_config_id INTEGER`,
