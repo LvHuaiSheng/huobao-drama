@@ -18,6 +18,7 @@
  *   POST /v2/refmod/extract  资产抽卡（卡保证人物和场景锁住；声音卡不接，音轨就是原曲）
  */
 import { Hono } from 'hono'
+import { extractVideoPoster } from '../utils/video-poster.js'
 import { eq, desc, and, isNull } from 'drizzle-orm'
 import fs from 'fs'
 import path from 'path'
@@ -417,7 +418,11 @@ app.get('/projects/:id', async (c) => {
       const [t] = await db.select().from(schema.sysTask).where(eq(schema.sysTask.id, Number(s.taskId)))
       if (t && t.status !== 'processing') {
         const patch: Record<string, any> = { status: t.status, updatedAt: now() }
-        if (t.localPath) patch.videoUrl = t.localPath
+        if (t.localPath) {
+          patch.videoUrl = t.localPath
+          // 任务列表的缩略图 = 视频首帧（抽帧失败不阻断，前端按 404 兜底）
+          try { await extractVideoPoster(t.localPath) } catch { /* 忽略 */ }
+        }
         if (t.errorMsg) patch.errorMsg = t.errorMsg
         await db.update(schema.mvShots).set(patch).where(eq(schema.mvShots.id, s.id))
         Object.assign(s, patch)

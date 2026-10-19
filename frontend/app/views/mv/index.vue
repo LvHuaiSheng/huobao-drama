@@ -308,7 +308,7 @@
                   <svg v-if="selectedIds.includes(s.id)" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
                 </span>
                 <video v-if="s.videoUrl" :src="staticUrl(s.videoUrl)" preload="none" playsinline muted tabindex="-1"></video>
-                <img v-else-if="shotThumb(s)" :src="staticUrl(shotThumb(s))" alt="" loading="lazy" />
+                <img v-else-if="shotThumb(s)" :src="staticUrl(shotThumb(s))" alt="" loading="lazy" @error="$event.target.style.display = 'none'" />
                 <div v-else class="video-task-empty"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg></div>
                 <span class="video-task-index">#{{ String(i + 1).padStart(2, '0') }}</span>
               </div>
@@ -849,7 +849,8 @@ async function toggleRef(s, id) {
 }
 // H3 时长只由帧数决定（24fps，帧数恒为 17n+5）：秒 = 帧/24；老数据 seconds 与帧不符时以帧为准
 const shotSeconds = (s) => Number(s?.frames) ? Number(s.frames) / 24 : Number(s?.seconds || 0)
-const shotThumb = (s) => s.firstFrameImage || characters.value.find((a) => a.image)?.image || null
+// 缩略图 = 已生成视频的首帧（_poster.jpg）；没生成视频就是空的
+const shotThumb = (s) => (s.videoUrl ? String(s.videoUrl).replace(/\.[^./]+$/, '_poster.jpg') : null)
 // 列表筛选 / 状态（照短剧：done / pending / failed / ready）
 const videoFilter = ref('')
 const shotState = (s) => s.status === 'processing' ? 'pending' : (s.videoUrl ? 'done' : (s.status === 'failed' ? 'failed' : 'ready'))
