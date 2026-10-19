@@ -383,7 +383,7 @@
                 </div>
                 <div v-if="s.errorMsg" class="video-task-error" :title="s.errorMsg">{{ s.errorMsg.slice(0, 100) }}</div>
               </div>
-              <button class="btn btn-icon btn-sm video-task-action" :title="s.videoUrl ? '重绘' : '生成'" :disabled="busy || s.status === 'processing'" @click.stop="render(s)">
+              <button class="btn btn-icon btn-sm video-task-action" :title="s.videoUrl ? '重绘' : '生成'" :disabled="s.status === 'processing' || shotPromptBusy === s.id" @click.stop="render(s)">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
               </button>
             </div>
@@ -531,11 +531,11 @@
                 <span class="video-foot-label">分镜时长</span>
                 <input class="input mv-num" type="number" min="2" max="15" step="0.1"
                   :value="shotSeconds(activeShot).toFixed(3)" @change="setShotDuration(activeShot, $event.target.value)"
-                  :disabled="busy || activeShot.status === 'processing'" title="改完自动吸附到合法帧数（17n+5 帧）并保存" />
+                  :disabled="activeShot.status === 'processing'" title="改完自动吸附到合法帧数（17n+5 帧）并保存" />
                 <span class="dim" style="font-size:11px">s · 修改即保存</span>
               </div>
               <div class="video-foot-model mono">minimax-h3-mv · {{ pj.aspectRatio || '9:16' }} · {{ shotSeconds(activeShot).toFixed(2) }}s</div>
-              <button class="btn btn-primary show-all" @click="render(activeShot)" :disabled="busy || activeShot.status === 'processing'">
+              <button class="btn btn-primary show-all" @click="render(activeShot)" :disabled="activeShot.status === 'processing' || shotPromptBusy === activeShot.id">
                 {{ activeShot.status === 'processing' ? '生成中…' : (activeShot.videoUrl ? '重绘' : '生成') }}
               </button>
             </div>
