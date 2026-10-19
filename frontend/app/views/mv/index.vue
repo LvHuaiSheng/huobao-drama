@@ -368,7 +368,7 @@
                 <span v-if="selectMode" class="shot-check" :class="{ on: selectedIds.includes(s.id) }">
                   <svg v-if="selectedIds.includes(s.id)" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
                 </span>
-                <video v-if="s.videoUrl" :src="staticUrl(s.videoUrl)" preload="none" playsinline muted tabindex="-1"></video>
+                <video v-if="s.videoUrl" :src="staticUrl(s.videoUrl)" :poster="staticUrl(shotThumb(s))" preload="none" playsinline muted tabindex="-1"></video>
                 <img v-else-if="shotThumb(s)" :src="staticUrl(shotThumb(s))" alt="" loading="lazy" @error="$event.target.style.display = 'none'" />
                 <div v-else class="video-task-empty"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg></div>
                 <span class="video-task-index">#{{ String(i + 1).padStart(2, '0') }}</span>
@@ -569,7 +569,7 @@
         <div class="video-task-table">
           <div v-for="r in taskRows" :key="r.id" class="video-task-row" :class="'is-' + r.state" @click="taskDrawer = false; tab = 'video'; activeShotId = r.id">
             <div class="video-task-preview">
-              <video v-if="r.videoUrl" :src="staticUrl(r.videoUrl)" muted preload="metadata"></video>
+              <video v-if="r.videoUrl" :src="staticUrl(r.videoUrl)" :poster="staticUrl(shotThumb(r))" muted preload="metadata"></video>
               <div v-else class="video-task-empty"><span>{{ r.kind }}</span></div>
               <span class="video-task-index">#{{ String(r.shotNumber).padStart(2, '0') }}</span>
             </div>
